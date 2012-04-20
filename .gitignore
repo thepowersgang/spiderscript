@@ -1,0 +1,7 @@
+*.so
+*.ast
+*.bc
+.*
+*.swp
+*~
+src/obj/
