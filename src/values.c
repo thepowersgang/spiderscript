@@ -59,7 +59,10 @@ void SpiderScript_DereferenceValue(tSpiderValue *Object)
 			case SS_DATATYPE_OBJECT:
 				Object->Object->ReferenceCount --;
 				if(Object->Object->ReferenceCount == 0) {
-						Object->Object->Type->Destructor( Object->Object );
+						if( (intptr_t)Object->Object->Type & 1 )
+							free(Object->Object);	// TODO: Proper destructor
+						else
+							Object->Object->Type->Destructor( Object->Object );
 				}
 				Object->Object = NULL;
 				break;

@@ -60,7 +60,7 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	ret = malloc(sizeof(tSpiderScript));
 	ret->Variant = Variant;
 	ret->Functions = NULL;
-	ret->LastFunction = NULL;
+	ret->FirstClass = NULL;
 	
 	ret->CurNamespace = NULL;
 	if( Parse_Buffer(ret, data, Filename) ) {

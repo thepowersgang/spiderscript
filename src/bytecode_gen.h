@@ -32,7 +32,7 @@ struct sStringList
 
 
 extern int	Bytecode_ConvertScript(tSpiderScript *Script, const char *DestFile);
-extern tBC_Function	*Bytecode_ConvertFunction(tScript_Function *Fcn);
+extern tBC_Function	*Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *Fcn);
 extern tBC_Function	*Bytecode_NewBlankFunction(void);
 extern void	Bytecode_DeleteFunction(tBC_Function *Fcn);
 

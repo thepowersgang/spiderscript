@@ -57,6 +57,7 @@ enum eTokens
 	// Reserved Words
 	// - Definitions
 	TOK_RWD_FUNCTION,
+	TOK_RWD_CLASS,
 	TOK_RWD_NAMESPACE,
 	// - Control Flow
 	TOK_RWD_NEW,
@@ -71,12 +72,15 @@ enum eTokens
 	TOK_RWD_FOR,
 	// - Value
 	TOK_RWD_NULL,
+	TOK_RWD_TRUE,
+	TOK_RWD_FALSE,
 	// - Types
 	TOK_RWD_VOID,
 	TOK_RWD_OBJECT,
 	TOK_RWD_OPAQUE,
 	TOK_RWD_STRING,
 	TOK_RWD_INTEGER,
+	TOK_RWD_BOOLEAN,
 	TOK_RWD_REAL,
 	
 	// 
@@ -129,8 +133,8 @@ enum eTokens
 	case TOK_RWD_OBJECT: _type = SS_DATATYPE_OBJECT;	break;\
 	case TOK_RWD_REAL:   _type = SS_DATATYPE_REAL;	break;\
 	case TOK_RWD_STRING: _type = SS_DATATYPE_STRING;	break;\
-	default:_type=SS_DATATYPE_UNDEF;fprintf(stderr,\
-	"ERROR: Unexpected %s, expected "TOKEN_GROUP_TYPES_STR"\n",csaTOKEN_NAMES[Parser->Token]);\
+	default:_type=SS_DATATYPE_UNDEF;SyntaxError(Parser,1,\
+	"ERROR: Unexpected %s, expected "TOKEN_GROUP_TYPES_STR,csaTOKEN_NAMES[Parser->Token]);\
 	break;\
 	} } while(0)
 
@@ -146,6 +150,7 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_IDENT",
 	
 	"TOK_RWD_FUNCTION",
+	"TOK_RWD_CLASS",
 	"TOK_RWD_NAMESPACE",
 	
 	"TOK_RWD_NEW",
@@ -160,11 +165,15 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_RWD_FOR",
 	
 	"TOK_RWD_NULL",
+	"TOK_RWD_TRUE",
+	"TOK_RWD_FALSE",
+
 	"TOK_RWD_VOID",
 	"TOK_RWD_OBJECT",
 	"TOK_RWD_OPAUQE",
 	"TOK_RWD_STRING",
 	"TOK_RWD_INTEGER",
+	"TOK_RWD_BOOLEAN",
 	"TOK_RWD_REAL",
 	
 	"TOK_ASSIGN",

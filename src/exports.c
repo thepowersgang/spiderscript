@@ -47,7 +47,7 @@ tSpiderFunction	gExports_array = {
 	.Next = NULL,
 	.Name = "array",
 	.Handler = Exports_array,
-	.ReturnType = SS_DATATYPE_DYNAMIC,
+	.ReturnType = SS_DATATYPE_UNDEF,
 	.ArgTypes = {SS_DATATYPE_INTEGER, -1}
 };
 tSpiderFunction	gExports_sizeof = {

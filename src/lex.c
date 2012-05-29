@@ -23,6 +23,8 @@ const struct {
 	const char	*Name;
 } csaReservedWords[] = {
 	{TOK_RWD_FUNCTION, "function"},
+	{TOK_RWD_CLASS, "class"},
+	{TOK_RWD_NAMESPACE, "namespace"},
 	
 	{TOK_RWD_RETURN, "return"},
 	{TOK_RWD_BREAK, "break"},
@@ -36,10 +38,14 @@ const struct {
 	{TOK_RWD_FOR, "for"},
 	
 	{TOK_RWD_NULL, "null"},
+	{TOK_RWD_TRUE, "true"},
+	{TOK_RWD_FALSE, "false"},
+	
 	{TOK_RWD_VOID, "void"},
 	{TOK_RWD_OBJECT, "Object"},
 	{TOK_RWD_OPAQUE, "Opaque"},
 	{TOK_RWD_INTEGER, "Integer"},
+	{TOK_RWD_BOOLEAN, "Boolean"},
 	{TOK_RWD_REAL, "Real"},
 	{TOK_RWD_STRING, "String"}
 };

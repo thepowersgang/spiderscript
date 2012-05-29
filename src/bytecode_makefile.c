@@ -89,7 +89,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		
 		// Write code
 		if( !fcn->BCFcn )
-			Bytecode_ConvertFunction(fcn);
+			Bytecode_ConvertFunction(Script, fcn);
 		if( !fcn->BCFcn )
 		{
 			fclose(fp);

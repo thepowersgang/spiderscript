@@ -17,7 +17,7 @@ BIN = ../libspiderscript.so
 LD = $(CC)
 
 CPPFLAGS+= -DBUILD -I .
-CFLAGS	+= $(CPPFLAGS) -fPIC -Werror -O2
+CFLAGS	+= $(CPPFLAGS) -fPIC -Werror -O2 -std=gnu99
 LDFLAGS += -shared
 
 OBJ := $(addprefix $(OBJDIR),$(OBJ))

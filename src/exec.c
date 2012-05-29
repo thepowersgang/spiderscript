@@ -136,7 +136,7 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
 	const char *Function,
 	const char *DefaultNamespaces[],
 	int NArguments, tSpiderValue **Arguments,
-	void **FunctionIdent
+	void **FunctionIdent, int bExecute
 	)
 {
 	tSpiderValue	*ret = ERRPTR;
@@ -201,10 +201,17 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
 		// Execute!
 		if(sfcn)
 		{
-			if( sfcn->BCFcn )
-				ret = Bytecode_ExecuteFunction(Script, sfcn, NArguments, Arguments);
+			if( bExecute )
+			{
+				if( sfcn->BCFcn )
+					ret = Bytecode_ExecuteFunction(Script, sfcn, NArguments, Arguments);
+				else
+					ret = AST_ExecuteFunction(Script, sfcn, NArguments, Arguments);
+			}
 			else
-				ret = AST_ExecuteFunction(Script, sfcn, NArguments, Arguments);
+			{
+				ret = NULL;
+			}
 
 			if( FunctionIdent ) {
 				*FunctionIdent = sfcn;
@@ -221,7 +228,10 @@ _exec_fcn:
 	{
 		// Execute!
 		// TODO: Type Checking
-		ret = fcn->Handler( Script, NArguments, Arguments );
+		if( bExecute )
+			ret = fcn->Handler( Script, NArguments, Arguments );
+		else
+			ret = NULL;
 	
 		if( FunctionIdent )
 			*FunctionIdent = fcn;		
@@ -252,48 +262,90 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderValue	*newargs[NArguments+1];
 	 int	i;
 	
-	// TODO: Support program defined objects
-	
-	// Search for the function
-	for( fcn = Object->Type->Methods; fcn; fcn = fcn->Next )
-	{
-		if( strcmp(fcn->Name, MethodName) == 0 )
-			break;
-	}
-	// Error
-	if( !fcn )
-	{
-		AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
-			Object->Type->Name, MethodName);
-		return ERRPTR;
-	}
-	
 	// Create the "this" argument
 	this.Type = SS_DATATYPE_OBJECT;
 	this.ReferenceCount = 1;
 	this.Object = Object;
 	newargs[0] = &this;
 	memcpy(&newargs[1], Arguments, NArguments*sizeof(tSpiderValue*));
-	
-	// Check the type of the arguments
-	for( i = 0; fcn->ArgTypes[i]; i ++ )
+
+	// Check type	
+	if( (intptr_t)Object->Type & 1 )
 	{
-		if( i >= NArguments ) {
-			for( ; fcn->ArgTypes[i]; i ++ )	;
-			AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i expected)",
-				NArguments, i);
-			return ERRPTR;
-		}
-		if( Arguments[i] && Arguments[i]->Type != fcn->ArgTypes[i] )
+		tScript_Class	*sc = (void*)( (intptr_t)Object->Type & ~1 );
+		tScript_Function *sf;
+
+		for( sf = sc->FirstFunction; sf; sf = sf->Next )
 		{
-			AST_RuntimeError(NULL, "Argument type mismatch (%i, expected %i)",
-				Arguments[i]->Type, fcn->ArgTypes[i]);
+			if( strcmp(sf->Name, MethodName) == 0 )
+				break ;
+		}
+		if( !sf )
+		{
+			AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
+				sc->Name, MethodName);
 			return ERRPTR;
 		}
+
+		if( NArguments+1 != sf->ArgumentCount ) {
+			AST_RuntimeError(NULL, "%s->%s requires %i arguments, %i given",
+				sc->Name, MethodName, sf->ArgumentCount, NArguments);
+			return ERRPTR;
+		}
+
+		// Type checking (eventually will not be needed)
+		for( i = 0; i < 1+NArguments; i ++ )
+		{
+			if( newargs[i] && newargs[i]->Type != sf->Arguments[i].Type )
+			{
+				AST_RuntimeError(NULL, "Argument %i of %s->%s should be %i, got %i",
+					i+1, sc->Name, MethodName, sf->Arguments[i].Type, Arguments[i]->Type);
+				return ERRPTR;
+			}
+		}
+
+		// Call function
+		if( sf->BCFcn )
+			return Bytecode_ExecuteFunction(Script, sf, NArguments+1, newargs);
+		else
+			return AST_ExecuteFunction(Script, sf, NArguments+1, newargs);
 	}
-	
-	// Call handler
-	return fcn->Handler(Script, NArguments+1, newargs);
+	else
+	{
+		// Search for the function
+		for( fcn = Object->Type->Methods; fcn; fcn = fcn->Next )
+		{
+			if( strcmp(fcn->Name, MethodName) == 0 )
+				break;
+		}
+		// Error
+		if( !fcn )
+		{
+			AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
+				Object->Type->Name, MethodName);
+			return ERRPTR;
+		}
+		
+		// Check the type of the arguments
+		for( i = 0; fcn->ArgTypes[i]; i ++ )
+		{
+			if( i >= NArguments ) {
+				for( ; fcn->ArgTypes[i]; i ++ )	;
+				AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i expected)",
+					NArguments, i);
+				return ERRPTR;
+			}
+			if( Arguments[i] && Arguments[i]->Type != fcn->ArgTypes[i] )
+			{
+				AST_RuntimeError(NULL, "Argument type mismatch (%i, expected %i)",
+					Arguments[i]->Type, fcn->ArgTypes[i]);
+				return ERRPTR;
+			}
+		}
+		
+		// Call handler
+		return fcn->Handler(Script, NArguments+1, newargs);
+	}
 }
 
 /**
@@ -305,97 +357,124 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
  */
 tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 	const char *ClassPath, const char *DefaultNamespaces[],
-	int NArguments, tSpiderValue **Arguments)
+	int NArguments, tSpiderValue **Arguments,
+	void **FunctionIdent, int bExecute
+	)
 {
 	tSpiderValue	*ret = ERRPTR;
-	tSpiderObjectDef	*class;
+	tSpiderObjectDef	*class = NULL;
+	tScript_Class	*sc = NULL;
 	 int	i;	
 
-	// Scan list, Last item should always be NULL, so abuse that to check non-prefixed	
-	for( i = 0; i == 0 || DefaultNamespaces[i-1]; i ++ )
-	{
-		const char *ns = DefaultNamespaces[i];
-		class = SpiderScript_int_GetNativeClass(Script, &Script->Variant->RootNamespace, ns, ClassPath);
-		if( class )	break;
+	if( FunctionIdent && *FunctionIdent ) {
+		if( (intptr_t)*FunctionIdent & 1 )
+			sc = (void*)( *(intptr_t*) FunctionIdent & ~1ULL );
+		else
+			class = *FunctionIdent;
+	}
 
-		class = SpiderScript_int_GetNativeClass(Script, &gExportNamespaceRoot, ns, ClassPath);
-		if( class )	break;
-		
-		// TODO: Language defined classes
+	// Scan list, Last item should always be NULL, so abuse that to check non-prefixed	
+	if( !class && !sc )
+	{
+		for( i = 0; i == 0 || DefaultNamespaces[i-1]; i ++ )
+		{
+			const char *ns = DefaultNamespaces[i];
+			class = SpiderScript_int_GetNativeClass(Script, &Script->Variant->RootNamespace, ns, ClassPath);
+			if( class )	break;
+	
+			class = SpiderScript_int_GetNativeClass(Script, &gExportNamespaceRoot, ns, ClassPath);
+			if( class )	break;
+			
+			// TODO: Language defined classes
+		}
 	}
 		
-	// First: Find the function in the script
-	// TODO: Implement script-defined classes
-	#if 0
+	// Check in the script
+	if( !class && !sc )
 	{
-		tAST_Function	*astClass;
-		for( astClass = Script->Script->Classes; astClass; astClass = astClass->Next )
+		// TODO: Namespacing
+		for( sc = Script->FirstClass; sc; sc = sc->Next )
 		{
-			if( strcmp(astClass->Name, ClassName) == 0 )
+			if( strcmp(sc->Name, ClassPath) == 0 )
 				break;
 		}
-		// Execute!
-		if(astClass)
-		{
-			tAST_BlockState	bs;
-			tAST_Node	*arg;
-			 int	i = 0;
-			
-			// Build a block State
-			bs.FirstVar = NULL;
-			bs.RetVal = NULL;
-			bs.Parent = NULL;
-			bs.BaseNamespace = &Script->Variant->RootNamespace;
-			bs.CurNamespace = NULL;
-			bs.Script = Script;
-			bs.Ident = giNextBlockIdent ++;
-			
-			for( arg = astFcn->Arguments; arg; arg = arg->NextSibling, i++ )
-			{
-				if( i >= NArguments )	break;	// TODO: Return gracefully
-				// TODO: Type checks
-				Variable_Define(&bs,
-					arg->DefVar.DataType, arg->DefVar.Name,
-					Arguments[i]);
-			}
-			
-			// Execute function
-			ret = AST_ExecuteNode(&bs, astFcn->Code);
-			if( ret != ERRPTR )
-			{
-				SpiderScript_DereferenceValue(ret);	// Dereference output of last block statement
-				ret = bs.RetVal;	// Set to return value of block
-			}
-			bFound = 1;
-			
-			while(bs.FirstVar)
-			{
-				tAST_Variable	*nextVar = bs.FirstVar->Next;
-				Variable_Destroy( bs.FirstVar );
-				bs.FirstVar = nextVar;
-			}
-		}
 	}
-	#endif
 	
 	// Execute!
 	if(class)
 	{
-		tSpiderObject	*obj;
-		// TODO: Type Checking
+		if( FunctionIdent )
+			*FunctionIdent = class;	
+
+		// Call constructor
+		if( bExecute )
+		{
+			tSpiderObject	*obj;
+			// TODO: Type Checking
+			obj = class->Constructor( NArguments, Arguments );
+			if( obj == NULL || obj == ERRPTR )
+				return (void *)obj;
+			
+			// Creatue return object
+			ret = malloc( sizeof(tSpiderValue) );
+			ret->Type = SS_DATATYPE_OBJECT;
+			ret->ReferenceCount = 1;
+			ret->Object = obj;
+			
+			return ret;
+		}
+		else
+		{
+			return NULL;
+		}
+	}
+	else if( sc )
+	{
+		void	*ident = (void*)( (intptr_t)sc | 1 );
+		
+		if( FunctionIdent )
+			*FunctionIdent = ident;
 		
 		// Call constructor
-		obj = class->Constructor( NArguments, Arguments );
-		if( obj == NULL || obj == ERRPTR )
-			return (void *)obj;
-		
-		// Creatue return object
-		ret = malloc( sizeof(tSpiderValue) );
-		ret->Type = SS_DATATYPE_OBJECT;
-		ret->ReferenceCount = 1;
-		ret->Object = obj;
-		
-		return ret;
+		if( bExecute )
+		{
+			tSpiderObject	*obj;
+			tScript_Function	*f;
+			
+			obj = calloc( 1, sizeof(tSpiderObject) + sc->nProperties*sizeof(tSpiderValue*) );
+			if(!obj)	return ERRPTR;
+	
+			obj->Type = ident;
+			obj->ReferenceCount = 1;
+
+			// Call constructor?
+			for( f = sc->FirstFunction; f; f = f->Next )
+			{
+				if( strcmp(f->Name, CONSTRUCTOR_NAME) == 0 )
+					break;
+			}
+			
+			ret = malloc( sizeof(tSpiderValue) );
+			ret->Type = SS_DATATYPE_OBJECT;
+			ret->ReferenceCount = 1;
+			ret->Object = obj;
+			if( f )
+			{
+				tSpiderValue	*args[NArguments+1];
+				args[0] = ret;
+				memcpy(args+1, Arguments, NArguments*sizeof(tSpiderValue*));
+				if( f->BCFcn )
+					Bytecode_ExecuteFunction(Script, f, NArguments+1, args);
+				else
+					AST_ExecuteFunction(Script, f, NArguments+1, args);
+			}
+	
+			return ret;
+		}
+		else
+		{
+			return NULL;
+		}
 	}
 	else	// Not found?
 	{

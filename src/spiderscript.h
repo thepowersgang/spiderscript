@@ -289,7 +289,7 @@ extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char
 extern tSpiderValue	*SpiderScript_ExecuteFunction(tSpiderScript *Script,
 	const char *Function, const char *DefaultNamespaces[],
 	int NArguments, tSpiderValue **Arguments,
-	void **FunctionIdent
+	void **FunctionIdent, int bExecute
 	);
 /**
  * \brief Execute an object method
@@ -303,13 +303,18 @@ extern tSpiderValue	*SpiderScript_ExecuteMethod(tSpiderScript *Script,
  */
 extern tSpiderValue	*SpiderScript_CreateObject(tSpiderScript *Script,
 	const char *ClassName, const char *DefaultNamespaces[],
-	int NArguments, tSpiderValue **Arguments
+	int NArguments, tSpiderValue **Arguments,
+	void **Ident, int bExecute
 	);
 
 /**
  * \brief Convert a script to bytecode and save to a file
  */
 extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
+/**
+ * \brief Load a script from bytecode
+ */
+extern tSpiderScript	*SpiderScript_LoadBytecode(const char *Filename);
 /**
  * \brief Save the AST of a script to a file
  */

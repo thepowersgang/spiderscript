@@ -12,25 +12,74 @@
 extern void	SyntaxError(tParser *Parser, int bFatal, const char *Message, ...);
 
 // === CODE ===
-/**
- * \brief Append a function to a script
- */
-int AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, tAST_Node *Args, tAST_Node *Code)
+tScript_Class *AST_AppendClass(tSpiderScript *Script, const char *Name)
+{
+	tScript_Class	*ret;
+	
+	ret = malloc( sizeof(tScript_Class) + strlen(Name) + 1 );
+	if( !ret )	return NULL;	
+
+	ret->Next = NULL;
+	ret->FirstFunction = NULL;
+	ret->FirstProperty = NULL;
+	ret->nProperties = 0;
+	strcpy(ret->Name, Name);
+
+	if( Script->FirstClass )
+		Script->LastClass->Next = ret;
+	else
+		Script->FirstClass = ret;
+	Script->LastClass = ret;
+
+	return ret;
+}
+
+int AST_AppendClassProperty(tScript_Class *Class, const char *Name, int Type)
+{
+	tScript_Class_Var	*p;
+
+	// Check for duplicates
+	for( p = Class->FirstProperty; p; p = p->Next ) {
+		if( strcmp(p->Name, Name) == 0 )
+			return 1;
+	}
+	
+	// Allocate new
+	p = malloc( sizeof(tScript_Class_Var) + strlen(Name) + 1 );
+	if(!p)	return -1;
+	p->Next = NULL;
+	p->Type = Type;
+	strcpy(p->Name, Name);
+	
+	// Append
+	if(Class->FirstProperty)
+		Class->LastProperty->Next = p;
+	else
+		Class->FirstProperty = p;
+	Class->LastProperty = p;
+	Class->nProperties ++;
+	
+	return 0;
+}
+
+tScript_Function *AST_int_MakeFunction(const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
 {
 	tScript_Function	*fcn;
 	 int	arg_count = 0, arg_bytes = 0;
 	tAST_Node	*arg;
 
 	// Count and size arguments
-	for(arg = Args; arg; arg = arg->NextSibling)
+	for(arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		arg_count ++;
-		arg_bytes += sizeof(fcn->Arguments[0]) + strlen(Args->DefVar.Name) + 1;
+		arg_bytes += sizeof(fcn->Arguments[0]) + strlen(arg->DefVar.Name) + 1;
 	}
+	arg_count ++;
+	arg_bytes += sizeof(fcn->Arguments[0]) + strlen("this") + 1;
 
 	// Allocate information
 	fcn = malloc( sizeof(tScript_Function) + arg_bytes + strlen(Name) + 1 );
-	if(!fcn)	return -1;
+	if(!fcn)	return NULL;
 	fcn->Next = NULL;
 	fcn->Name = (char*)&fcn->Arguments[arg_count];
 	strcpy(fcn->Name, Name);
@@ -42,7 +91,14 @@ int AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, 
 	// Set arguments
 	arg_bytes = strlen(Name) + 1;	// Used as an offset into fcn->Name
 	arg_count = 0;
-	for(arg = Args; arg; arg = arg->NextSibling)
+
+	fcn->Arguments[0].Name = fcn->Name + arg_bytes;
+	strcpy(fcn->Arguments[0].Name, "this");
+	fcn->Arguments[arg_count].Type = SS_DATATYPE_OBJECT;	
+	arg_bytes += strlen("this") + 1;
+	arg_count ++;
+	
+	for(arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		fcn->Arguments[arg_count].Name = fcn->Name + arg_bytes;
 		strcpy(fcn->Arguments[arg_count].Name, arg->DefVar.Name);
@@ -50,14 +106,53 @@ int AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, 
 		arg_bytes += strlen(arg->DefVar.Name) + 1;
 		arg_count ++;
 	}
+
+	return fcn;
+}
+
+int AST_AppendMethod(tScript_Class *Class, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+{
+	tScript_Function	*method;
 	
-	if(Script->LastFunction == NULL) {
-		Script->Functions = Script->LastFunction = fcn;
+	// Check for duplicates
+	for( method = Class->FirstFunction; method; method = method->Next ) {
+		if( strcmp(method->Name, Name) == 0 )
+			return 1;
 	}
-	else {
+
+	method = AST_int_MakeFunction(Name, ReturnType, FirstArg, Code);
+	if(!method)	return -1;
+	
+	if(Class->FirstFunction)
+		Class->LastFunction->Next = method;
+	else
+		Class->FirstFunction = method;
+	Class->LastFunction = method;
+	
+	return 0;
+}
+
+/**
+ * \brief Append a function to a script
+ */
+int AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, tAST_Node *Args, tAST_Node *Code)
+{
+	tScript_Function	*fcn;
+
+	for( fcn = Script->Functions; fcn; fcn = fcn->Next )
+	{
+		if( strcmp(fcn->Name, Name) == 0 )
+			return 1;
+	}
+
+	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code);
+	if(!fcn)	return -1;	
+
+	if(Script->Functions)
 		Script->LastFunction->Next = fcn;
-		Script->LastFunction = fcn;
-	}
+	else
+		Script->Functions = fcn;
+	Script->LastFunction = fcn;
 	
 	return 0;
 }

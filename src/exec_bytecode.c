@@ -176,7 +176,10 @@ void Bytecode_int_DerefStackValue(tBC_StackEnt *Ent)
 		if(Ent->Object) {
 			Ent->Object->ReferenceCount --;
 			if(Ent->Object->ReferenceCount == 0) {
-				Ent->Object->Type->Destructor( Ent->Object );
+				if( (intptr_t)Ent->Object->Type & 1 )
+					free( Ent->Object );
+				else
+					Ent->Object->Type->Destructor( Ent->Object );
 			}
 //			printf("Object %p derefed (obj refcount = %i)\n", Ent->Object, Ent->Object->ReferenceCount);
 		}
@@ -336,11 +339,11 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tSp
 	// Call the function etc.
 	if( op->Operation == BC_OP_CALLFUNCTION )
 	{
-		rv = SpiderScript_ExecuteFunction(Script, name, namespaces, arg_count, args, &op->CacheEnt);
+		rv = SpiderScript_ExecuteFunction(Script, name, namespaces, arg_count, args, &op->CacheEnt, 1);
 	}
 	else if( op->Operation == BC_OP_CREATEOBJ )
 	{
-		rv = SpiderScript_CreateObject(Script, name, namespaces, arg_count, args);
+		rv = SpiderScript_CreateObject(Script, name, namespaces, arg_count, args, &op->CacheEnt, 1);
 	}
 	else if( op->Operation == BC_OP_CALLMETHOD )
 	{
@@ -598,14 +601,14 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				pval2 = Bytecode_int_GetSpiderValue(&val2, NULL);
 				Bytecode_int_DerefStackValue(&val2);
 				
-				DEBUG_F("SETINDEX %i ", val1.Integer); PRINT_STACKVAL(val2); DEBUG_F("\n");
+				DEBUG_F("SETINDEX %li ", val1.Integer); PRINT_STACKVAL(val2); DEBUG_F("\n");
 			
 				ret_val = AST_ExecuteNode_Index(Script, NULL, pval1, val1.Integer, pval2);
 				if(ret_val == ERRPTR) { nextop = NULL; break; }
 				SpiderScript_DereferenceValue(pval2);
 			}
 			else {
-				DEBUG_F("INDEX %i ", val1.Integer);
+				DEBUG_F("INDEX %li ", val1.Integer);
 				ret_val = AST_ExecuteNode_Index(Script, NULL, pval1, val1.Integer, ERRPTR);
 				if(ret_val == ERRPTR) { nextop = NULL; break; }
 				
@@ -949,6 +952,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	
 	// Clean up
 	// - Delete local vars
+	DEBUG_F("Nuking vars\n");
 	for( i = 0; i < local_var_count; i ++ )
 	{
 		if( local_vars[i].Type != ET_NULL )
@@ -963,6 +967,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	}
 	
 	// - Restore stack
+	DEBUG_F("Restoring stack...\n");
 	if( Stack->Entries[Stack->EntryCount - 1].Type == ET_FUNCTION_START )
 		Stack->EntryCount --;
 	else
@@ -978,7 +983,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		DEBUG_F("Rolled back %i entries\n", n_rolled);
 	}
 	
-
+	DEBUG_F("Return 0\n");
 	return 0;
 }
 

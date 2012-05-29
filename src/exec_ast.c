@@ -259,7 +259,8 @@ tSpiderValue *AST_ExecuteNode(tAST_BlockState *Block, tAST_Node *Node)
 				ret = SpiderScript_CreateObject(Block->Script,
 					Node->FunctionCall.Name,
 					namespaces,
-					Node->FunctionCall.NumArgs, params
+					Node->FunctionCall.NumArgs, params,
+					NULL, 1
 					);
 			}
 			else if( Node->Type == NODETYPE_METHODCALL )
@@ -284,7 +285,7 @@ tSpiderValue *AST_ExecuteNode(tAST_BlockState *Block, tAST_Node *Node)
 					Node->FunctionCall.Name,
 					namespaces,
 					Node->FunctionCall.NumArgs, params,
-					NULL
+					NULL, 1
 					);
 			}
 

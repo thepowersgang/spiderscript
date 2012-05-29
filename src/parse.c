@@ -17,7 +17,9 @@
 
 // === PROTOTYPES ===
  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
-void	*Parse_FunctionDefinition(tSpiderScript *Script, tParser *Parser, int Type);
+void	Parse_NamespaceContent(tSpiderScript *Script, tParser *Parser);
+void	Parse_ClassDefinition(tSpiderScript *Script, tParser *Parser);
+void	Parse_FunctionDefinition(tSpiderScript *Script, tScript_Class *Class, tParser *Parser, int Type);
 tAST_Node	*Parse_DoCodeBlock(tParser *Parser, tAST_Node *CodeNode);
 tAST_Node	*Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode);
 tAST_Node	*Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, int Type);
@@ -127,8 +129,7 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 			{
 			// Define a function (pass on to the other function definition code)
 			case TOK_IDENT:
-				if( Parse_FunctionDefinition(Script, Parser, type) == NULL )
-					longjmp(Parser->JmpTarget, -1);
+				Parse_FunctionDefinition(Script, NULL, Parser, type);
 				break ;
 			// Define a variable (pass back to _DoBlockLine)
 			case TOK_VARIABLE:
@@ -142,7 +143,14 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 				break;
 			}
 			break;
-		
+
+		case TOK_RWD_CLASS:
+			Parse_ClassDefinition(Script, Parser);
+			break;
+		case TOK_RWD_NAMESPACE:
+			Parse_NamespaceContent(Script, Parser);
+			break;
+
 		// Define a function
 		case TOK_RWD_FUNCTION:
 			if( !Script->Variant->bDyamicTyped ) {
@@ -152,8 +160,7 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 			
 			type = SS_DATATYPE_DYNAMIC;
 		
-			if( Parse_FunctionDefinition(Script, Parser, SS_DATATYPE_DYNAMIC) == NULL )
-				longjmp(Parser->JmpTarget, -1);
+			Parse_FunctionDefinition(Script, NULL, Parser, SS_DATATYPE_DYNAMIC);
 		
 			break;
 		
@@ -178,11 +185,107 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 	return 0;
 }
 
-void *Parse_FunctionDefinition(tSpiderScript *Script, tParser *Parser, int Type)
+void Parse_NamespaceContent(tSpiderScript *Script, tParser *Parser)
+{
+	 int	type;
+	char	*name;
+	
+	SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT);
+	name = strndup( Parser->TokenStr, Parser->TokenLen );
+	// Within a namespace, only classes and functions can be defined
+	SyntaxAssert(Parser, GetToken(Parser), TOK_BRACE_OPEN);
+
+	while( GetToken(Parser) != TOK_BRACE_CLOSE )
+	{
+		switch( Parser->Token )
+		{
+		case TOK_RWD_CLASS:
+			Parse_ClassDefinition(Script, Parser);
+			break;
+		case TOK_RWD_NAMESPACE:
+			Parse_NamespaceContent(Script, Parser);
+			break;
+		
+		// Static type function
+		case TOKEN_GROUP_TYPES:
+			TOKEN_GET_DATATYPE(type, Parser->Token);
+			SyntaxAssert(Parser, LookAhead(Parser), TOK_IDENT);
+			Parse_FunctionDefinition(Script, NULL, Parser, type);
+			break;
+		
+		// Dynamic function
+		case TOK_RWD_FUNCTION:
+			if( !Script->Variant->bDyamicTyped ) {
+				SyntaxError(Parser, 1, "Dynamic functions are invalid in static mode");
+				longjmp(Parser->JmpTarget, -1);
+			}
+			
+			Parse_FunctionDefinition(Script, NULL, Parser, SS_DATATYPE_DYNAMIC);
+			break;
+		
+		default:
+			fprintf(stderr, "Syntax Error: Unexpected %s on line %i, Expected class/namespace/function definition\n",
+				csaTOKEN_NAMES[Parser->Token], Parser->CurLine);
+			longjmp( Parser->JmpTarget, -1 );
+			break;
+		}
+	}	
+}
+
+void Parse_ClassDefinition(tSpiderScript *Script, tParser *Parser)
+{
+	char *name;
+	tScript_Class	*class;
+	int	type;
+	
+	// Get name of the class and create the definition
+	SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT);
+	name = strndup( Parser->TokenStr, Parser->TokenLen );
+	class = AST_AppendClass(Script, name);
+	free(name);
+	
+	SyntaxAssert(Parser, GetToken(Parser), TOK_BRACE_OPEN);
+
+	while( GetToken(Parser) != TOK_BRACE_CLOSE )
+	{
+		switch( Parser->Token )
+		{
+		case TOKEN_GROUP_TYPES:
+			TOKEN_GET_DATATYPE(type, Parser->Token);
+			switch(LookAhead(Parser))
+			{
+			case TOK_IDENT:
+				Parse_FunctionDefinition(Script, class, Parser, type);
+				break;
+			case TOK_VARIABLE:
+				do {
+					GetToken(Parser);
+					char name[Parser->TokenLen+1];
+					memcpy(name, Parser->TokenStr, Parser->TokenLen);
+					name[Parser->TokenLen] = 0;
+					// TODO: Constants
+					AST_AppendClassProperty(class, name, type);
+				} while(GetToken(Parser) == TOK_COMMA);
+				break;
+			}
+			break;
+		case TOK_RWD_FUNCTION:
+			if( !Script->Variant->bDyamicTyped ) {
+				SyntaxError(Parser, 1, "Dynamic functions are invalid in static mode");
+				longjmp(Parser->JmpTarget, -1);
+			}
+			
+			Parse_FunctionDefinition(Script, class, Parser, SS_DATATYPE_DYNAMIC);
+			break;
+		}
+	}
+}
+
+void Parse_FunctionDefinition(tSpiderScript *Script, tScript_Class *Class, tParser *Parser, int Type)
 {
 	char	*name;
 	 int	rv;
-	tAST_Node	*first_arg, *last_arg, *code;
+	tAST_Node	*first_arg = NULL, *last_arg, *code;
 	
 	last_arg = (void*)&first_arg;	// HACK
 	
@@ -201,7 +304,7 @@ void *Parse_FunctionDefinition(tSpiderScript *Script, tParser *Parser, int Type)
 			 int	type = SS_DATATYPE_DYNAMIC;
 			GetToken(Parser);
 			// Non dynamic typed variants must use data types
-			if( !Script->Variant->bDyamicTyped ) {
+			if( !Parser->Variant->bDyamicTyped ) {
 				TOKEN_GET_DATATYPE(type, Parser->Token);
 				GetToken(Parser);
 			}
@@ -216,7 +319,10 @@ void *Parse_FunctionDefinition(tSpiderScript *Script, tParser *Parser, int Type)
 
 	code = Parse_DoCodeBlock(Parser, NULL);
 
-	rv = AST_AppendFunction( Script, name, Type, first_arg, code );
+	if( Class )
+		rv = AST_AppendMethod( Class, name, Type, first_arg, code );
+	else
+		rv = AST_AppendFunction( Script, name, Type, first_arg, code );
 
 	// Clean up argument definition nodes
 	{
@@ -230,7 +336,10 @@ void *Parse_FunctionDefinition(tSpiderScript *Script, tParser *Parser, int Type)
 
 	free(name);
 	
-	return rv == 0 ? (void*)1 : NULL;
+	// Error check after cleaning up, just in case :)
+	if( rv ) {
+		longjmp(Parser->JmpTarget, -1);
+	}
 }
 
 /**
@@ -876,7 +985,7 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 		return Parse_GetVariable(Parser);
 	case TOK_RWD_NULL:
 		GetToken(Parser);
-		return AST_NewNull(Parser);	// nODETYPE_NOP returns NULL
+		return AST_NewNull(Parser);	// NODETYPE_NOP returns NULL
 	case TOK_RWD_NEW:
 		GetToken(Parser);
 		return Parse_GetIdent(Parser, 1);
@@ -912,6 +1021,7 @@ tAST_Node *Parse_GetString(tParser *Parser)
 				default:
 					// TODO: Octal Codes
 					// TODO: Error/Warning?
+					SyntaxError(Parser, 1, "Unknown escape code \\%c", Parser->TokenStr[i]);
 					break;
 				}
 			}

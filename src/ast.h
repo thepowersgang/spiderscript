@@ -5,6 +5,7 @@
 
 #include <spiderscript.h>
 #include "tokens.h"
+#include "common.h"
 
 typedef enum eAST_NodeTypes	tAST_NodeType;
 typedef struct sAST_Script	tAST_Script;
@@ -198,6 +199,10 @@ struct sAST_Variable
 extern tAST_Script	*AST_NewScript(void);
 extern size_t	AST_WriteScript(void *Buffer, tSpiderScript *Script);
 extern size_t	AST_WriteNode(void *Buffer, size_t Offset, tAST_Node *Node);
+
+extern tScript_Class	*AST_AppendClass(tSpiderScript *Script, const char *Name);
+extern int	AST_AppendClassProperty(tScript_Class *Class, const char *Name, int Type);
+extern int	AST_AppendMethod(tScript_Class *Class, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
 
 extern int	AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
 
