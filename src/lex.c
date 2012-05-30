@@ -40,14 +40,6 @@ const struct {
 	{TOK_RWD_NULL, "null"},
 	{TOK_RWD_TRUE, "true"},
 	{TOK_RWD_FALSE, "false"},
-	
-	{TOK_RWD_VOID, "void"},
-	{TOK_RWD_OBJECT, "Object"},
-	{TOK_RWD_OPAQUE, "Opaque"},
-	{TOK_RWD_INTEGER, "Integer"},
-	{TOK_RWD_BOOLEAN, "Boolean"},
-	{TOK_RWD_REAL, "Real"},
-	{TOK_RWD_STRING, "String"}
 };
 
 // === CODE ===
@@ -73,14 +65,14 @@ int GetToken(tParser *File)
 		// Set State
 		File->CurPos = File->TokenStr + File->TokenLen;
 		File->NextToken = -1;
+		#if DEBUG
 		{
 			char	buf[ File->TokenLen + 1];
 			memcpy(buf, File->TokenStr, File->TokenLen);
 			buf[File->TokenLen] = 0;
-			#if DEBUG
 			printf(" GetToken: FAST Return %i (%i long) (%s)\n", File->Token, File->TokenLen, buf);
-			#endif
 		}
+		#endif
 		return File->Token;
 	}
 	

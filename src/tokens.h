@@ -33,6 +33,7 @@ typedef struct
 	jmp_buf	JmpTarget;
 	 int	ErrorHit;
 	
+	struct sSpiderScript	*Script;
 	struct sSpiderVariant	*Variant;
 }	tParser;
 
@@ -74,14 +75,6 @@ enum eTokens
 	TOK_RWD_NULL,
 	TOK_RWD_TRUE,
 	TOK_RWD_FALSE,
-	// - Types
-	TOK_RWD_VOID,
-	TOK_RWD_OBJECT,
-	TOK_RWD_OPAQUE,
-	TOK_RWD_STRING,
-	TOK_RWD_INTEGER,
-	TOK_RWD_BOOLEAN,
-	TOK_RWD_REAL,
 	
 	// 
 	TOK_ASSIGN,
@@ -118,26 +111,6 @@ enum eTokens
 	TOK_LAST
 };
 
-#define TOKEN_GROUP_TYPES	TOK_RWD_VOID:\
-	case TOK_RWD_OBJECT:\
-	case TOK_RWD_OPAQUE:\
-	case TOK_RWD_INTEGER:\
-	case TOK_RWD_STRING:\
-	case TOK_RWD_REAL
-#define TOKEN_GROUP_TYPES_STR	"TOK_RWD_VOID, TOK_RWD_OBJECT, TOK_RWD_OPAQUE, TOK_RWD_INTEGER, TOK_RWD_STRING or TOK_RWD_REAL"
-
-#define TOKEN_GET_DATATYPE(_type, _tok) do { switch(_tok) {\
-	case TOK_RWD_VOID:  _type = SS_DATATYPE_UNDEF;	break;\
-	case TOK_RWD_INTEGER:_type = SS_DATATYPE_INTEGER;	break;\
-	case TOK_RWD_OPAQUE: _type = SS_DATATYPE_OPAQUE;	break;\
-	case TOK_RWD_OBJECT: _type = SS_DATATYPE_OBJECT;	break;\
-	case TOK_RWD_REAL:   _type = SS_DATATYPE_REAL;	break;\
-	case TOK_RWD_STRING: _type = SS_DATATYPE_STRING;	break;\
-	default:_type=SS_DATATYPE_UNDEF;SyntaxError(Parser,1,\
-	"ERROR: Unexpected %s, expected "TOKEN_GROUP_TYPES_STR,csaTOKEN_NAMES[Parser->Token]);\
-	break;\
-	} } while(0)
-
 # if WANT_TOKEN_STRINGS
 const char * const csaTOKEN_NAMES[] = {
 	"TOK_INVAL",
@@ -168,14 +141,6 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_RWD_TRUE",
 	"TOK_RWD_FALSE",
 
-	"TOK_RWD_VOID",
-	"TOK_RWD_OBJECT",
-	"TOK_RWD_OPAUQE",
-	"TOK_RWD_STRING",
-	"TOK_RWD_INTEGER",
-	"TOK_RWD_BOOLEAN",
-	"TOK_RWD_REAL",
-	
 	"TOK_ASSIGN",
 	"TOK_SEMICOLON",
 	"TOK_COMMA",

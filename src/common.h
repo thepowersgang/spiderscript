@@ -17,6 +17,7 @@ typedef struct sScript_Class_Var	tScript_Class_Var;
 struct sSpiderScript
 {
 	tSpiderVariant	*Variant;
+	
 	tScript_Function	*Functions;
 	tScript_Function	*LastFunction;
 	
@@ -28,6 +29,7 @@ struct sSpiderScript
 
 struct sScript_Arg
 {
+
 	 int	Type;
 	char	*Name;
 };
@@ -64,9 +66,14 @@ struct sScript_Class
 	tScript_Class_Var	*FirstProperty;
 	tScript_Class_Var	*LastProperty;
 	 int	nProperties;
-	
+
+	tSpiderScript_DataType	TypeCode;	
+
 	char	Name[];
 };
+
+extern tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type);
+extern tScript_Class *SpiderScript_GetClass_Script(tSpiderScript *Script, int Type);
 
 #endif
 

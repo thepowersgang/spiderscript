@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "spiderscript.h"
+#include "common.h"
 
 // === IMPORTS ===
 extern void	AST_RuntimeError(void *Node, const char *Format, ...);
@@ -34,73 +35,84 @@ tSpiderValue	*SpiderScript_int_DoOpString(tSpiderValue *Left, enum eSpiderValueO
 /**
  * \brief Dereference a created object
  */
-void SpiderScript_DereferenceValue(tSpiderValue *Object)
+void SpiderScript_DereferenceValue(tSpiderValue *Value)
 {
-	if(!Object || Object == ERRPTR)	return ;
-	Object->ReferenceCount --;
-	if( Object->ReferenceCount == 0 )
+	if(!Value || Value == ERRPTR)	return ;
+	Value->ReferenceCount --;
+	if( Value->ReferenceCount == 0 )
 	{
-		 int	i;
-
-		if( Object->Type == SS_DATATYPE_ARRAY || SS_GETARRAYDEPTH(Object->Type) )
+		if( SS_GETARRAYDEPTH(Value->Type) )
 		{
-			for( i = 0; i < Object->Array.Length; i ++ )
+			for( int i = 0; i < Value->Array.Length; i ++ )
 			{
-				if( Object->Array.Items[i] ) {
-					SpiderScript_DereferenceValue(Object->Array.Items[i]);
+				if( Value->Array.Items[i] ) {
+					SpiderScript_DereferenceValue(Value->Array.Items[i]);
 				}
-				Object->Array.Items[i] = NULL;
+				Value->Array.Items[i] = NULL;
 			}
+		}
+		else if( SS_ISTYPEOBJECT(Value->Type) )
+		{
+			SpiderScript_DereferenceObject( Value->Object );
+			Value->Object = NULL;
 		}
 		else
-		{		
-			switch( (enum eSpiderScript_DataTypes) Object->Type )
-			{
-			case SS_DATATYPE_OBJECT:
-				Object->Object->ReferenceCount --;
-				if(Object->Object->ReferenceCount == 0) {
-						if( (intptr_t)Object->Object->Type & 1 )
-							free(Object->Object);	// TODO: Proper destructor
-						else
-							Object->Object->Type->Destructor( Object->Object );
-				}
-				Object->Object = NULL;
-				break;
-	
-			case SS_DATATYPE_OPAQUE:
-				Object->Opaque.Destroy( Object->Opaque.Data );
-				break;
-			default:
-				break;
-			}
+		{
+			// Anything else has no special handling
 		}
-		free(Object);
+		free(Value);
 	}
 }
 
 /**
  * \brief Reference a value
  */
-void SpiderScript_ReferenceValue(tSpiderValue *Object)
+void SpiderScript_ReferenceValue(tSpiderValue *Value)
 {
-	if(!Object || Object == ERRPTR)	return ;
-	Object->ReferenceCount ++;
+	if(!Value || Value == ERRPTR)	return ;
+	Value->ReferenceCount ++;
 }
 
 /**
  * \brief Allocate and initialise a SpiderScript object
  */
-tSpiderObject *SpiderScript_AllocateObject(tSpiderObjectDef *Class, int ExtraBytes)
+tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *Class, int ExtraBytes)
 {
 	 int	size = sizeof(tSpiderObject) + Class->NAttributes * sizeof(tSpiderValue*) + ExtraBytes;
 	tSpiderObject	*ret = malloc(size);
 	
-	ret->Type = Class;
+	ret->TypeCode = SpiderScript_GetTypeCode(NULL, Class->Name);
+	ret->Script = Script;
 	ret->ReferenceCount = 1;
 	ret->OpaqueData = &ret->Attributes[ Class->NAttributes ];
 	memset( ret->Attributes, 0, Class->NAttributes * sizeof(tSpiderValue*) );
 	
 	return ret;
+}
+
+void SpiderScript_ReferenceObject(tSpiderObject *Object)
+{
+	Object->ReferenceCount ++;
+}
+
+void SpiderScript_DereferenceObject(tSpiderObject *Object)
+{
+	Object->ReferenceCount --;
+	if( Object->ReferenceCount == 0 )
+	{
+		tSpiderClass	*nc = SpiderScript_GetClass_Native(Object->Script, Object->TypeCode);
+		tScript_Class	*sc = SpiderScript_GetClass_Script(Object->Script, Object->TypeCode);
+		
+		if( nc ) {
+			nc->Destructor(Object);
+		}
+		else if( sc ) {
+			// TODO: Destructor
+		}
+		else {
+			free(Object);
+		}
+	}
 }
 
 /**
@@ -252,15 +264,9 @@ tSpiderValue *SpiderScript_CastValueTo(int Type, tSpiderValue *Source)
 	}
 	#endif
 	
-	switch( (enum eSpiderScript_DataTypes)Type )
+	switch( Type )
 	{
 	case SS_DATATYPE_UNDEF:
-	case SS_DATATYPE_ARRAY:
-	case SS_DATATYPE_OPAQUE:
-		AST_RuntimeError(NULL, "Invalid cast to %i", Type);
-		return ERRPTR;
-	case SS_DATATYPE_OBJECT:
-		// TODO: 
 		AST_RuntimeError(NULL, "Invalid cast to %i", Type);
 		return ERRPTR;
 	
@@ -337,8 +343,11 @@ int SpiderScript_IsValueTrue(tSpiderValue *Value)
 {
 	if( Value == ERRPTR )	return 0;
 	if( Value == NULL )	return 0;
+
+	if( SS_GETARRAYDEPTH(Value->Type) )
+		return Value->Array.Length > 0;
 	
-	switch( (enum eSpiderScript_DataTypes)Value->Type )
+	switch( Value->Type )
 	{
 	case SS_DATATYPE_UNDEF:
 		return 0;
@@ -352,14 +361,9 @@ int SpiderScript_IsValueTrue(tSpiderValue *Value)
 	case SS_DATATYPE_STRING:
 		return Value->String.Length > 0;
 	
-	case SS_DATATYPE_OBJECT:
-		return Value->Object != NULL;
+//	case SS_DATATYPE_OBJECT:
+//		return Value->Object != NULL;
 	
-	case SS_DATATYPE_OPAQUE:
-		return Value->Opaque.Data != NULL;
-	
-	case SS_DATATYPE_ARRAY:
-		return Value->Array.Length > 0;
 	default:
 		AST_RuntimeError(NULL, "Unknown type %i in SpiderScript_IsValueTrue", Value->Type);
 		return 0;
@@ -388,7 +392,7 @@ char *SpiderScript_DumpValue(tSpiderValue *Value)
 	if( Value == NULL )
 		return strdup("null");
 	
-	switch( (enum eSpiderScript_DataTypes)Value->Type )
+	switch( Value->Type )
 	{
 	case SS_DATATYPE_UNDEF:	return strdup("undefined");
 	
@@ -410,18 +414,18 @@ char *SpiderScript_DumpValue(tSpiderValue *Value)
 		ret[Value->String.Length+2] = '\0';
 		return ret;
 	
-	case SS_DATATYPE_OBJECT:
-		ret = malloc( sprintf(NULL, "{%s *%p}", Value->Object->Type->Name, Value->Object) + 1 );
-		sprintf(ret, "{%s *%p}", Value->Object->Type->Name, Value->Object);
-		return ret;
+//	case SS_DATATYPE_OBJECT:
+//		ret = malloc( sprintf(NULL, "{%s *%p}", Value->Object->Type->Name, Value->Object) + 1 );
+//		sprintf(ret, "{%s *%p}", Value->Object->Type->Name, Value->Object);
+//		return ret;
 	
-	case SS_DATATYPE_OPAQUE:
-		ret = malloc( sprintf(NULL, "*%p", Value->Opaque.Data) + 1 );
-		sprintf(ret, "*%p", Value->Opaque.Data);
-		return ret;
+//	case SS_DATATYPE_OPAQUE:
+//		ret = malloc( sprintf(NULL, "*%p", Value->Opaque.Data) + 1 );
+//		sprintf(ret, "*%p", Value->Opaque.Data);
+//		return ret;
 	
-	case SS_DATATYPE_ARRAY:
-		return strdup("Array");
+//	case SS_DATATYPE_ARRAY:
+//		return strdup("Array");
 	
 	default:
 		AST_RuntimeError(NULL, "Unknown type %i in Object_Dump", Value->Type);

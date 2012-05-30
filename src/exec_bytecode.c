@@ -29,23 +29,16 @@ extern void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 typedef struct sBC_StackEnt	tBC_StackEnt;
 typedef struct sBC_Stack	tBC_Stack;
 
-enum eBC_StackEntTypes
-{
-	ET_NULL,	// Start of the stack
-	// SS_DATATYPE_*
-	ET_FUNCTION_START = NUM_SS_DATATYPES,
-	ET_REFERENCE	// Reference to a tSpiderValue
-};
+#define ET_FUNCTION_START	-1
 
 struct sBC_StackEnt
 {
-	uint8_t	Type;
+	tSpiderScript_DataType	Type;
 	union {
 		int64_t	Integer;
 		double 	Real;
 		tSpiderValue	*Reference;	// Used for everything else
 		tSpiderObject	*Object;
-		tSpiderNamespace	*Namespace;
 	};
 };
 
@@ -81,26 +74,56 @@ int Bytecode_int_IsStackEntTrue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case ET_FUNCTION_START:
+		AST_RuntimeError(NULL, "BUG - _IsStackEntTrue on ET_FUNCTION_START");
+		return -1;
+	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 		return !!Ent->Integer;
 	case SS_DATATYPE_REAL:
 		return !(-.5f < Ent->Real && Ent->Real < 0.5f);
-	case SS_DATATYPE_OBJECT:
-		return Ent->Object != NULL;
-	case ET_FUNCTION_START:
-		return -1;
-	default:
+	case SS_DATATYPE_STRING:
 		return SpiderScript_IsValueTrue(Ent->Reference);
+	default:
+		if( SS_GETARRAYDEPTH(Ent->Type) )
+			return SpiderScript_IsValueTrue(Ent->Reference);
+		else if( SS_ISTYPEOBJECT(Ent->Type) )
+			return Ent->Object != NULL;
+		else {
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _IsStackEntTrue", Ent->Type);
+			return -1;
+		}
 	}
 }
 
 tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
 {
+	 int	bAlloc = 0;
+	
 	switch(Ent->Type)
 	{
+	case ET_FUNCTION_START:
+		AST_RuntimeError(NULL, "_GetSpiderValue on ET_FUNCTION_START");
+		return NULL;
+	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 	case SS_DATATYPE_REAL:
-	case SS_DATATYPE_OBJECT:
+		bAlloc = 1;
+		break;
+	default:
+		if( SS_GETARRAYDEPTH(Ent->Type) ) {
+			bAlloc = 0;
+		}
+		else if( SS_ISTYPEOBJECT(Ent->Type) ) {
+			bAlloc = 1;
+		}
+		else {
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _GetSpiderValue", Ent->Type);
+		}
+		break;
+	}
+
+	if( bAlloc ) {
 		if(!tmp) {
 			tmp = malloc(sizeof(tSpiderValue));
 			tmp->ReferenceCount = 1;
@@ -108,59 +131,76 @@ tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
 			// Stops a stack value from having free() called on it
 			tmp->ReferenceCount = 2;
 		}
-		break;
-	default:
-		break;
 	}
+	
+	if( !tmp ) {
+		AST_RuntimeError(NULL, "BUG - tmp=NULL passed to _GetSpiderValue");
+		return NULL;
+	}
+	
+	tmp->Type = Ent->Type;
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_BOOLEAN:
+		tmp->Integer = Ent->Integer;
+		return tmp;
 	case SS_DATATYPE_INTEGER:
-		tmp->Type = SS_DATATYPE_INTEGER;
 		tmp->Integer = Ent->Integer;
 		return tmp;
 	case SS_DATATYPE_REAL:
-		tmp->Type = SS_DATATYPE_REAL;
 		tmp->Real = Ent->Real;
 		return tmp;
-	case SS_DATATYPE_OBJECT:
-		tmp->Type = SS_DATATYPE_OBJECT;
-		tmp->Object = Ent->Object;
-		return tmp;
-	case ET_FUNCTION_START:
-		AST_RuntimeError(NULL, "_GetSpiderValue on ET_FUNCTION_START");
-		return NULL;
 	default:
-		SpiderScript_ReferenceValue(Ent->Reference);
-		return Ent->Reference;
+		if( SS_GETARRAYDEPTH(Ent->Type) ) {
+			SpiderScript_ReferenceValue(Ent->Reference);
+			return Ent->Reference;
+		}
+		else if( SS_ISTYPEOBJECT(Ent->Type) ) {
+			SpiderScript_ReferenceObject(Ent->Object);
+			tmp->Object = Ent->Object;
+			return tmp;
+		}
+		break;
 	}
+	// Should never be reached
+	return NULL;
 }
 
 void Bytecode_int_SetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *Value)
 {
 	if(!Value) {
-		Ent->Type = ET_REFERENCE;
-		Ent->Reference = NULL;
+		Ent->Type = SS_DATATYPE_NOVALUE;
 		return ;
 	}
+	Ent->Type = Value->Type;
 	switch(Value->Type)
 	{
+	case SS_DATATYPE_BOOLEAN:
+		Ent->Integer = Value->Integer;
+		break;
 	case SS_DATATYPE_INTEGER:
-		Ent->Type = SS_DATATYPE_INTEGER;
 		Ent->Integer = Value->Integer;
 		break;
 	case SS_DATATYPE_REAL:
-		Ent->Type = SS_DATATYPE_REAL;
 		Ent->Real = Value->Real;
 		break;
-	case SS_DATATYPE_OBJECT:
-		Ent->Type = SS_DATATYPE_OBJECT;
-		Ent->Object = Value->Object;
-		Ent->Object->ReferenceCount ++;
-		break;
-	default:
+	case SS_DATATYPE_STRING:
 		SpiderScript_ReferenceValue(Value);
-		Ent->Type = ET_REFERENCE;
 		Ent->Reference = Value;
+		break;
+	
+	default:
+		if( SS_GETARRAYDEPTH(Value->Type) ) {
+			Ent->Reference = Value;
+		}
+		else if( SS_ISTYPEOBJECT(Value->Type) ) {
+			Ent->Object = Value->Object;
+			Ent->Object->ReferenceCount ++;
+		}
+		else {
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _SetSpiderValue", Value->Type);
+			Ent->Type = SS_DATATYPE_NOVALUE;
+		}
 		break;
 	}
 }
@@ -169,45 +209,42 @@ void Bytecode_int_DerefStackValue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 	case SS_DATATYPE_REAL:
 		break;
-	case SS_DATATYPE_OBJECT:
-		if(Ent->Object) {
-			Ent->Object->ReferenceCount --;
-			if(Ent->Object->ReferenceCount == 0) {
-				if( (intptr_t)Ent->Object->Type & 1 )
-					free( Ent->Object );
-				else
-					Ent->Object->Type->Destructor( Ent->Object );
-			}
-//			printf("Object %p derefed (obj refcount = %i)\n", Ent->Object, Ent->Object->ReferenceCount);
-		}
-		Ent->Object = NULL;
+	case SS_DATATYPE_STRING:
+		SpiderScript_DereferenceValue(Ent->Reference);
 		break;
 	default:
-		if(Ent->Reference)
+		if( SS_GETARRAYDEPTH(Ent->Type) )
 			SpiderScript_DereferenceValue(Ent->Reference);
-		Ent->Reference = NULL;
+		else if( SS_ISTYPEOBJECT(Ent->Type) )
+			SpiderScript_DereferenceObject(Ent->Object);
+		else
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _DerefStackValue", Ent->Type);
 		break;
 	}
+	Ent->Type = SS_DATATYPE_NOVALUE;
 }
 void Bytecode_int_RefStackValue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 	case SS_DATATYPE_REAL:
 		break;
-	case SS_DATATYPE_OBJECT:
-		if(Ent->Object) {
-			Ent->Object->ReferenceCount ++;
-//			printf("Object %p referenced (count = %i)\n", Ent->Object, Ent->Object->ReferenceCount);
-		}
+	case SS_DATATYPE_STRING:
+		SpiderScript_ReferenceValue(Ent->Reference);
 		break;
 	default:
-		if(Ent->Reference)
+		if( SS_GETARRAYDEPTH(Ent->Type) )
 			SpiderScript_ReferenceValue(Ent->Reference);
+		else if( SS_ISTYPEOBJECT(Ent->Type) )
+			SpiderScript_ReferenceObject(Ent->Object);
+		else
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _DerefStackValue", Ent->Type);
 		break;
 	}
 }
@@ -216,20 +253,25 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_BOOLEAN:
+		printf("%s", (Ent->Integer ? "true" : "false"));
+		break;
 	case SS_DATATYPE_INTEGER:
 		printf("0x%"PRIx64, Ent->Integer);
 		break;
 	case SS_DATATYPE_REAL:
 		printf("%lf", Ent->Real);
 		break;
-	case SS_DATATYPE_OBJECT:
-		printf("Obj %p", Ent->Object);
+	case SS_DATATYPE_STRING:
+		printf("String (%i bytes)", Ent->Reference->String.Length);
 		break;
 	default:
-		if( Ent->Reference )
-			printf("*%p (%i refs)", Ent->Reference, Ent->Reference->ReferenceCount);
+		if( SS_GETARRAYDEPTH(Ent->Type) )
+			printf("Array %p", Ent->Reference);
+		else if( SS_ISTYPEOBJECT(Ent->Type) )
+			printf("Object %p", Ent->Object);
 		else
-			printf("NULL");
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _PrintStackValue", Ent->Type);
 		break;
 	}
 }
@@ -292,31 +334,10 @@ tSpiderValue *Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *
 	return ret;
 }
 
-tSpiderNamespace *Bytecode_int_ResolveNamespace(tSpiderNamespace *Start, const char *Name, const char **FinalName)
-{
-	char	*pos;
-	tSpiderNamespace	*ns = Start;
-	while( (pos = strchr(Name, BC_NS_SEPARATOR)) )
-	{
-		 int	len = pos - Name;
-		for( ns = ns->FirstChild; ns; ns = ns->Next )
-		{
-			if(memcmp(ns->Name, Name, len) == 0 && ns->Name[len] == 0)
-			break;
-		}
-		if(!ns) {
-			return NULL;
-		}
-		Name += len + 1;
-	}
-	if(FinalName)	*FinalName = Name;
-	return ns;
-}
-
 /**
  * \brief Call an external function (may recurse into Bytecode_ExecuteFunction, but may not)
  */
-int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tSpiderNamespace *DefaultNS, tBC_Op *op )
+int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC_Op *op )
 {
 	const char	*name = OP_STRING(op);
 	 int	arg_count = OP_INDX(op);
@@ -350,10 +371,8 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tSp
 		tSpiderObject	*obj;
 		GET_STACKVAL(val1);
 		
-		if(val1.Type == SS_DATATYPE_OBJECT)
+		if( SS_ISTYPEOBJECT(val1.Type) )
 			obj = val1.Object;
-		else if(val1.Type == ET_REFERENCE && val1.Reference && val1.Reference->Type == SS_DATATYPE_OBJECT)
-			obj = val1.Reference->Object;
 		else {
 			// Error
 			AST_RuntimeError(NULL, "OP_CALLMETHOD on non object");
@@ -456,11 +475,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	tBC_StackEnt	local_vars[local_var_count];	// Includes arguments
 	tSpiderValue	tmpVal1, tmpVal2;	// temp storage
 	tSpiderValue	*pval1, *pval2, *ret_val;
-	tSpiderNamespace	*default_namespace = &Script->Variant->RootNamespace;
 
 	// Initialise local vars
 	for( i = 0; i < local_var_count; i ++ )
-		local_vars[i].Type = ET_NULL;
+		local_vars[i].Type = SS_DATATYPE_NOVALUE;
 	
 	// Pop off arguments
 	if( ArgCount > Fcn->ArgumentCount )	return -1;
@@ -531,9 +549,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			}
 			STATE_HDR();
 			DEBUG_F("DEFVAR %i of type %i\n", slot, type);
-			if( local_vars[slot].Type != ET_NULL ) {
+			// Clear out if the slot is reused
+			if( local_vars[slot].Type != SS_DATATYPE_NOVALUE ) {
 				Bytecode_int_DerefStackValue( &local_vars[slot] );
-				local_vars[slot].Type = ET_NULL;
+				local_vars[slot].Type = SS_DATATYPE_NOVALUE;
 			}
 			memset(&local_vars[slot], 0, sizeof(local_vars[0]));
 			local_vars[slot].Type = type;
@@ -630,7 +649,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			
 			GET_STACKVAL(val1);
 			// - Integers/Reals can't have elements :)
-			if( val1.Type != ET_REFERENCE ) {
+			if( SS_ISTYPEOBJECT(val1.Type) ) {
 				nextop = NULL;
 				break;
 			}
@@ -691,7 +710,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		case BC_OP_LOADNULL:
 			STATE_HDR();
 			DEBUG_F("LOADNULL\n");
-			val1.Type = ET_REFERENCE;
+			val1.Type = SS_DATATYPE_NOVALUE;
 			val1.Reference = NULL;
 			PUT_STACKVAL(val1);
 			break;
@@ -927,7 +946,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			}
 		
 			// Slower call
-			if( Bytecode_int_CallExternFunction( Script, Stack, default_namespace, op ) ) {
+			if( Bytecode_int_CallExternFunction( Script, Stack, op ) ) {
 				nextop = NULL;
 				break;
 			}
@@ -955,7 +974,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	DEBUG_F("Nuking vars\n");
 	for( i = 0; i < local_var_count; i ++ )
 	{
-		if( local_vars[i].Type != ET_NULL )
+		if( local_vars[i].Type != SS_DATATYPE_NOVALUE )
 		{
 			DEBUG_F("Var %i - ", i); 
 			PRINT_STACKVAL(local_vars[i]);

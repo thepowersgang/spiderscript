@@ -10,7 +10,7 @@
 #include "common.h"
 #include "ast.h"
 
-#define USE_AST_EXEC	1
+#define USE_AST_EXEC	0
 #define TRACE_VAR_LOOKUPS	0
 #define TRACE_NODE_RETURNS	0
 
@@ -35,7 +35,12 @@ void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
  int	giNextBlockIdent = 1;
 
 // === CODE ===
-#if USE_AST_EXEC
+#if !USE_AST_EXEC
+tSpiderValue *AST_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Arguments)
+{
+	return ERRPTR;
+}
+#else
 tSpiderValue *AST_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Arguments)
 {
 	tAST_BlockState	bs;
@@ -977,32 +982,49 @@ tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
 		return ERRPTR;
 	}
 	
-	switch( Object->Type )
-	{
-	case SS_DATATYPE_OBJECT: {
-		tSpiderObjectDef	*class = Object->Object->Type;
-		for( i = 0; i < class->NAttributes; i ++ )
+	tSpiderClass *nc;
+	tScript_Class	*sc;
+	
+	nc = SpiderScript_GetClass_Native(Script, Object->Type);
+	sc = SpiderScript_GetClass_Script(Script, Object->Type);
+
+	if( nc ) {
+		for( i = 0; i < nc->NAttributes; i ++ )
 		{
-			if( strcmp(ElementName, class->AttributeDefs[i].Name) == 0 )
-			{
-				if( SaveValue != ERRPTR ) {
-					Object->Object->Attributes[i] = SaveValue;
-					SpiderScript_ReferenceValue(SaveValue);
-					return NULL;
-				}
-				else {
-					ret = Object->Object->Attributes[i];
-					SpiderScript_ReferenceValue(ret);
-					return ret;
-				}
-			}
+			if( strcmp(ElementName, nc->AttributeDefs[i].Name) == 0 )
+				break ;
 		}
-		AST_RuntimeError(Node, "Unknown attribute '%s' of class '%s'",
-			ElementName, class->Name);
-		return ERRPTR; }
-	default:
+		if( i == nc->NAttributes ) {
+			// TODO: Error message
+			return ERRPTR;
+		}
+	}
+	else if( sc ) {
+		tScript_Class_Var *at;
+		for( i = 0, at = sc->FirstProperty; at; at = at->Next, i ++ )
+		{
+			if( strcmp(ElementName, at->Name) == 0 )
+				break;
+		}
+		if( !at ) {
+			// TODO: Error message
+			return ERRPTR;
+		}
+	}
+	else {
 		AST_RuntimeError(Node, "Unable to get element of type %i", Object->Type);
 		return ERRPTR;
+	}
+	
+	if( SaveValue != ERRPTR ) {
+		Object->Object->Attributes[i] = SaveValue;
+		SpiderScript_ReferenceValue(SaveValue);
+		return NULL;
+	}
+	else {
+		ret = Object->Object->Attributes[i];
+		SpiderScript_ReferenceValue(ret);
+		return ret;
 	}
 }
 

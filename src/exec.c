@@ -16,7 +16,6 @@
 
 // === IMPORTS ===
 extern tSpiderFunction	*gpExports_First;
-extern tSpiderNamespace	gExportNamespaceRoot;
 extern tSpiderValue	*AST_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Arguments);
 extern tSpiderValue	*Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Args);
 
@@ -25,104 +24,31 @@ void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, .
 void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 
 // === CODE ===
-void *SpiderScript_int_GetNamespace(tSpiderScript *Script, tSpiderNamespace *RootNamespace,
-	const char *BasePath, const char *ItemPath,
-	const char **ItemName
-	)
-{
-	 int	len;
-	const char	*name;
-	const char	*end;
-	 int	bTriedBase;
-	
-	tSpiderNamespace	*lastns, *ns;
-
-	// Prepend the base namespace
-	if( BasePath ) {
-		name = BasePath;
-		bTriedBase = 0;
-	}
-	else {
-		bTriedBase = 1;
-		name = ItemPath;
-	}
-	
-	// Scan
-	lastns = RootNamespace;
-	do {
-		end = strchr(name, BC_NS_SEPARATOR);
-		if(!end) {
-			if( !bTriedBase )
-				len = strlen(name);
-			else
-				break;
-		}
-		else {
-			len = end - name;
-		}
-
-		// Check for this level
-		for( ns = lastns->FirstChild; ns; ns = ns->Next )
-		{
-//			printf("%p %.*s == %s\n", lastns, len, name, ns->Name);
-			if( strncmp(name, ns->Name, len) == 0 && ns->Name[len] == 0 )
-				break ;
-		}
-		
-		if(!ns)	return NULL;
-
-		if(!end && !bTriedBase) {
-			end = ItemPath - 1;	// -1 to counter (name = end + 1)
-			bTriedBase = 1;
-		}
-
-		lastns = ns;
-		name = end + 1;
-	} while( end );
-
-	*ItemName = name;
-
-	return lastns;
+/**
+ * \brief Defines the group of functions to look up classes / functions
+ */
+#define DEF_GETFCNCLASS(_type, _name) \
+_type *_name(tSpiderScript *Script, _type *First, const char *BasePath, const char *Path) { \
+	_type	*e; \
+	 int	baseLen = (BasePath ? strlen(BasePath) : 0); \
+	for( e = First; e; e = e->Next ) \
+	{ \
+		 int	ofs = baseLen ? baseLen + 1 : 0; \
+		if( baseLen ) { \
+			if( strncmp(e->Name, BasePath, baseLen) != 0 )	continue ; \
+			if( e->Name[baseLen] != BC_NS_SEPARATOR )	continue ; \
+		} \
+		if( strcmp(e->Name + ofs, Path) == 0 ) \
+			return e; \
+	} \
+	return NULL; \
 }
 
-tSpiderFunction *SpiderScript_int_GetNativeFunction(tSpiderScript *Script, tSpiderNamespace *RootNamespace,
-	const char *BasePath, const char *FunctionPath)
-{
-	tSpiderNamespace *ns;
-	const char *name;
-	tSpiderFunction	*fcn;
+DEF_GETFCNCLASS(tSpiderFunction, SpiderScript_int_GetNativeFunction)
+DEF_GETFCNCLASS(tSpiderClass, SpiderScript_int_GetNativeClass)
+DEF_GETFCNCLASS(tScript_Function, SpiderScript_int_GetScriptFunction)
+DEF_GETFCNCLASS(tScript_Class, SpiderScript_int_GetScriptClass)
 
-	ns = SpiderScript_int_GetNamespace(Script, RootNamespace, BasePath, FunctionPath, &name);
-	if(!ns)	return NULL;
-
-	for( fcn = ns->Functions; fcn; fcn = fcn->Next )
-	{
-		if( strcmp(name, fcn->Name) == 0 )
-			return fcn;
-	}
-	
-	return NULL;
-}
-
-tSpiderObjectDef *SpiderScript_int_GetNativeClass(tSpiderScript *Script, tSpiderNamespace *RootNamespace,
-	const char *BasePath, const char *ClassPath
-	)
-{
-	tSpiderNamespace *ns;
-	const char *name;
-	tSpiderObjectDef *class;
-
-	ns = SpiderScript_int_GetNamespace(Script, RootNamespace, BasePath, ClassPath, &name);
-	if(!ns)	return NULL;
-	
-	for( class = ns->Classes; class; class = class->Next )
-	{
-		if( strcmp(name, class->Name) == 0 )
-			return class;
-	}
-
-	return NULL;
-}
 
 /**
  * \brief Execute a script function
@@ -141,101 +67,69 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
 {
 	tSpiderValue	*ret = ERRPTR;
 	tSpiderFunction	*fcn = NULL;
-	tScript_Function	*sfcn;
+	tScript_Function	*sfcn = NULL;
 	 int	i;
 
 	if( FunctionIdent && *FunctionIdent ) {
-		if( *(intptr_t*)FunctionIdent & 1 ) {
+		if( *(intptr_t*)FunctionIdent & 1 )
 			sfcn = (void*)( *(intptr_t*)FunctionIdent & ~1 );
-			goto _exec_sfcn;
-		}
-		else {
+		else
 			fcn = *FunctionIdent;
-			goto _exec_fcn;
-		}
 	}
 
 	// Scan list, Last item should always be NULL, so abuse that to check non-prefixed	
-	for( i = 0; i == 0 || (DefaultNamespaces && DefaultNamespaces[i-1]); i ++ )
+	if( !sfcn && !fcn )
 	{
-		const char *ns = DefaultNamespaces ? DefaultNamespaces[i] : NULL;
-		fcn = SpiderScript_int_GetNativeFunction(Script, &Script->Variant->RootNamespace, ns, Function);
-		if( fcn )	break;
-
-		fcn = SpiderScript_int_GetNativeFunction(Script, &gExportNamespaceRoot, ns, Function);
-		if( fcn )	break;
-	
-		// TODO: Script namespacing
-	}
-
-	// Search the variant's global exports
-	if( !fcn )
-	{
-		for( fcn = Script->Variant->Functions; fcn; fcn = fcn->Next )
+		for( i = 0; i == 0 || (DefaultNamespaces && DefaultNamespaces[i-1]); i ++ )
 		{
-			if( strcmp( fcn->Name, Function ) == 0 )
-				break;
+			const char *ns = DefaultNamespaces ? DefaultNamespaces[i] : NULL;
+			fcn = SpiderScript_int_GetNativeFunction(Script, Script->Variant->Functions, ns, Function);
+			if( fcn )	break;
+
+			fcn = SpiderScript_int_GetNativeFunction(Script, gpExports_First, ns, Function);
+			if( fcn )	break;
+		
+			// TODO: Script namespacing
+			sfcn = SpiderScript_int_GetScriptFunction(Script, Script->Functions, ns, Function);
+			if( sfcn )	break ;
 		}
 	}
-	
-	// Fourth: Search language exports
-	if( !fcn )
-	{
-		for( fcn = gpExports_First; fcn; fcn = fcn->Next )
-		{
-			if( strcmp( fcn->Name, Function ) == 0 )
-				break;
-		}
-	}
-	
+
 	// Find the function in the script?
 	// TODO: Script namespacing
-	if( !fcn && strchr(Function, BC_NS_SEPARATOR) == NULL )
+	if( sfcn )
 	{
-		for( sfcn = Script->Functions; sfcn; sfcn = sfcn->Next )
-		{
-			if( strcmp(sfcn->Name, Function) == 0 )
-				break;
-		}
-	_exec_sfcn:
+		// Abuses alignment requirements on almost all platforms
+		if( FunctionIdent )
+			*FunctionIdent = (void*)( (intptr_t)sfcn | 1 );
+
 		// Execute!
-		if(sfcn)
+		if( bExecute )
 		{
-			if( bExecute )
-			{
-				if( sfcn->BCFcn )
-					ret = Bytecode_ExecuteFunction(Script, sfcn, NArguments, Arguments);
-				else
-					ret = AST_ExecuteFunction(Script, sfcn, NArguments, Arguments);
-			}
+			if( sfcn->BCFcn )
+				ret = Bytecode_ExecuteFunction(Script, sfcn, NArguments, Arguments);
 			else
-			{
-				ret = NULL;
-			}
-
-			if( FunctionIdent ) {
-				*FunctionIdent = sfcn;
-				// Abuses alignment requirements on almost all platforms
-				*(intptr_t*)FunctionIdent |= 1;
-			}
-
-			return ret;
+				ret = AST_ExecuteFunction(Script, sfcn, NArguments, Arguments);
 		}
+		else
+		{
+			ret = NULL;
+		}
+
+		return ret;
 	}
 
-_exec_fcn:
-	if(fcn)
+	else if(fcn)
 	{
+		if( FunctionIdent )
+			*FunctionIdent = fcn;		
+
 		// Execute!
-		// TODO: Type Checking
 		if( bExecute )
 			ret = fcn->Handler( Script, NArguments, Arguments );
 		else
 			ret = NULL;
 	
-		if( FunctionIdent )
-			*FunctionIdent = fcn;		
-
 		return ret;
 	}
 	else
@@ -261,18 +155,19 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderValue	this;
 	tSpiderValue	*newargs[NArguments+1];
 	 int	i;
+	tScript_Class	*sc;
+	tSpiderClass *nc;
 	
 	// Create the "this" argument
-	this.Type = SS_DATATYPE_OBJECT;
+	this.Type = Object->TypeCode;
 	this.ReferenceCount = 1;
 	this.Object = Object;
 	newargs[0] = &this;
 	memcpy(&newargs[1], Arguments, NArguments*sizeof(tSpiderValue*));
 
 	// Check type	
-	if( (intptr_t)Object->Type & 1 )
+	if( (sc = SpiderScript_GetClass_Script(Script, Object->TypeCode)) )
 	{
-		tScript_Class	*sc = (void*)( (intptr_t)Object->Type & ~1 );
 		tScript_Function *sf;
 
 		for( sf = sc->FirstFunction; sf; sf = sf->Next )
@@ -310,10 +205,10 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
 		else
 			return AST_ExecuteFunction(Script, sf, NArguments+1, newargs);
 	}
-	else
+	else if( (nc = SpiderScript_GetClass_Native(Script, Object->TypeCode)) )
 	{
 		// Search for the function
-		for( fcn = Object->Type->Methods; fcn; fcn = fcn->Next )
+		for( fcn = nc->Methods; fcn; fcn = fcn->Next )
 		{
 			if( strcmp(fcn->Name, MethodName) == 0 )
 				break;
@@ -322,7 +217,7 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
 		if( !fcn )
 		{
 			AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
-				Object->Type->Name, MethodName);
+				nc->Name, MethodName);
 			return ERRPTR;
 		}
 		
@@ -346,6 +241,11 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
 		// Call handler
 		return fcn->Handler(Script, NArguments+1, newargs);
 	}
+	else
+	{
+		AST_RuntimeError(NULL, "Method call on non-object");
+		return ERRPTR;
+	}
 }
 
 /**
@@ -362,7 +262,7 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 	)
 {
 	tSpiderValue	*ret = ERRPTR;
-	tSpiderObjectDef	*class = NULL;
+	tSpiderClass	*class = NULL;
 	tScript_Class	*sc = NULL;
 	 int	i;	
 
@@ -373,30 +273,20 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 			class = *FunctionIdent;
 	}
 
-	// Scan list, Last item should always be NULL, so abuse that to check non-prefixed	
+	// Scan list, Last item should always be NULL, so abuse that to check without a prefix
 	if( !class && !sc )
 	{
 		for( i = 0; i == 0 || DefaultNamespaces[i-1]; i ++ )
 		{
 			const char *ns = DefaultNamespaces[i];
-			class = SpiderScript_int_GetNativeClass(Script, &Script->Variant->RootNamespace, ns, ClassPath);
+			class = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, ClassPath);
 			if( class )	break;
 	
-			class = SpiderScript_int_GetNativeClass(Script, &gExportNamespaceRoot, ns, ClassPath);
-			if( class )	break;
+//			class = SpiderScript_int_GetNativeClass(Script, &gExportNamespaceRoot, ns, ClassPath);
+//			if( class )	break;
 			
-			// TODO: Language defined classes
-		}
-	}
-		
-	// Check in the script
-	if( !class && !sc )
-	{
-		// TODO: Namespacing
-		for( sc = Script->FirstClass; sc; sc = sc->Next )
-		{
-			if( strcmp(sc->Name, ClassPath) == 0 )
-				break;
+			sc = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, ClassPath);
+			if( sc )	break;
 		}
 	}
 	
@@ -411,13 +301,13 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 		{
 			tSpiderObject	*obj;
 			// TODO: Type Checking
-			obj = class->Constructor( NArguments, Arguments );
+			obj = class->Constructor( Script, NArguments, Arguments );
 			if( obj == NULL || obj == ERRPTR )
 				return (void *)obj;
 			
 			// Creatue return object
 			ret = malloc( sizeof(tSpiderValue) );
-			ret->Type = SS_DATATYPE_OBJECT;
+			ret->Type = SpiderScript_GetTypeCode(Script, class->Name);
 			ret->ReferenceCount = 1;
 			ret->Object = obj;
 			
@@ -444,7 +334,7 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 			obj = calloc( 1, sizeof(tSpiderObject) + sc->nProperties*sizeof(tSpiderValue*) );
 			if(!obj)	return ERRPTR;
 	
-			obj->Type = ident;
+			obj->TypeCode = sc->TypeCode;
 			obj->ReferenceCount = 1;
 
 			// Call constructor?
@@ -455,7 +345,7 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 			}
 			
 			ret = malloc( sizeof(tSpiderValue) );
-			ret->Type = SS_DATATYPE_OBJECT;
+			ret->Type = sc->TypeCode;
 			ret->ReferenceCount = 1;
 			ret->Object = obj;
 			if( f )

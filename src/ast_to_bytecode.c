@@ -134,6 +134,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	 int	i, op = 0;
 	 int	bAddedValue = 1;	// Used to tell if the value needs to be deleted
 	void	*ident;	// used for classes
+	tScript_Class	*sc;
+	tSpiderClass *nc;
 	
 	switch(Node->Type)
 	{
@@ -263,9 +265,15 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = AST_ConvertNode(Block, Node->FunctionCall.Object, 1);
 		if(ret)	return ret;
 		
-		ret = _StackPop(Block, Node, SS_DATATYPE_OBJECT, &ident);
+		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
-
+		
+		nc = SpiderScript_GetClass_Native(Block->Script, ret);
+		sc = SpiderScript_GetClass_Script(Block->Script, ret);
+		if(!nc && !sc)
+			AST_RuntimeError(Node, "Method call on non-object");
+			// Sad to be chucked
+		
 		// Push arguments to the stack
 		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
 		{
@@ -287,18 +295,35 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 		// Do type checking on arguments
 		 int	ret_type = 0;
-		if( ident )
+		if( sc )
 		{
-			if( (intptr_t)ident & 1 )
+			// Script class
+			tScript_Function *m;
+			for( m = sc->FirstFunction; m; m = m->Next )
 			{
-				// Script class
-				// TODO: Typechecking on script class methods
+				if( strcmp(m->Name, Node->FunctionCall.Name) == 0 ) {
+					break;
+				}
 			}
-			else
+			if( !m )
+				AST_RuntimeError(Node, "Class %s does not have a method %s", sc->Name, Node->FunctionCall.Name);
+			ret_type = m->ReturnType;
+			// TODO: Typechecking on script class methods
+		}
+		else
+		{
+			// Native class
+			tSpiderFunction *m;
+			for( m = nc->Methods; m; m = m->Next )
 			{
-				// Native class
-				// TODO: Typechecking on native class methods
-			}	
+				if( strcmp(m->Name, Node->FunctionCall.Name) == 0 ) {
+					break;
+				}
+			}
+			if( !m )
+				AST_RuntimeError(Node, "Class %s does not have a method %s", nc->Name, Node->FunctionCall.Name);
+			ret_type = m->ReturnType;
+			// TODO: Typechecking on native class methods
 		}
 		
 		Bytecode_AppendMethodCall(Block->Handle, Node->FunctionCall.Name, nargs);
@@ -363,7 +388,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			
 			if( (intptr_t)ident & 1 )
 			{
-				tScript_Class	*sc = (void*)( (intptr_t)ident & ~1ULL );
+				sc = (void*)( (intptr_t)ident & ~1ULL );
 				tScript_Function *sf;
 
 				for( sf = sc->FirstFunction; sf; sf = sf->Next )
@@ -402,7 +427,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			}
 			else
 			{
-//				tSpiderObjectDef	*class = ident;
+//				tSpiderClass	*class = ident;
 				
 				// TODO: Impliment argument types in native constructors
 			}
@@ -410,7 +435,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			Bytecode_AppendCreateObj(Block->Handle, manglename, nargs);
 				
 			// Push return type
-			ret = _StackPush(Block, Node, SS_DATATYPE_OBJECT, ident);
+			ret = _StackPush(Block, Node, SpiderScript_GetTypeCode(Block->Script, manglename), NULL);
 			if(ret < 0)	return -1;
 		}
 		else
@@ -665,14 +690,40 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = AST_ConvertNode( Block, Node->Scope.Element, 1 );
 		if(ret)	return ret;
 
-		// TODO: Support elements for non-objects
-		ret = _StackPop(Block, Node, SS_DATATYPE_OBJECT, &ident);
+		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, &ident);
 		if(ret < 0)	return -1;
 
+		nc = SpiderScript_GetClass_Native(Block->Script, ret);
+		sc = SpiderScript_GetClass_Script(Block->Script, ret);
+
+		if(nc) {
+			for( i = 0; i < nc->NAttributes; i ++ ) {
+				if( strcmp(Node->Scope.Name, nc->AttributeDefs[i].Name) == 0 )
+					break;
+			}
+			if( i == nc->NAttributes )
+				AST_RuntimeError(Node, "Class %s does not have an attribute %s", nc->Name, Node->Scope.Name);
+			ret = nc->AttributeDefs[i].Type;
+		}
+		else if(sc) {
+			tScript_Class_Var *at;
+			for( at = sc->FirstProperty; at; at = at->Next )
+			{
+				if( strcmp(Node->Scope.Name, at->Name) == 0 )
+					break;
+			}
+			if( !at )
+				AST_RuntimeError(Node, "Class %s does not have an attribute %s", sc->Name, Node->Scope.Name);
+			ret = at->Type;
+		}
+		else {
+			AST_RuntimeError(Node, "Getting element of non-class type %i", ret);
+		}
+
+		// TODO: Don't save the element name, instead store the index into the attribute array
 		Bytecode_AppendElement(Block->Handle, Node->Scope.Name);
 		
-		// TODO: Somehow know this at compile time?
-		ret = _StackPush(Block, Node, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPush(Block, Node, ret, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
@@ -683,7 +734,9 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		if(ret)	return ret;
 		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
-		
+
+		// TODO: Check if the type is castable (if object, if it has a cast operator)	
+	
 		Bytecode_AppendCast(Block->Handle, Node->Cast.DataType);
 		ret = _StackPush(Block, Node, Node->Cast.DataType, NULL);
 		if(ret < 0)	return -1;
@@ -698,9 +751,10 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		//  > Type check
 		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
-		if(ret != SS_DATATYPE_ARRAY && SS_GETARRAYDEPTH(ret) == 0) {
-			AST_RuntimeError(Node, "Type mismatch, Expected an array, got %i",
-				ret);
+		
+		// TODO: Support indexing on objects
+		if(SS_GETARRAYDEPTH(ret) == 0) {
+			AST_RuntimeError(Node, "Type mismatch, Expected an array, got %i", ret);
 			return -2;
 		}
 		i = ret;	// Hackily save the datatype
@@ -714,9 +768,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		Bytecode_AppendIndex(Block->Handle);
 		
 		// Update the array depth
-		if( i != SS_DATATYPE_ARRAY ) {
-			i = SS_DOWNARRAY(i);	// Decrease the array level
-		}
+		i = SS_DOWNARRAY(i);	// Decrease the array level
 		ret = _StackPush(Block, Node, i, NULL);
 		if(ret < 0)	return -1;
 		
@@ -824,8 +876,11 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 {
-	 int	ret, type;
+	 int	ret, type, i;
 	void	*ident;
+	tSpiderClass *nc;
+	tScript_Class	*sc;
+
 	switch(DestNode->Type)
 	{
 	// Variable, simple
@@ -839,7 +894,7 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 		if(ret)	return ret;
 		ret = _StackPop(Block, DestNode->BinOp.Left, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
-		if(ret != SS_DATATYPE_ARRAY && SS_GETARRAYDEPTH(ret) == 0) {
+		if(SS_GETARRAYDEPTH(ret) == 0) {
 			AST_RuntimeError(DestNode, "Type mismatch, Expected an array, got %i",
 				ret);
 			return -2;
@@ -858,10 +913,42 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 	case NODETYPE_ELEMENT:
 		ret = AST_ConvertNode(Block, DestNode->Scope.Element, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, DestNode->Scope.Element, SS_DATATYPE_OBJECT, &ident);
+		ret = _StackPop(Block, DestNode->Scope.Element, SS_DATATYPE_UNDEF, &ident);
 		if(ret < 0)	return -1;
 
-		// TODO: Check if the element is present
+		sc = SpiderScript_GetClass_Script(Block->Script, ret);
+		nc = SpiderScript_GetClass_Native(Block->Script, ret);
+		
+		if(nc) {
+			for( i = 0; i < nc->NAttributes; i ++ ) {
+				if( strcmp(DestNode->Scope.Name, nc->AttributeDefs[i].Name) == 0 )
+					break;
+			}
+			if( i == nc->NAttributes ) {
+				AST_RuntimeError(DestNode, "Class %s does not have an attribute %s", nc->Name, DestNode->Scope.Name);
+				return -2;
+			}
+			ret = nc->AttributeDefs[i].Type;
+		}
+		else if(sc) {
+			tScript_Class_Var *at;
+			for( at = sc->FirstProperty; at; at = at->Next )
+			{
+				if( strcmp(DestNode->Scope.Name, at->Name) == 0 )
+					break;
+			}
+			if( !at ) {
+				AST_RuntimeError(DestNode, "Class %s does not have an attribute %s", sc->Name, DestNode->Scope.Name);
+				return -2;
+			}
+			ret = at->Type;
+		}
+		else {
+			AST_RuntimeError(DestNode, "Setting element of non-class type %i", ret);
+			return -2;
+		}
+
+		_StackPop(Block, DestNode, ret, NULL);
 		
 		Bytecode_AppendSetElement( Block->Handle, DestNode->Scope.Name );
 		break;

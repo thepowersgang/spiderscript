@@ -12,9 +12,15 @@
 extern void	SyntaxError(tParser *Parser, int bFatal, const char *Message, ...);
 
 // === CODE ===
-tScript_Class *AST_AppendClass(tSpiderScript *Script, const char *Name)
+tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 {
 	tScript_Class	*ret;
+
+	// TODO: Prepend namespace?
+
+	if( SpiderScript_GetTypeCode(Parser->Script, Name) != -1 ) {
+		return NULL;
+	}
 	
 	ret = malloc( sizeof(tScript_Class) + strlen(Name) + 1 );
 	if( !ret )	return NULL;	
@@ -25,16 +31,18 @@ tScript_Class *AST_AppendClass(tSpiderScript *Script, const char *Name)
 	ret->nProperties = 0;
 	strcpy(ret->Name, Name);
 
-	if( Script->FirstClass )
-		Script->LastClass->Next = ret;
+	if( Parser->Script->FirstClass )
+		Parser->Script->LastClass->Next = ret;
 	else
-		Script->FirstClass = ret;
-	Script->LastClass = ret;
-
+		Parser->Script->FirstClass = ret;
+	Parser->Script->LastClass = ret;
+	// TODO: is this too expensive?
+	ret->TypeCode = SpiderScript_GetTypeCode(Parser->Script, Name);
+	
 	return ret;
 }
 
-int AST_AppendClassProperty(tScript_Class *Class, const char *Name, int Type)
+int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, int Type)
 {
 	tScript_Class_Var	*p;
 
@@ -74,8 +82,6 @@ tScript_Function *AST_int_MakeFunction(const char *Name, int ReturnType, tAST_No
 		arg_count ++;
 		arg_bytes += sizeof(fcn->Arguments[0]) + strlen(arg->DefVar.Name) + 1;
 	}
-	arg_count ++;
-	arg_bytes += sizeof(fcn->Arguments[0]) + strlen("this") + 1;
 
 	// Allocate information
 	fcn = malloc( sizeof(tScript_Function) + arg_bytes + strlen(Name) + 1 );
@@ -92,12 +98,6 @@ tScript_Function *AST_int_MakeFunction(const char *Name, int ReturnType, tAST_No
 	arg_bytes = strlen(Name) + 1;	// Used as an offset into fcn->Name
 	arg_count = 0;
 
-	fcn->Arguments[0].Name = fcn->Name + arg_bytes;
-	strcpy(fcn->Arguments[0].Name, "this");
-	fcn->Arguments[arg_count].Type = SS_DATATYPE_OBJECT;	
-	arg_bytes += strlen("this") + 1;
-	arg_count ++;
-	
 	for(arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		fcn->Arguments[arg_count].Name = fcn->Name + arg_bytes;
@@ -110,7 +110,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, int ReturnType, tAST_No
 	return fcn;
 }
 
-int AST_AppendMethod(tScript_Class *Class, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
 {
 	tScript_Function	*method;
 	
@@ -120,8 +120,13 @@ int AST_AppendMethod(tScript_Class *Class, const char *Name, int ReturnType, tAS
 			return 1;
 	}
 
-	method = AST_int_MakeFunction(Name, ReturnType, FirstArg, Code);
+	tAST_Node *this_def = AST_NewDefineVar(Parser, Class->TypeCode, "this");
+	this_def->NextSibling = FirstArg;
+
+	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code);
 	if(!method)	return -1;
+
+	AST_FreeNode(this_def);
 	
 	if(Class->FirstFunction)
 		Class->LastFunction->Next = method;
@@ -135,11 +140,13 @@ int AST_AppendMethod(tScript_Class *Class, const char *Name, int ReturnType, tAS
 /**
  * \brief Append a function to a script
  */
-int AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, tAST_Node *Args, tAST_Node *Code)
+int AST_AppendFunction(tParser *Parser, const char *Name, int ReturnType, tAST_Node *Args, tAST_Node *Code)
 {
 	tScript_Function	*fcn;
 
-	for( fcn = Script->Functions; fcn; fcn = fcn->Next )
+	// TODO: Prepend namespace
+
+	for( fcn = Parser->Script->Functions; fcn; fcn = fcn->Next )
 	{
 		if( strcmp(fcn->Name, Name) == 0 )
 			return 1;
@@ -148,11 +155,11 @@ int AST_AppendFunction(tSpiderScript *Script, const char *Name, int ReturnType, 
 	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code);
 	if(!fcn)	return -1;	
 
-	if(Script->Functions)
-		Script->LastFunction->Next = fcn;
+	if(Parser->Script->Functions)
+		Parser->Script->LastFunction->Next = fcn;
 	else
-		Script->Functions = fcn;
-	Script->LastFunction = fcn;
+		Parser->Script->Functions = fcn;
+	Parser->Script->LastFunction = fcn;
 	
 	return 0;
 }

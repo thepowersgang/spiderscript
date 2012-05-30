@@ -17,57 +17,35 @@ typedef struct sSpiderVariant	tSpiderVariant;
 typedef struct sSpiderNamespace	tSpiderNamespace;
 typedef struct sSpiderFunction	tSpiderFunction;
 typedef struct sSpiderValue	tSpiderValue;
-typedef struct sSpiderObjectDef	tSpiderObjectDef;
+typedef struct sSpiderClass	tSpiderClass;
 typedef struct sSpiderObject	tSpiderObject;
 
+typedef int	tSpiderScript_DataType;
 
 /**
  * \brief SpiderScript Variable Datatypes
  * \todo Expand the descriptions
  */
-enum eSpiderScript_DataTypes
+enum eSpiderScript_InternalTypes
 {
-	/**
-	 * \brief Undefined data
-	 * \note Default type of an undefined dynamic variable
-	 */
-	SS_DATATYPE_UNDEF,
-	/**
-	 * \brief Dynamically typed variable
-	 * \note Used to dentote a non-fixed type for function parameters
-	 */
-	SS_DATATYPE_DYNAMIC,
-	/**
-	 * \brief Opaque Data Pointer
-	 * 
-	 * Opaque data types are used for resource handles or for system buffers.
-	 */
-	SS_DATATYPE_OPAQUE,
-	/**
-	 * \brief Object reference
-	 * 
-	 * A reference to a SpiderScript class instance. Can be accessed
-	 * using the -> operator.
-	 */
-	SS_DATATYPE_OBJECT,
-	/**
-	 * \brief Array data type (invalid when using static typing)
-	 */
-	SS_DATATYPE_ARRAY,
-	/**
-	 * \brief Integer datatype
-	 * 
-	 * 64-bit integer
-	 */
-	SS_DATATYPE_INTEGER,
-	SS_DATATYPE_REAL,	//!< Real Number (double)
-	SS_DATATYPE_STRING,	//!< String
+	SS_DATATYPE_NOVALUE,	// "void" - No value stored
+	SS_DATATYPE_UNDEF,	// "Variable" - Used for dynamic typing
+	SS_DATATYPE_BOOLEAN,	// "Boolean" - true/false
+	SS_DATATYPE_INTEGER,	// "Integer" - 64-bit signed integer
+	SS_DATATYPE_REAL,	// "Real" - 64-bit floating point
+	SS_DATATYPE_STRING,	// "String" - Byte sequence
 	NUM_SS_DATATYPES
 };
 
+extern const char *SpiderScript_GetTypeName(tSpiderScript *Script, int Type);
+extern int	SpiderScript_GetTypeCode(tSpiderScript *Script, const char *Name);
+extern int	SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Length);
+
+#define SS_MAKEARRAYN(_type, _lvl)	((_type) + 0x10000*(_lvl))
 #define SS_MAKEARRAY(_type)	((_type) + 0x10000)
 #define SS_DOWNARRAY(_type)	((_type) - 0x10000)
 #define SS_GETARRAYDEPTH(_type)	((_type) >> 16)
+#define SS_ISTYPEOBJECT(_type)	((_type) & 0xF000)
 
 enum eSpiderValueOps
 {
@@ -91,25 +69,6 @@ enum eSpiderValueOps
 };
 
 /**
- * \brief Namespace definition
- */
-struct sSpiderNamespace
-{
-	tSpiderNamespace	*Next;
-	
-	tSpiderNamespace	*FirstChild;
-	
-	tSpiderFunction	*Functions;
-	
-	tSpiderObjectDef	*Classes;
-	
-	 int	NConstants;	//!< Number of constants
-	tSpiderValue	*Constants;	//!< Number of constants
-	
-	const char	Name[];
-};
-
-/**
  * \brief Variant of SpiderScript
  */
 struct sSpiderVariant
@@ -119,12 +78,15 @@ struct sSpiderVariant
 	 int	bDyamicTyped;	//!< Use dynamic typing
 	 int	bImplicitCasts;	//!< Allow implicit casts (casts to lefthand side)
 	
-	tSpiderFunction	*Functions;	//!< Functions (Linked List)
+	tSpiderFunction	*Functions;	//!< Functions (Flat list)
+	tSpiderClass	*Classes;	//!< Classes (Flat list)
 	
+	tSpiderValue	(*GetConstant)(int Index);
 	 int	NConstants;	//!< Number of constants
-	tSpiderValue	*Constants;	//!< Number of constants
-	
-	tSpiderNamespace	RootNamespace;
+	struct {
+		const char *Name;
+		 int	Type;
+	}	Constants[];	//!< Number of constants
 };
 
 /**
@@ -132,7 +94,7 @@ struct sSpiderVariant
  */
 struct sSpiderValue
 {
-	enum eSpiderScript_DataTypes	Type;	//!< Variable type
+	tSpiderScript_DataType	Type;	//!< Variable type
 	 int	ReferenceCount;	//!< Reference count
 	
 	union {
@@ -173,11 +135,11 @@ struct sSpiderValue
  * 
  * Internal representation of an arbitary object.
  */
-struct sSpiderObjectDef
+struct sSpiderClass
 {
 	/**
 	 */
-	struct sSpiderObjectDef	*Next;	//!< Internal linked list
+	struct sSpiderClass	*Next;	//!< Internal linked list
 	/**
 	 * \brief Object type name
 	 */
@@ -190,7 +152,7 @@ struct sSpiderObjectDef
 	 * \retval NULL	Invalid parameter (usually, actually just a NULL value)
 	 * \retval ERRPTR	Invalid parameter count
 	 */
-	tSpiderObject	*(*Constructor)(int NArgs, tSpiderValue **Args);
+	tSpiderObject	*(*Constructor)(tSpiderScript *Script, int NArgs, tSpiderValue **Args);
 	
 	/**
 	 * \brief Clean up and destroy the object
@@ -230,7 +192,8 @@ struct sSpiderObjectDef
  */
 struct sSpiderObject
 {
-	tSpiderObjectDef	*Type;	//!< Object Type
+	 int	TypeCode;
+	tSpiderScript	*Script;
 	 int	ReferenceCount;	//!< Number of references
 	void	*OpaqueData;	//!< Pointer to the end of the \a Attributes array
 	tSpiderValue	*Attributes[];	//!< Attribute Array
@@ -326,7 +289,9 @@ extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
  */
 extern void	SpiderScript_Free(tSpiderScript *Script);
 
-extern tSpiderObject	*SpiderScript_AllocateObject(tSpiderObjectDef *Class, int ExtraBytes);
+extern tSpiderObject	*SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *Class, int ExtraBytes);
+extern void	SpiderScript_ReferenceObject(tSpiderObject *Object);
+extern void	SpiderScript_DereferenceObject(tSpiderObject *Object);
 
 /**
  * \name tSpiderValue Manipulation functions

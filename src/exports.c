@@ -16,35 +16,22 @@ tSpiderValue	*Exports_Lang_Struct(tSpiderScript *Script, int NArgs, tSpiderValue
 
 // === GLOBALS ===
 tSpiderFunction	gExports_Lang_Strings_Split = {
-	.Name = "Split",
+	.Name = "Lang@Strings@Split",
 	.Handler = Exports_Lang_Strings_Split,
 	.ReturnType = SS_MAKEARRAY(SS_DATATYPE_STRING),
 	.ArgTypes = {SS_DATATYPE_STRING, SS_DATATYPE_STRING, -1}
 };
-tSpiderNamespace	gExports_NS_Lang_Strings = {
-	.Name = "Strings",
-	.Functions = &gExports_Lang_Strings_Split
-	};
 
 tSpiderFunction	gExports_Lang_Struct = {
-	.Name = "Struct",
+	.Next = &gExports_Lang_Strings_Split,
+	.Name = "Lang@Struct",
 	.Handler = Exports_Lang_Struct,
-	.ReturnType = SS_DATATYPE_OPAQUE,
+	.ReturnType = SS_DATATYPE_STRING,
 	.ArgTypes = {SS_DATATYPE_STRING, -1}
 };
-// - Lang Namespace
-tSpiderNamespace	gExports_NS_Lang = {
-	.Name = "Lang",
-	.Functions = &gExports_Lang_Struct,
-	.FirstChild = &gExports_NS_Lang_Strings
-	};
-tSpiderNamespace	gExportNamespaceRoot = {
-	.FirstChild = &gExports_NS_Lang
-};
-
 // -- Global Functions
 tSpiderFunction	gExports_array = {
-	.Next = NULL,
+	.Next = &gExports_Lang_Struct,
 	.Name = "array",
 	.Handler = Exports_array,
 	.ReturnType = SS_DATATYPE_UNDEF,
@@ -64,12 +51,12 @@ tSpiderValue *Exports_sizeof(tSpiderScript *Script, int NArgs, tSpiderValue **Ar
 {
 	if(NArgs != 1 || !Args[0])	return NULL;
 
+	if( SS_GETARRAYDEPTH(Args[0]->Type) )
+		return SpiderScript_CreateInteger(Args[0]->Array.Length);
 	switch( Args[0]->Type )
 	{
 	case SS_DATATYPE_STRING:
 		return SpiderScript_CreateInteger(Args[0]->String.Length);
-	case SS_DATATYPE_ARRAY:
-		return SpiderScript_CreateInteger(Args[0]->Array.Length);
 	default:
 		return NULL;
 	}
@@ -86,14 +73,14 @@ tSpiderValue *Exports_array(tSpiderScript *Script, int NArgs, tSpiderValue **Arg
 	 int	type = Args[1]->Integer;
 	 int	size = Args[0]->Integer;
 
-	if( type != SS_DATATYPE_ARRAY )
-	{
+//	if( type != SS_DATATYPE_ARRAY )
+//	{
 		if( !SS_GETARRAYDEPTH(type) ) {
 			// ERROR - This should never happen
 			return ERRPTR;
 		}
 		type = SS_DOWNARRAY(type);
-	}
+//	}
 
 	return SpiderScript_CreateArray(type, size);
 }
