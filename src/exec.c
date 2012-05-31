@@ -96,7 +96,6 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
 	}
 
 	// Find the function in the script?
-	// TODO: Script namespacing
 	if( sfcn )
 	{
 		// Abuses alignment requirements on almost all platforms
@@ -118,7 +117,6 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
 
 		return ret;
 	}
-
 	else if(fcn)
 	{
 		if( FunctionIdent )

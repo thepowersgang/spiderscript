@@ -60,7 +60,7 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 		depth = depth * 10 + (*Name++ - '0');
 	#endif	
 
-	printf("Getting type for '%.*s'\n", NameLen, Name);
+//	printf("Getting type for '%.*s'\n", NameLen, Name);
 
 	// #1 - Internal types
 	for( int i = 0; i <= SS_DATATYPE_STRING; i ++ )

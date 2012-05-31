@@ -13,7 +13,7 @@
 #include "bytecode_ops.h"
 
 #define TRACE_VAR_LOOKUPS	0
-#define TRACE_TYPE_STACK	1
+#define TRACE_TYPE_STACK	0
 #define MAX_NAMESPACE_DEPTH	10
 #define MAX_STACK_DEPTH	10	// This is for one function, so shouldn't need more
 
@@ -851,18 +851,23 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	case NODETYPE_BITSHIFTLEFT:	if(!op)	op = BC_OP_BITSHIFTLEFT;
 	case NODETYPE_BITSHIFTRIGHT:	if(!op)	op = BC_OP_BITSHIFTRIGHT;
 	case NODETYPE_BITROTATELEFT:	if(!op)	op = BC_OP_BITROTATELEFT;
+		// Left (because it's the output type)
 		ret = AST_ConvertNode(Block, Node->BinOp.Left, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node->BinOp.Left, SS_DATATYPE_UNDEF, NULL);	// TODO: Integer/Real/Object
+		ret = _StackPop(Block, Node->BinOp.Left, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
-	
+		i = ret;	// Save
+
+		// Right
 		ret = AST_ConvertNode(Block, Node->BinOp.Right, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node->BinOp.Right, SS_DATATYPE_UNDEF, NULL);	// TODO: Integer/Real/Object
+		ret = _StackPop(Block, Node->BinOp.Right, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
 		
+		// TODO: Check if the types can be added
+
 		Bytecode_AppendBinOp(Block->Handle, op);
-		_StackPush(Block, Node, ret, NULL);
+		_StackPush(Block, Node, i, NULL);
 		CHECK_IF_NEEDED(1);
 		break;
 	

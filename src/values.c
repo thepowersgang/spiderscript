@@ -81,7 +81,7 @@ tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *
 	 int	size = sizeof(tSpiderObject) + Class->NAttributes * sizeof(tSpiderValue*) + ExtraBytes;
 	tSpiderObject	*ret = malloc(size);
 	
-	ret->TypeCode = SpiderScript_GetTypeCode(NULL, Class->Name);
+	ret->TypeCode = SpiderScript_GetTypeCode(Script, Class->Name);
 	ret->Script = Script;
 	ret->ReferenceCount = 1;
 	ret->OpaqueData = &ret->Attributes[ Class->NAttributes ];
@@ -92,11 +92,13 @@ tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *
 
 void SpiderScript_ReferenceObject(tSpiderObject *Object)
 {
+	if( !Object )	return;
 	Object->ReferenceCount ++;
 }
 
 void SpiderScript_DereferenceObject(tSpiderObject *Object)
 {
+	if( !Object )	return;
 	Object->ReferenceCount --;
 	if( Object->ReferenceCount == 0 )
 	{

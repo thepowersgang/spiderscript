@@ -77,6 +77,8 @@ int Bytecode_int_IsStackEntTrue(tBC_StackEnt *Ent)
 	case ET_FUNCTION_START:
 		AST_RuntimeError(NULL, "BUG - _IsStackEntTrue on ET_FUNCTION_START");
 		return -1;
+	case SS_DATATYPE_NOVALUE:
+		return 0;
 	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 		return !!Ent->Integer;
@@ -105,10 +107,16 @@ tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
 	case ET_FUNCTION_START:
 		AST_RuntimeError(NULL, "_GetSpiderValue on ET_FUNCTION_START");
 		return NULL;
+	case SS_DATATYPE_NOVALUE:
+		AST_RuntimeError(NULL, "_GetSpiderValue on SS_DATATYPE_NOVALUE");
+		return NULL;
 	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 	case SS_DATATYPE_REAL:
 		bAlloc = 1;
+		break;
+	case SS_DATATYPE_STRING:
+		bAlloc = 0;
 		break;
 	default:
 		if( SS_GETARRAYDEPTH(Ent->Type) ) {
@@ -119,6 +127,7 @@ tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
 		}
 		else {
 			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _GetSpiderValue", Ent->Type);
+			return NULL;
 		}
 		break;
 	}
@@ -131,14 +140,9 @@ tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
 			// Stops a stack value from having free() called on it
 			tmp->ReferenceCount = 2;
 		}
+		tmp->Type = Ent->Type;
 	}
 	
-	if( !tmp ) {
-		AST_RuntimeError(NULL, "BUG - tmp=NULL passed to _GetSpiderValue");
-		return NULL;
-	}
-	
-	tmp->Type = Ent->Type;
 	switch(Ent->Type)
 	{
 	case SS_DATATYPE_BOOLEAN:
@@ -150,6 +154,9 @@ tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
 	case SS_DATATYPE_REAL:
 		tmp->Real = Ent->Real;
 		return tmp;
+	case SS_DATATYPE_STRING:
+		SpiderScript_ReferenceValue(Ent->Reference);
+		return Ent->Reference;
 	default:
 		if( SS_GETARRAYDEPTH(Ent->Type) ) {
 			SpiderScript_ReferenceValue(Ent->Reference);
@@ -192,10 +199,11 @@ void Bytecode_int_SetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *Value)
 	default:
 		if( SS_GETARRAYDEPTH(Value->Type) ) {
 			Ent->Reference = Value;
+			SpiderScript_ReferenceValue(Value);
 		}
 		else if( SS_ISTYPEOBJECT(Value->Type) ) {
 			Ent->Object = Value->Object;
-			Ent->Object->ReferenceCount ++;
+			SpiderScript_ReferenceObject(Value->Object);
 		}
 		else {
 			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _SetSpiderValue", Value->Type);
@@ -209,6 +217,7 @@ void Bytecode_int_DerefStackValue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_NOVALUE:
 	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 	case SS_DATATYPE_REAL:
@@ -231,6 +240,7 @@ void Bytecode_int_RefStackValue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_NOVALUE:
 	case SS_DATATYPE_BOOLEAN:
 	case SS_DATATYPE_INTEGER:
 	case SS_DATATYPE_REAL:
@@ -244,7 +254,7 @@ void Bytecode_int_RefStackValue(tBC_StackEnt *Ent)
 		else if( SS_ISTYPEOBJECT(Ent->Type) )
 			SpiderScript_ReferenceObject(Ent->Object);
 		else
-			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _DerefStackValue", Ent->Type);
+			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _RefStackValue", Ent->Type);
 		break;
 	}
 }
@@ -387,7 +397,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 		rv = ERRPTR;
 	}
 	if(rv == ERRPTR) {
-		AST_RuntimeError(NULL, "SpiderScript_ExecuteFunction returned ERRPTR");
+		AST_RuntimeError(NULL, "Function call %s failed, op = %i", name, op->Operation);
 		return -1;
 	}
 	// Clean up args
