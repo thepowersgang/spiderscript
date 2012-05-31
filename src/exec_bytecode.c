@@ -98,7 +98,7 @@ int Bytecode_int_IsStackEntTrue(tBC_StackEnt *Ent)
 	}
 }
 
-tSpiderValue *Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, tSpiderValue *tmp)
+tSpiderValue *Bytecode_int_GetSpiderValue(const tBC_StackEnt *Ent, tSpiderValue *tmp)
 {
 	 int	bAlloc = 0;
 	
@@ -263,6 +263,9 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 {
 	switch(Ent->Type)
 	{
+	case SS_DATATYPE_NOVALUE:
+		printf("null");
+		break;
 	case SS_DATATYPE_BOOLEAN:
 		printf("%s", (Ent->Integer ? "true" : "false"));
 		break;
@@ -279,7 +282,7 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 		if( SS_GETARRAYDEPTH(Ent->Type) )
 			printf("Array %p", Ent->Reference);
 		else if( SS_ISTYPEOBJECT(Ent->Type) )
-			printf("Object %p", Ent->Object);
+			printf("Object 0x%x %p", Ent->Type, Ent->Object);
 		else
 			AST_RuntimeError(NULL, "BUG - Type 0x%x unhandled in _PrintStackValue", Ent->Type);
 		break;
@@ -306,7 +309,7 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 tSpiderValue *Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Args)
 {
 	const int	stack_size = 100;
-	tSpiderValue	*ret, tmpsval;
+	tSpiderValue	*ret;
 	tBC_Stack	*stack;
 	tBC_StackEnt	val;
 	 int	i;
@@ -331,15 +334,17 @@ tSpiderValue *Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *
 		return NULL;
 	}
 	free(stack);
-	
-	ret = Bytecode_int_GetSpiderValue(&val, &tmpsval);
-	// Ensure it's a heap value
-	if(ret == &tmpsval) {
-		ret = malloc(sizeof(tSpiderValue));
-		memcpy(ret, &tmpsval, sizeof(tSpiderValue));
-		// Set to 2 in _GetSpiderValue, so stack doesn't have free() called
-		ret->ReferenceCount = 1;
+
+	if( Fcn->ReturnType != val.Type )
+	{
+		AST_RuntimeError(NULL, "'%s' Returned type 0x%x not 0x%x",
+			Fcn->Name, val.Type, Fcn->ReturnType);
+		return NULL;
 	}
+	if( Fcn->ReturnType == SS_DATATYPE_NOVALUE )
+		ret = NULL;
+	else
+		ret = Bytecode_int_GetSpiderValue(&val, NULL);
 
 	return ret;
 }
@@ -471,7 +476,7 @@ int Bytecode_int_LocalBinOp_Real(int Operation, tBC_StackEnt *Val1, tBC_StackEnt
 	return 0;
 }
 
-#define STATE_HDR()	DEBUG_F("%p %2i ", op, Stack->EntryCount)
+#define STATE_HDR()	DEBUG_F("%p %2i %02i ", op, Stack->EntryCount, op->Operation)
 
 /**
  * \brief Execute a bytecode function with a stack
@@ -504,6 +509,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	{
 		GET_STACKVAL(local_vars[i]);
 		// TODO: Type checks / enforcing
+	}
+	for( i = 0; i < Fcn->ArgumentCount; i ++ )
+	{
+		DEBUG_F("Arg %i = ",i); PRINT_STACKVAL(local_vars[i]); DEBUG_F("\n");
 	}
 	
 	// Mark the start
@@ -659,7 +668,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			
 			GET_STACKVAL(val1);
 			// - Integers/Reals can't have elements :)
-			if( SS_ISTYPEOBJECT(val1.Type) ) {
+			if( !SS_ISTYPEOBJECT(val1.Type) ) {
+				DEBUG_F("(SET)ELEMENT on non-object 0x%x\n", val1.Type);
 				nextop = NULL;
 				break;
 			}
@@ -669,21 +679,21 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 
 			if( op->Operation == BC_OP_SETELEMENT ) {
 				GET_STACKVAL(val2);
-				pval2 = Bytecode_int_GetSpiderValue(&val2, &tmpVal2);
-				Bytecode_int_DerefStackValue(&val2);
-				
+				pval2 = Bytecode_int_GetSpiderValue(&val2, NULL);
 				DEBUG_F("SETELEMENT %s ", OP_STRING(op)); PRINT_STACKVAL(val2); DEBUG_F("\n");
+				Bytecode_int_DerefStackValue(&val2);
 
 				ret_val = AST_ExecuteNode_Element(Script, NULL, pval1, OP_STRING(op), pval2);
-				if(ret_val == ERRPTR) { nextop = NULL; break; }
-				
-				if(pval2 != &tmpVal2)	SpiderScript_DereferenceValue(pval2);
+				if(ret_val == ERRPTR) { DEBUG_F("<ERR>\n"); nextop = NULL; break; }			
+				SpiderScript_DereferenceValue(pval2);
 			}
 			else {
 				DEBUG_F("ELEMENT %s ", OP_STRING(op));
 				
 				ret_val = AST_ExecuteNode_Element(Script, NULL, pval1, OP_STRING(op), ERRPTR);
-				if(ret_val == ERRPTR) { nextop = NULL; break; }
+				if(ret_val == ERRPTR) { DEBUG_F("<ERR>\n"); nextop = NULL; break; }
+	
+				DEBUG_F("%p", ret_val);
 
 				Bytecode_int_SetSpiderValue(&val2, ret_val);
 				SpiderScript_DereferenceValue(ret_val);
@@ -879,7 +889,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			if(!ast_op)	ast_op = NODETYPE_GREATERTHANEQUAL, opstr = "GREATERTHANOREQUAL";
 
 			STATE_HDR();
-			DEBUG_F("BINOP %i %s (bc %i)\n", ast_op, opstr, op->Operation);
+			DEBUG_F("BINOP %i %s (bc %i)", ast_op, opstr, op->Operation);
 
 			GET_STACKVAL(val2);	// Right
 			GET_STACKVAL(val1);	// Left

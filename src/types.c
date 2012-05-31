@@ -90,14 +90,15 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 		 int	i = 0;
 		for( tScript_Class *class = Script->FirstClass; class; class = class->Next, i++ )
 		{
-			if( strncmp(Name, class->Name, NameLen) == 0 )
+			if( strncmp(Name, class->Name, NameLen) != 0 )
 				continue ;
 			if( class->Name[NameLen] != '\0' )
 				continue ;
 			return SS_MAKEARRAYN(SS_DATATYPE_FLAG_SCLASS | i, depth);
 		}
 	}
-	
+
+//	printf("Type '%.*s' undefined\n", NameLen, Name);
 	return -1;
 }
 

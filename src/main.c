@@ -125,19 +125,39 @@ int SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename)
  */
 void SpiderScript_Free(tSpiderScript *Script)
 {
-	tScript_Function	*fcn = Script->Functions;
-	tScript_Function	*nextFcn;
+	tScript_Function *fcn;
+	tScript_Class	*sc = Script->FirstClass;
+	void	*n;
 	
 	// Free functions
-	while(fcn)
+ 	for( fcn = Script->Functions; fcn; fcn = n )
 	{
 		if(fcn->ASTFcn)	AST_FreeNode( fcn->ASTFcn );
 		if(fcn->BCFcn)	Bytecode_DeleteFunction( fcn->BCFcn );
 
-		nextFcn = fcn->Next;
+		n = fcn->Next;
 		free( fcn );
-		fcn = nextFcn;
 	}
-	
+
+	for(sc = Script->FirstClass; sc; sc = n)
+	{
+		tScript_Class_Var *at;
+		for( at = sc->FirstProperty; at; at = n )
+		{
+			n = at->Next;
+			free(at);
+		}
+		
+		for( fcn = sc->FirstFunction; fcn; fcn = n )
+		{
+			if(fcn->ASTFcn)	AST_FreeNode( fcn->ASTFcn );
+			if(fcn->BCFcn)	Bytecode_DeleteFunction( fcn->BCFcn );
+			n = fcn->Next;
+			free(fcn);
+		}
+		n = sc->Next;
+		free(sc);
+	}	
+
 	free(Script);
 }

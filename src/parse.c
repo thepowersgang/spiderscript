@@ -167,7 +167,9 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 		if(Parser->ErrorHit)
 			longjmp(Parser->JmpTarget, -1);
 	}
-	
+
+	// Return 0 by default
+	AST_AppendNode( mainCode, AST_NewUniOp(Parser, NODETYPE_RETURN, AST_NewInteger(Parser, 0)) );
 	AST_AppendFunction( Parser, "", SS_DATATYPE_INTEGER, NULL, mainCode );
 	
 	//printf("---- %p parsed as SpiderScript ----\n", Buffer);
@@ -1117,9 +1119,9 @@ tAST_Node *Parse_GetVariable(tParser *Parser)
 			// Attribute
 			else
 			{
-				char	name[Parser->TokenLen];
-				memcpy(name, Parser->TokenStr+1, Parser->TokenLen-1);
-				name[Parser->TokenLen-1] = 0;
+				char	name[Parser->TokenLen+1];
+				memcpy(name, Parser->TokenStr, Parser->TokenLen);
+				name[Parser->TokenLen] = 0;
 				ret = AST_NewClassElement(Parser, ret, name);
 			}
 			continue ;

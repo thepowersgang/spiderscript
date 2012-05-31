@@ -995,7 +995,7 @@ tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
 				break ;
 		}
 		if( i == nc->NAttributes ) {
-			// TODO: Error message
+			AST_RuntimeError(Node, "No attribute %s of %s", ElementName, nc->Name);
 			return ERRPTR;
 		}
 	}
@@ -1007,7 +1007,7 @@ tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
 				break;
 		}
 		if( !at ) {
-			// TODO: Error message
+			AST_RuntimeError(Node, "No attribute %s of %s", ElementName, sc->Name);
 			return ERRPTR;
 		}
 	}
@@ -1017,6 +1017,7 @@ tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
 	}
 	
 	if( SaveValue != ERRPTR ) {
+		SpiderScript_DereferenceValue( Object->Object->Attributes[i] );
 		Object->Object->Attributes[i] = SaveValue;
 		SpiderScript_ReferenceValue(SaveValue);
 		return NULL;

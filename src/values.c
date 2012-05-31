@@ -104,16 +104,23 @@ void SpiderScript_DereferenceObject(tSpiderObject *Object)
 	{
 		tSpiderClass	*nc = SpiderScript_GetClass_Native(Object->Script, Object->TypeCode);
 		tScript_Class	*sc = SpiderScript_GetClass_Script(Object->Script, Object->TypeCode);
-		
+		 int	n_att = 0;
+
 		if( nc ) {
 			nc->Destructor(Object);
+			n_att = nc->NAttributes;
 		}
 		else if( sc ) {
 			// TODO: Destructor
+			for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next )
+				n_att ++;
 		}
-		else {
-			free(Object);
-		}
+	
+		// TODO: Clean up attributes
+		for( int i = 0; i < n_att; i ++ )
+			SpiderScript_DereferenceValue(Object->Attributes[i]);
+
+		free(Object);
 	}
 }
 

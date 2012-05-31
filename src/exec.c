@@ -332,6 +332,7 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 			obj = calloc( 1, sizeof(tSpiderObject) + sc->nProperties*sizeof(tSpiderValue*) );
 			if(!obj)	return ERRPTR;
 	
+			obj->Script = Script;
 			obj->TypeCode = sc->TypeCode;
 			obj->ReferenceCount = 1;
 

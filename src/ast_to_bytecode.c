@@ -108,7 +108,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	BC_Variable_Clear(&bi);
 
 
-	Bytecode_AppendConstInt(ret, 0);	// TODO: NULL?
+	Bytecode_AppendConstNull(ret);
 	Bytecode_AppendReturn(ret);
 	Fcn->BCFcn = ret;
 
@@ -400,18 +400,18 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				if( sf )
 				{
 					// Argument count check
-					if( nargs != sf->ArgumentCount ) {
+					if( nargs+1 != sf->ArgumentCount ) {
 						AST_RuntimeError(Node, "Constructor for %s takes %i arguments, passed %i",
 							manglename, sf->ArgumentCount, nargs);
 						return -1;
 					}
 					// Type checks
-					for( int i = 0; i < nargs; i ++ )
+					for( int i = 1; i < nargs+1; i ++ )
 					{
-						if( sf->Arguments[i].Type != arg_types[i] ) {
+						if( sf->Arguments[i].Type != arg_types[i-1] ) {
 							// Sad to be chucked
 							AST_RuntimeError(Node, "Argument %i of %s constructor should be %i, given %i",
-								i, manglename, sf->Arguments[i].Type, arg_types[i]);
+								i, manglename, sf->Arguments[i].Type, arg_types[i-1]);
 							return -1;
 						}
 					}
@@ -503,7 +503,6 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				}
 				
 				// Push return type
-				// TODO: Handle functions that return a class?
 				ret = _StackPush(Block, Node, nf->ReturnType, 0);
 				if(ret < 0)	return -1;
 			}
@@ -594,8 +593,6 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		// Increment
 		ret = AST_ConvertNode(Block, Node->For.Increment, 0);
 		if(ret)	return ret;
-//		ret = _StackPop(Block, Node->For.Increment, SS_DATATYPE_UNDEF);	// TODO: Check if needed
-//		if(ret < 0)	return -1;
 
 		// Tail check
 		if( Node->For.bCheckAfter )
@@ -623,7 +620,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = AST_ConvertNode(Block, Node->UniOp.Value, 1);
 		if(ret)	return ret;
 		Bytecode_AppendReturn(Block->Handle);
-		ret = _StackPop(Block, Node->UniOp.Value, SS_DATATYPE_UNDEF, NULL);	// TODO: Get function return type
+		// TODO: Get function return type and check with stack
+		ret = _StackPop(Block, Node->UniOp.Value, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
 		break;
 	
@@ -638,7 +636,11 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			while(bi && !bi->Tag)
 				bi = bi->Parent;
 		}
-		if( !bi )	return 1;
+		if( !bi ) {
+			AST_RuntimeError(Node, "Unable to find continue/break target '%s'",
+				Node->Variable.Name);
+			return 1;
+		}
 		// TODO: Check if BreakTarget/ContinueTarget are valid
 		if( Node->Type == NODETYPE_BREAK )
 			Bytecode_AppendJump(Block->Handle, bi->BreakTarget);
@@ -681,8 +683,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	// Variable
 	case NODETYPE_VARIABLE:
 		ret = BC_Variable_GetValue( Block, Node );
-		CHECK_IF_NEEDED(1);
 		if(ret)	return ret;
+		CHECK_IF_NEEDED(1);
 		break;
 	
 	// Element of an Object
@@ -702,7 +704,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 					break;
 			}
 			if( i == nc->NAttributes )
-				AST_RuntimeError(Node, "Class %s does not have an attribute %s", nc->Name, Node->Scope.Name);
+				AST_RuntimeError(Node, "Class %s does not have an attribute '%s'",
+					nc->Name, Node->Scope.Name);
 			ret = nc->AttributeDefs[i].Type;
 		}
 		else if(sc) {
@@ -713,7 +716,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 					break;
 			}
 			if( !at )
-				AST_RuntimeError(Node, "Class %s does not have an attribute %s", sc->Name, Node->Scope.Name);
+				AST_RuntimeError(Node, "Class %s does not have an attribute '%s'",
+					sc->Name, Node->Scope.Name);
 			ret = at->Type;
 		}
 		else {
