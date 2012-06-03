@@ -277,7 +277,7 @@ extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile
 /**
  * \brief Load a script from bytecode
  */
-extern tSpiderScript	*SpiderScript_LoadBytecode(const char *Filename);
+extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
 /**
  * \brief Save the AST of a script to a file
  */

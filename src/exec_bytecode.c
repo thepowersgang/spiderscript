@@ -560,8 +560,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		// Define variables
 		case BC_OP_DEFINEVAR: {
 			 int	type, slot;
-			type = OP_INDX(op) & 0xFFFF;
-			slot = OP_INDX(op) >> 16;
+			type = OP_INDX(op) & 0xFFFFFF;
+			slot = OP_INDX(op) >> 24;
 			if(slot < 0 || slot >= local_var_count) {
 				DEBUG_F("ERROR: slot %i out of range (max %i)\n", slot, local_var_count);
 				return -1;

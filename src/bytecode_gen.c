@@ -24,22 +24,6 @@ tBC_Op	*Bytecode_int_AllocateOp(int Operation, int ExtraBytes);
 // === GLOBALS ===
 
 // === CODE ===
-tBC_Op *Bytecode_int_AllocateOp(int Operation, int ExtraBytes)
-{
-	tBC_Op	*ret;
-
-	ret = malloc(sizeof(tBC_Op) + ExtraBytes);
-	if(!ret)	return NULL;
-
-	ret->Next = NULL;
-	ret->Operation = Operation;
-	ret->bUseInteger = 0;
-	ret->bUseString = (ExtraBytes > 0);
-	ret->CacheEnt = NULL;
-
-	return ret;
-}
-
 tBC_Function *Bytecode_CreateFunction(tScript_Function *Fcn)
 {
 	tBC_Function *ret;
@@ -77,198 +61,10 @@ void Bytecode_DeleteFunction(tBC_Function *Fcn)
 		free(op);
 		op = nextop;
 	}
-	free(Fcn->VariableNames);
+	if( Fcn->VariableNames )
+		free(Fcn->VariableNames);
 	free(Fcn->Labels);
 	free(Fcn);
-}
-
-int StringList_GetString(tStringList *List, const char *String, int Length)
-{
-	 int	strIdx = 0;
-	tString	*ent;
-	for(ent = List->Head; ent; ent = ent->Next, strIdx ++)
-	{
-		if(ent->Length == Length && memcmp(ent->Data, String, Length) == 0)	break;
-	}
-	if( ent ) {
-		ent->RefCount ++;
-	}
-	else {
-		ent = malloc(sizeof(tString) + Length + 1);
-		if(!ent)	return -1;
-		ent->Next = NULL;
-		ent->Length = Length;
-		ent->RefCount = 1;
-		memcpy(ent->Data, String, Length);
-		ent->Data[Length] = '\0';
-		
-		if(List->Head)
-			List->Tail->Next = ent;
-		else
-			List->Head = ent;
-		List->Tail = ent;
-		List->Count ++;
-	}
-	return strIdx;
-}
-
-int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *LabelOffsets, tStringList *Strings)
-{
-	tBC_Op	*op;
-	 int	len = 0, idx = 0;
-	 int	i;
-
-	void _put_byte(uint8_t byte)
-	{
-		uint8_t	*buf = Output;
-		if(Output)	buf[len] = byte;
-		len ++;
-	}
-
-	void _put_dword(uint32_t value)
-	{
-		uint8_t	*buf = Output;
-		if(Output) {
-			buf[len+0] = value & 0xFF;
-			buf[len+1] = value >> 8;
-			buf[len+2] = value >> 16;
-			buf[len+3] = value >> 24;
-		}
-		len += 4;
-	}
-
-	void _put_index(uint32_t value)
-	{
-		if( !Output && !value ) {
-			len += 5;
-			return ;
-		}
-		if( value < 0x8000 ) {
-			_put_byte(value >> 8);
-			_put_byte(value & 0xFF);
-		}
-		else if( value < 0x400000 ) {
-			_put_byte( (value >> 16) | 0x80 );
-			_put_byte(value >> 8);
-			_put_byte(value & 0xFF);
-		}
-		else {
-			_put_byte( 0xC0 );
-			_put_byte(value >> 24);
-			_put_byte(value >> 16);
-			_put_byte(value >> 8 );
-			_put_byte(value & 0xFF);
-		}
-	}	
-
-	void _put_qword(uint64_t value)
-	{
-		if( value < 0x80 ) {	// 7 bits into 1 byte
-			_put_byte(value);
-		}
-		else if( !(value >> (8+6)) ) {	// 14 bits packed into 2 bytes
-			_put_byte( 0x80 | ((value >> 8) & 0x3F) );
-			_put_byte( value & 0xFF );
-		}
-		else if( !(value >> (32+5)) ) {	// 37 bits into 5 bytes
-			_put_byte( 0xC0 | ((value >> 32) & 0x1F) );
-			_put_dword(value & 0xFFFFFFFF);
-		}
-		else {
-			_put_byte( 0xE0 );	// 64 (actually 68) bits into 9 bytes
-			_put_dword(value & 0xFFFFFFFF);
-			_put_dword(value >> 32);
-		}
-	}
-
-	void _put_double(double value)
-	{
-		// TODO: Machine agnostic
-		if(Output) {
-			*(double*)( (char*)Output + len ) = value;
-		}
-		len += sizeof(double);
-	}
-
-	void _put_string(const char *str, int len)
-	{
-		 int	strIdx = 0;
-		if( Output ) {
-			strIdx = StringList_GetString(Strings, str, len);
-		}
-	
-		// TODO: Relocations	
-		_put_index(strIdx);
-	}
-
-	for( op = Function->Operations; op; op = op->Next, idx ++ )
-	{
-		// If first run, convert labels into byte offsets
-		if( !Output )
-		{
-			for( i = 0; i < Function->LabelCount; i ++ )
-			{
-				if(LabelOffsets[i])	continue;
-				if(op != Function->Labels[i])	continue;
-				
-				LabelOffsets[i] = len;
-			}
-		}
-
-		_put_byte(op->Operation);
-		switch(op->Operation)
-		{
-		// Relocate jumps (the value only matters if `Output` is non-NULL)
-		case BC_OP_JUMP:
-		case BC_OP_JUMPIF:
-		case BC_OP_JUMPIFNOT:
-			// TODO: Relocations?
-			_put_index( LabelOffsets[op->Content.StringInt.Integer] );
-			break;
-		// Special case for inline values
-		case BC_OP_LOADINT:
-			_put_qword(op->Content.Integer);
-			break;
-		case BC_OP_LOADREAL:
-			_put_double(op->Content.Real);
-			break;
-		case BC_OP_LOADSTR:
-			_put_string(op->Content.StringInt.String, op->Content.StringInt.Integer);
-			break;
-		// Everthing else just gets handled nicely
-		default:
-			if( op->bUseString )
-				_put_string(op->Content.StringInt.String, strlen(op->Content.StringInt.String));
-			if( op->bUseInteger )
-				_put_index(op->Content.StringInt.Integer);
-			break;
-		}
-	}
-
-	return len;
-}
-
-char *Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStringList *Strings)
-{
-	 int	len;
-	 int	*label_offsets;
-	char	*code;
-
-	label_offsets = calloc( sizeof(int), Function->LabelCount );
-	if(!label_offsets)	return NULL;
-
-	len = Bytecode_int_Serialize(Function, NULL, label_offsets, Strings);
-
-	code = malloc(len);
-
-	// Update length to the correct length (may decrease due to encoding)	
-	len = Bytecode_int_Serialize(Function, code, label_offsets, Strings);
-
-	free(label_offsets);
-
-	*Length = len;
-
-	return code;
 }
 
 int Bytecode_AllocateLabel(tBC_Function *Handle)
@@ -344,18 +140,68 @@ int Bytecode_int_GetVarIndex(tBC_Function *Handle, const char *Name)
 	return -1;
 }
 
+int Bytecode_int_OpUsesString(int Op)
+{
+	switch(Op)
+	{
+	case BC_OP_ELEMENT:
+	case BC_OP_SETELEMENT:
+	case BC_OP_CALLMETHOD:
+	case BC_OP_CALLFUNCTION:
+	case BC_OP_CREATEOBJ:
+	case BC_OP_DEFINEVAR:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+int Bytecode_int_OpUsesInteger(int Op)
+{
+	switch(Op)
+	{
+	case BC_OP_CALLMETHOD:
+	case BC_OP_CALLFUNCTION:
+	case BC_OP_CREATEOBJ:
+	case BC_OP_JUMP:
+	case BC_OP_JUMPIF:
+	case BC_OP_JUMPIFNOT:
+	case BC_OP_LOADVAR:
+	case BC_OP_SAVEVAR:
+	case BC_OP_CAST:
+	case BC_OP_DEFINEVAR:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+tBC_Op *Bytecode_int_AllocateOp(int Operation, int ExtraBytes)
+{
+	tBC_Op	*ret;
+
+	ret = malloc(sizeof(tBC_Op) + ExtraBytes);
+	if(!ret)	return NULL;
+
+	ret->Next = NULL;
+	ret->Operation = Operation;
+	ret->CacheEnt = NULL;
+
+	return ret;
+}
+
+
 #define DEF_BC_NONE(_op) { \
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0); \
 	op->Content.Integer = 0; \
-	op->bUseInteger = 0; \
+	if(Bytecode_int_OpUsesString(_op) || Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 
 #define DEF_BC_INT(_op, _int) {\
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0);\
 	op->Content.StringInt.Integer = _int;\
-	op->bUseInteger = 1;\
-	op->bUseString = 0;\
+	if(Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 
@@ -363,14 +209,13 @@ int Bytecode_int_GetVarIndex(tBC_Function *Handle, const char *Name)
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, strlen(_str));\
 	op->Content.StringInt.Integer = _int;\
 	strcpy(op->Content.StringInt.String, _str);\
-	op->bUseInteger = 1;\
-	op->bUseString = 1;\
+	if(!Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 #define DEF_BC_STR(_op, _str) {\
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, strlen(_str));\
 	strcpy(op->Content.StringInt.String, _str);\
-	op->bUseInteger = 0;\
+	if(!Bytecode_int_OpUsesString(_op) || Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 
@@ -387,10 +232,8 @@ void Bytecode_AppendReturn(tBC_Function *Handle)
 // --- Variables
 void Bytecode_AppendLoadVar(tBC_Function *Handle, const char *Name)
 	DEF_BC_INT(BC_OP_LOADVAR, Bytecode_int_GetVarIndex(Handle, Name))
-//	DEF_BC_STR(BC_OP_LOADVAR, Name)
 void Bytecode_AppendSaveVar(tBC_Function *Handle, const char *Name)	// (Obj->)?var = 
 	DEF_BC_INT(BC_OP_SAVEVAR, Bytecode_int_GetVarIndex(Handle, Name))
-//	DEF_BC_STR(BC_OP_SAVEVAR, Name)
 
 // --- Constants
 void Bytecode_AppendConstInt(tBC_Function *Handle, uint64_t Value)
@@ -486,5 +329,5 @@ void Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, int Type)
 	i = Bytecode_int_AddVariable(Handle, Name);
 //	printf("Variable %s given slot %i\n", Name, i);	
 
-	DEF_BC_STRINT(BC_OP_DEFINEVAR, Name, (Type&0xFFFF) | (i << 16))
+	DEF_BC_STRINT(BC_OP_DEFINEVAR, Name, (Type&0xFFFFFF) | (i << 24))
 }

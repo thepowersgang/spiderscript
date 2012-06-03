@@ -15,6 +15,7 @@ extern  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *
 extern tAST_Variable *Variable_Define(tAST_BlockState *Block, int Type, const char *Name);
 extern void	Variable_SetValue(tAST_BlockState *Block, const char *Name, tSpiderValue *Value);
 extern void	Variable_Destroy(tAST_Variable *Variable);
+extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 
 // === CODE ===
 /**
@@ -62,7 +63,6 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	ret->Functions = NULL;
 	ret->FirstClass = NULL;
 	
-	ret->CurNamespace = NULL;
 	if( Parse_Buffer(ret, data, Filename) ) {
 		free(data);
 		free(ret);
@@ -70,20 +70,12 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	}
 	
 	free(data);
-	
-	
-	// HACK!!
-	#if 1
-	// - Save AST to a file
-	{
-		char	cacheFilename[strlen(Filename)+6+1];
-		strcpy(cacheFilename, Filename);
-		strcat(cacheFilename, ".ast");
-	
-		SpiderScript_SaveAST(ret, cacheFilename);	
-	}
-	#endif
-	// - Save Bytecode too
+
+	// Convert the script into (parsed) bytecode	
+	SpiderScript_BytecodeScript(ret);
+
+	#if 0	
+	// Write out bytecode
 	{
 		char	cacheFilename[strlen(Filename)+6+1];
 		strcpy(cacheFilename, Filename);
@@ -91,33 +83,24 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	
 		SpiderScript_SaveBytecode(ret, cacheFilename);	
 	}
+	#endif
 	
 	return ret;
 }
 
-int SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename)
+tSpiderScript *SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename)
 {
-	size_t	size;
-	FILE	*fp;
-	void	*data;
-	
-	size = AST_WriteScript(NULL, Script);
-	
-	fp = fopen(Filename, "wb");
-	if(!fp)	return 1;
+	tSpiderScript *ret = malloc(sizeof(tSpiderScript));
+	ret->Variant = Variant;
+	ret->Functions = NULL;
+	ret->FirstClass = NULL;
 
-	data = malloc(size);
-	if(!data) {
-		fclose(fp);
-		return -1;
+	if( SpiderScript_int_LoadBytecode(ret, Filename) ) {
+		SpiderScript_Free(ret);
+		return NULL;
 	}
 	
-	size = AST_WriteScript(data, Script);
-	fwrite(data, size, 1, fp);
-	free(data);
-
-	fclose(fp);
-	return 0;
+	return ret;
 }
 
 /**

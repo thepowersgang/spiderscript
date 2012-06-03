@@ -11,13 +11,257 @@
 #include <stdio.h>
 #include <string.h>
 
+#define MAGIC_STR	"SSBC\r\n\xBC\x55"
+#define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
+
 // === IMPORTS ===
 
 // === PROTOTYPES ===
+extern tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, size_t (*GetString)(char *Dest, int ID));
 
 // === GLOBALS ===
 
 // === CODE ===
+int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
+{
+	FILE	*fp;
+
+	uint8_t _get8(void)
+	{
+		uint8_t	rv;
+		fread(&rv, 1, 1, fp);
+		return rv;
+	}
+	uint16_t _get16(void)
+	{
+		return _get8() | ((uint16_t)_get8()<<8);
+	}	
+	uint32_t _get32(void)
+	{
+		return _get16() | ((uint32_t)_get16()<<16);
+	}
+
+	#define _ASSERT(l,rel,r,rv) do{if(!(l rel r)){\
+		fprintf(stderr,"%s:%i: ASSERT %s [%li] %s %s [%li] failed\n", __FILE__, __LINE__, #l, (long)(l), #rel, #r, (long)(r));\
+		return rv;}}while(0)
+
+	fp = fopen(SourceFile, "rb");
+	if(!fp)	return -1;
+	
+	fseek(fp, 0, SEEK_END);
+	off_t file_size = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+
+	printf("file_size = %i, min = %lu\n", (int)file_size, MAGIC_STR_LEN + 4*4);
+	_ASSERT(file_size, >, MAGIC_STR_LEN + 4*4, 1);
+
+	// Check magic
+	{
+		char magic[MAGIC_STR_LEN];
+		fread(magic, MAGIC_STR_LEN, 1, fp);
+		if( memcmp(magic, MAGIC_STR, sizeof(magic)) != 0 )
+			return -1;
+	}
+	
+	
+	// Get counts
+	 int	n_fcn   = _get32();
+	 int	n_class = _get32();
+	 int	n_str   = _get32();
+	off_t	ofs_str = _get32();
+	// TODO: Validation	
+
+	printf("n_fcn = %i, n_class = %i, n_str = %i\n", n_fcn, n_class, n_str);
+
+	// Load string table
+	_ASSERT(ofs_str + n_str*(4+4), <=, file_size, 1);
+	struct {
+		uint32_t	Length;
+		uint32_t	Offset;
+	} strings[n_str];
+	fseek(fp, ofs_str, SEEK_SET);
+	for( int i = 0; i < n_str; i ++ )
+	{
+		strings[i].Length = _get32();
+		strings[i].Offset = _get32();
+		_ASSERT(strings[i].Offset, <, file_size, 1);
+		_ASSERT(strings[i].Offset + strings[i].Length, <=, file_size, 1);
+	}
+	fseek(fp, MAGIC_STR_LEN+4*4, SEEK_SET);	
+
+	size_t _get_str(char *Dest, int StringID)
+	{
+		_ASSERT(StringID, <, n_str, -1);
+		if( Dest )
+		{
+			off_t saved_pos = ftell(fp);
+			fseek(fp, strings[StringID].Offset, SEEK_SET);
+			fread(Dest, strings[StringID].Length, 1, fp);
+			Dest[ strings[StringID].Length ] = '\0';
+			fseek(fp, saved_pos, SEEK_SET);
+//			printf("String '%s' read\n", Dest);
+		}
+		return strings[StringID].Length;
+	}
+	
+	tScript_Function *_get_fcn(void)
+	{
+		tScript_Function *ret;
+		
+		// Load main function header
+		 int	namestr  = _get32();
+		off_t	code_ofs = _get32();
+		size_t	code_len = _get32();
+		 int	ret_type = _get32();
+		 int	n_args   = _get8();
+		_get8(); _get8(); _get8();
+
+		_ASSERT(namestr, <, n_str, NULL);
+		_ASSERT(code_ofs, <, file_size, NULL);
+		_ASSERT(code_ofs+code_len, <, file_size, NULL);
+
+		struct {
+			uint32_t	Name;
+			uint32_t	Type;
+		} args[n_args];
+
+		// Get size of function metadata in memory (and load arguments)
+		 int	datasize = 0;
+		datasize += sizeof(tScript_Function);
+		datasize += n_args * sizeof(ret->Arguments[0]);
+		datasize += _get_str(NULL, namestr) + 1;
+		for( int i = 0; i < n_args; i ++ )
+		{
+			args[i].Name = _get32();
+			args[i].Type = _get32();
+			_ASSERT(args[i].Name, <, n_str, NULL);
+			datasize += _get_str(NULL, args[i].Name) + 1;
+		}
+
+		// Create and populate metadata structure
+		ret = malloc( datasize );
+		ret->Next = NULL;
+		ret->Name = (void*)&ret->Arguments[n_args];
+		_get_str(ret->Name, namestr);
+		ret->ArgumentCount = n_args;
+		ret->ReturnType = ret_type;
+		ret->ASTFcn = NULL;
+		char *nameptr = ret->Name + _get_str(NULL, namestr) + 1;
+		for( int i = 0; i < n_args; i ++ )
+		{
+			ret->Arguments[i].Name = nameptr;
+			_get_str(nameptr, args[i].Name);
+			ret->Arguments[i].Type = args[i].Type;
+			nameptr += _get_str(NULL, args[i].Name) + 1;
+		}
+		
+		// Load code
+		off_t old_pos = ftell(fp);
+		void *code = malloc(code_len);
+		fseek(fp, code_ofs, SEEK_SET);
+		fread(code, code_len, 1, fp);
+		fseek(fp, old_pos, SEEK_SET);
+
+		#if 0
+		for( int i = 0; i < code_len; i ++ )
+		{
+			uint8_t	*buf = code;
+			printf("%02x ", buf[i]);
+			if( (i & 15) == 15 )	printf("\n");
+			else if( (i & 7) == 7 )	printf(" ");
+		}
+		printf("\n");
+		#endif
+
+		// TODO: Parse back into bytecode
+		ret->BCFcn = Bytecode_DeserialiseFunction(code, code_len, _get_str);
+
+		free(code);
+
+		return ret;
+	}
+	
+	// Parse functions
+	for( int i = 0; i < n_fcn; i ++ )
+	{
+		tScript_Function *fcn;
+		fcn = _get_fcn();
+
+		printf("Loaded function '%s'\n", fcn->Name);
+	
+		if( Script->Functions )
+			Script->LastFunction->Next = fcn;
+		else
+			Script->Functions = fcn;
+		Script->LastFunction = fcn;
+	}
+	
+	for( int i = 0; i < n_class; i ++ )
+	{
+		tScript_Class	*sc;
+		int namestr = _get32();
+		int n_attrib = _get16();
+		int n_method = _get16();
+
+		_ASSERT(namestr, <, n_str, 1);
+
+		sc = malloc( sizeof(tScript_Class) + strings[namestr].Length + 1 );
+		if(!sc)	return -1;
+
+		sc->Next = NULL;
+		_get_str(sc->Name, namestr);
+		sc->FirstFunction = NULL;
+		sc->FirstProperty = NULL;
+		sc->nProperties = n_attrib;
+		sc->TypeCode = 0x2000 | i;	// HACK! Abuses types.c's internals
+
+		printf("Added class '%s'\n", sc->Name);
+		// Append
+		if( Script->FirstClass )
+			Script->LastClass->Next = sc;
+		else
+			Script->FirstClass = sc;
+		Script->LastClass = sc;
+		
+		// Attributes
+		for( int j = 0; j < n_attrib; j ++ )
+		{
+			tScript_Class_Var *at;
+			int name = _get32();
+			int type = _get32();
+		
+			at = malloc( sizeof(*at) + strings[name].Length + 1 );
+			at->Next = NULL;
+			at->Type = type;
+			_get_str(at->Name, name);
+
+			if( sc->FirstProperty )
+				sc->LastProperty->Next = at;
+			else
+				sc->FirstProperty = at;
+			sc->LastProperty = at;
+		}
+		
+		// Functions
+		for( int j = 0; j < n_method; j ++ )
+		{
+			tScript_Function *fcn;
+			
+			fcn = _get_fcn();
+			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
+			if( sc->FirstFunction )
+				sc->LastFunction->Next = fcn;
+			else
+				sc->FirstFunction = fcn;
+			sc->LastFunction = fcn;
+		}
+	}
+
+	#undef _ASSERT
+	
+	return 0;
+}
+
 int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 {
 	tStringList	strings = {0};
@@ -49,25 +293,24 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	fp = fopen(DestFile, "wb");
 	if(!fp)	return 1;
 	// Create header
-	fwrite("SSBC\r\n\xBC\x55", 8, 1, fp);
+	fwrite(MAGIC_STR, MAGIC_STR_LEN, 1, fp);
 	_put32(0);	// Function count, to be filled
 	_put32(0);	// Class count
 	_put32(0);	// String count
 	_put32(0);	// String table offset
 	// TODO: Variant info
 
-	fcn_hdr_offset = ftell(fp);
-
-	// Create function descriptors
-	for(fcn = Script->Functions; fcn; fcn = fcn->Next, fcn_count ++)
+	int _putfcn_hdr(tScript_Function *fcn)
 	{
-		#define BYTES_PER_FCNHDR(argc)	(4+4+4+1+3+(argc)*8)
+		#define BYTES_PER_FCNHDR(argc)	(4+4+4+4+1+3+(argc)*8)
 		_put32( StringList_GetString(&strings, fcn->Name, strlen(fcn->Name)) );
 		_put32( 0 );	// Code offset (filled later)
+		_put32( 0 );	// Code length
 		_put32( fcn->ReturnType );
 		
 		if(fcn->ArgumentCount > 255) {
 			// ERROR: Too many args
+			fclose(fp);
 			return 2;
 		}
 		_put8( fcn->ArgumentCount );
@@ -81,6 +324,45 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 				);
 			_put32( fcn->Arguments[i].Type );
 		}
+		return 0;
+	}
+
+	int _putfcn_code(tScript_Function *fcn, size_t hdr_ofs)
+	{
+		if( !fcn->BCFcn )
+			Bytecode_ConvertFunction(Script, fcn);
+		if( !fcn->BCFcn )
+		{
+			fclose(fp);
+			return 1;
+		}
+	
+		off_t	code_pos;
+		int	len = 0;
+		void	*code;
+	
+		// Serialise bytecode and get file position	
+		code = Bytecode_SerialiseFunction(fcn->BCFcn, &len, &strings);
+		code_pos = ftell(fp);
+		
+		// Update header
+		fseek(fp, hdr_ofs + 4, SEEK_SET);
+		_put32(code_pos);
+		_put32(len);
+		fseek(fp, code_pos, SEEK_SET);
+		
+		// Write code
+		fwrite(code, len, 1, fp);
+		free(code);
+		return 0;
+	}	
+
+	// Create function descriptors
+	fcn_hdr_offset = ftell(fp);
+	for(fcn = Script->Functions; fcn; fcn = fcn->Next, fcn_count ++)
+	{
+		if( _putfcn_hdr(fcn) )
+			return 2;
 	}
 	
 	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
@@ -94,29 +376,18 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 			n_attributes ++;		
 
 		_put32( StringList_GetString(&strings, sc->Name, strlen(sc->Name)) );
-		_put16( n_methods );	// Method count
 		_put16( n_attributes );	// Attribute count
+		_put16( n_methods );	// Method count
 	
-		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
-		{
-			_put32( StringList_GetString(&strings, fcn->Name, strlen(fcn->Name)) );
-			_put32( 0 );	// Code offset
-			_put32( fcn->ReturnType );
-			_put8( fcn->ArgumentCount );
-			_put8( 0 ); _put8( 0 ); _put8( 0 );	// Padding
-			
-			for( i = 0; i < fcn->ArgumentCount; i ++ )
-			{
-				_put32( StringList_GetString(&strings,
-					fcn->Arguments[i].Name, strlen(fcn->Arguments[i].Name))
-					);
-				_put32( fcn->Arguments[i].Type );
-			}
-		}
 		for(at = sc->FirstProperty; at; at = at->Next)
 		{
 			_put32( StringList_GetString(&strings, at->Name, strlen(at->Name)) );
 			_put32( at->Type );
+		}
+		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
+		{
+			if( _putfcn_hdr(fcn) )
+				return 2;
 		}
 		
 		// Code pointers will be filled in later
@@ -125,60 +396,24 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	// Put function code in
 	for(fcn = Script->Functions; fcn; fcn = fcn->Next)
 	{
-		char	*code;
-		 int	len, code_pos;
-	
-		// Fix header	
-		code_pos = ftell(fp);
-		fseek(fp, SEEK_SET, fcn_hdr_offset + 4);
-		_put32( code_pos );
-		fseek(fp, SEEK_SET, code_pos );
-
-		fcn_hdr_offset += BYTES_PER_FCNHDR(fcn->ArgumentCount);
-		
-		// Write code
-		if( !fcn->BCFcn )
-			Bytecode_ConvertFunction(Script, fcn);
-		if( !fcn->BCFcn )
-		{
-			fclose(fp);
+		if( _putfcn_code(fcn, fcn_hdr_offset) )
 			return 1;
-		}
-		code = Bytecode_SerialiseFunction(fcn->BCFcn, &len, &strings);
-		fwrite(code, len, 1, fp);
-		free(code);
+		fcn_hdr_offset += BYTES_PER_FCNHDR(fcn->ArgumentCount);
 	}
-	
+	// Class member code
 	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
 	{
-		off_t code_pos;
-		
 		fcn_hdr_offset += 4+2+2;	// Object header
-		
-		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
-		{
-			code_pos = ftell(fp);
-			fseek(fp, SEEK_SET, fcn_hdr_offset + 4);
-			_put32(code_pos);
-			fseek(fp, SEEK_SET, code_pos );
-			fcn_hdr_offset += BYTES_PER_FCNHDR(fcn->ArgumentCount);
-			
-			if( !fcn->BCFcn )
-				Bytecode_ConvertFunction(Script, fcn);
-			if( !fcn->BCFcn )
-			{
-				fclose(fp);
-				return 1;
-			}
-		
-			int	len = 0;	
-			void *code = Bytecode_SerialiseFunction(fcn->BCFcn, &len, &strings);
-			fwrite(code, len, 1, fp);
-			free(code);
-		}
 		
 		for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next )
 			fcn_hdr_offset += 4+4;
+		
+		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
+		{
+			if( _putfcn_code(fcn, fcn_hdr_offset) )
+				return 1;
+			fcn_hdr_offset += BYTES_PER_FCNHDR(fcn->ArgumentCount);
+		}
 	}
 
 	// String table
@@ -216,5 +451,387 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	fclose(fp);
 
 	return 0;
+}
+
+int StringList_GetString(tStringList *List, const char *String, int Length)
+{
+	 int	strIdx = 0;
+	tString	*ent;
+	for(ent = List->Head; ent; ent = ent->Next, strIdx ++)
+	{
+		if(ent->Length == Length && memcmp(ent->Data, String, Length) == 0)	break;
+	}
+	if( ent ) {
+		ent->RefCount ++;
+	}
+	else {
+		ent = malloc(sizeof(tString) + Length + 1);
+		if(!ent)	return -1;
+		ent->Next = NULL;
+		ent->Length = Length;
+		ent->RefCount = 1;
+		memcpy(ent->Data, String, Length);
+		ent->Data[Length] = '\0';
+		
+		if(List->Head)
+			List->Tail->Next = ent;
+		else
+			List->Head = ent;
+		List->Tail = ent;
+		List->Count ++;
+	}
+	return strIdx;
+}
+
+int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *LabelOffsets, tStringList *Strings)
+{
+	tBC_Op	*op;
+	 int	len = 0, idx = 0;
+	 int	i;
+
+	void _put_byte(uint8_t byte)
+	{
+		uint8_t	*buf = Output;
+		if(Output)	buf[len] = byte;
+		len ++;
+	}
+
+	void _put_dword(uint32_t value)
+	{
+		uint8_t	*buf = Output;
+		if(Output) {
+			buf[len+0] = value & 0xFF;
+			buf[len+1] = value >> 8;
+			buf[len+2] = value >> 16;
+			buf[len+3] = value >> 24;
+		}
+		len += 4;
+	}
+
+	void _put_index(uint32_t value)
+	{
+		if( !Output && !value ) {
+			len += 5;
+			return ;
+		}
+		if( value < 0x8000 ) {
+			_put_byte(value >> 8);
+			_put_byte(value & 0xFF);
+		}
+		else if( value < 0x400000 ) {
+			_put_byte( (value >> 16) | 0x80 );
+			_put_byte(value >> 8);
+			_put_byte(value & 0xFF);
+		}
+		else {
+			_put_byte( 0xC0 );
+			_put_byte(value >> 24);
+			_put_byte(value >> 16);
+			_put_byte(value >> 8 );
+			_put_byte(value & 0xFF);
+		}
+	}	
+
+	void _put_qword(uint64_t value)
+	{
+		if( value < 0x80 ) {	// 7 bits into 1 byte
+			_put_byte(value);
+		}
+		else if( !(value >> (8+6)) ) {	// 14 bits packed into 2 bytes
+			_put_byte( 0x80 | ((value >> 8) & 0x3F) );
+			_put_byte( value & 0xFF );
+		}
+		else if( !(value >> (32+5)) ) {	// 37 bits into 5 bytes
+			_put_byte( 0xC0 | ((value >> 32) & 0x1F) );
+			_put_dword(value & 0xFFFFFFFF);
+		}
+		else {
+			_put_byte( 0xE0 );	// 64 (actually 68) bits into 9 bytes
+			_put_dword(value & 0xFFFFFFFF);
+			_put_dword(value >> 32);
+		}
+	}
+
+	void _put_double(double value)
+	{
+		// TODO: Machine agnostic
+		if(Output) {
+			*(double*)( (char*)Output + len ) = value;
+		}
+		len += sizeof(double);
+	}
+
+	void _put_string(const char *str, int len)
+	{
+		 int	strIdx = 0;
+		if( Output ) {
+			strIdx = StringList_GetString(Strings, str, len);
+		}
+	
+		// TODO: Relocations?
+		_put_index(strIdx);
+	}
+
+	printf("Function->LabelCount = %i\n", Function->LabelCount);
+	_put_index(Function->LabelCount);
+	for( i = 0; i < Function->LabelCount; i ++ )
+	{
+		_put_dword(LabelOffsets[i]);
+	}
+
+	for( op = Function->Operations; op; op = op->Next, idx ++ )
+	{
+		// If first run, convert labels into instruction offsets
+		if( !Output )
+		{
+			for( i = 0; i < Function->LabelCount; i ++ )
+			{
+				if(LabelOffsets[i])	continue;
+				if(op != Function->Labels[i])	continue;
+				
+				LabelOffsets[i] = idx;
+			}
+		}
+
+		_put_byte(op->Operation);
+		switch(op->Operation)
+		{
+		// Relocate jumps (the value only matters if `Output` is non-NULL)
+		case BC_OP_JUMP:
+		case BC_OP_JUMPIF:
+		case BC_OP_JUMPIFNOT:
+			// TODO: Relocations?
+			_put_index( Output ? op->Content.StringInt.Integer : Function->LabelCount );
+			break;
+		// Special case for inline values
+		case BC_OP_LOADINT:
+			_put_qword(op->Content.Integer);
+			break;
+		case BC_OP_LOADREAL:
+			_put_double(op->Content.Real);
+			break;
+		case BC_OP_LOADSTR:
+			_put_string(op->Content.StringInt.String, op->Content.StringInt.Integer);
+			break;
+		// Everthing else just gets handled nicely
+		default:
+			if( Bytecode_int_OpUsesString(op->Operation) )
+				_put_string(op->Content.StringInt.String, strlen(op->Content.StringInt.String));
+			if( Bytecode_int_OpUsesInteger(op->Operation) )
+				_put_index(op->Content.StringInt.Integer);
+			break;
+		}
+	}
+
+	return len;
+}
+
+char *Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStringList *Strings)
+{
+	 int	len;
+	 int	*label_offsets;
+	char	*code;
+
+	label_offsets = calloc( sizeof(int), Function->LabelCount );
+	if(!label_offsets)	return NULL;
+
+	len = Bytecode_int_Serialize(Function, NULL, label_offsets, Strings);
+
+	code = malloc(len);
+
+	// Update length to the correct length (may decrease due to encoding)	
+	len = Bytecode_int_Serialize(Function, code, label_offsets, Strings);
+
+	free(label_offsets);
+
+	*Length = len;
+
+	return code;
+}
+
+tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, size_t (*GetString)(char *Dest, int ID))
+{
+	size_t ofs = 0;
+	tBC_Function	*ret;
+	tBC_Op	*op;
+	 int	sidx;
+	size_t	slen;
+
+	uint8_t _get8()
+	{
+		const uint8_t	*buf = Data;
+		uint8_t rv = buf[ofs++];
+//		printf("Byte %02x\n", rv);
+		return rv;
+	}
+
+	uint16_t _get16()
+	{
+		uint16_t rv = _get8();
+		rv |= (uint16_t)_get8() << 8;
+		return rv;
+	}
+	
+	uint32_t _get32()
+	{
+		uint32_t rv = _get8();
+		rv |= (uint32_t)_get8() << 8;
+		rv |= (uint32_t)_get8() << 16;
+		rv |= (uint32_t)_get8() << 24;
+		return rv;
+	}
+
+	uint32_t _get_index()
+	{
+		uint8_t	b = _get8();
+		uint32_t rv = 0;
+		if( b < 0x80 ) {
+			rv |= (uint32_t)(b & 0x7F) << 8;
+			rv |= _get8();
+		}
+		else if( b < 0xC0 ) {
+			rv |= (uint32_t)(b & 0x3F) << 16;
+			rv |= (uint32_t)_get8() << 8;
+			rv |= (uint32_t)_get8() << 0;
+		}
+		else {
+//			rv |= (uint32_t)(b & 0x3F) << 32;
+			rv |= (uint32_t)_get8() << 24;
+			rv |= (uint32_t)_get8() << 16;
+			rv |= (uint32_t)_get8() << 8;
+			rv |= (uint32_t)_get8() << 0;
+		}
+		return rv;
+	}	
+
+	uint64_t _get_qword()
+	{
+		uint8_t	b = _get8();
+		uint64_t rv = 0;
+		if( b < 0x80 ) {	// 7 bits into 1 byte
+			rv = b;
+		}
+		else if( b < 0xC0 ) {	// 14 bits packed into 2 bytes
+			rv |= (uint32_t)(b & 0x3F) << 8;
+			rv |= (uint32_t)_get8() << 0;
+		}
+		else if( b < 0xD0 ) {	// 37 bits into 5 bytes
+			rv |= (uint64_t)(b & 0x1F) << 32;
+			rv |= _get32();
+		}
+		else {
+			rv |= _get32();
+			rv |= (uint64_t)_get32() << 32;
+		}
+		return rv;
+	}
+
+	double _get_double()
+	{
+		// TODO: Make machine agnostic
+		double rv = *(const double*)( (const char*)Data + ofs);
+		ofs += sizeof(double);
+		return rv;
+	}
+
+	ret = malloc( sizeof(tBC_Function) );
+	ret->LabelCount = _get_index();
+	ret->Labels = malloc( sizeof(ret->Labels[0]) * ret->LabelCount );
+	ret->Operations = NULL;
+	ret->OperationsEnd = NULL;
+	ret->VariableNames = NULL;
+	ret->MaxVariableCount = 0;
+//	printf("%i labels\n", ret->LabelCount);
+	for( int i = 0; i < ret->LabelCount; i ++ )
+	{
+		// HACK - Save integer label offsets until second pass
+		ret->Labels[i] = (void*) (intptr_t) _get32();
+	}
+
+	while( ofs < Length )
+	{
+		 int	ot = _get8();
+		switch( ot )
+		{
+		// Special case for inline values
+		case BC_OP_LOADINT:
+			op = malloc(sizeof(tBC_Op));
+			op->Content.Integer = _get_qword();
+//			printf("LOADINT 0x%lx\n", op->Content.Integer);
+			break;
+		case BC_OP_LOADREAL:
+			op = malloc(sizeof(tBC_Op));
+			op->Content.Real = _get_double();
+//			printf("LOADREAL %lf\n", op->Content.Real);
+			break;
+		case BC_OP_LOADSTR:
+			sidx = _get_index();
+			slen = GetString(NULL, sidx);
+			// TODO: Error check length
+			op = malloc(sizeof(tBC_Op) + slen);
+			op->Content.StringInt.Integer = slen;
+			GetString(op->Content.StringInt.String, sidx);
+//			printf("LOADSTR %i bytes\n", op->Content.StringInt.Integer);
+			break;
+		// Everthing else just gets handled nicely
+		case BC_OP_JUMP:
+		case BC_OP_JUMPIF:
+		case BC_OP_JUMPIFNOT:
+		default:
+			if( Bytecode_int_OpUsesString(ot) ) {
+				sidx = _get_index();
+				slen = GetString(NULL, sidx);
+				op = malloc(sizeof(tBC_Op) + slen + 1);
+				GetString(op->Content.StringInt.String, sidx);
+				op->Content.StringInt.String[slen] = 0;
+			}
+			else {
+				slen = 0;
+				op = malloc(sizeof(tBC_Op));
+			}
+			if( Bytecode_int_OpUsesInteger(ot) ) {
+				op->Content.StringInt.Integer = _get_index();
+			}
+//			if( slen )
+//				printf("%i '%s' %i\n",ot,op->Content.StringInt.String,op->Content.StringInt.Integer);
+//			else
+//				printf("%i %i\n",ot,op->Content.StringInt.Integer);
+				
+			break;
+		}
+
+		if( ot == BC_OP_LOADVAR || ot == BC_OP_SAVEVAR ) {
+			if( op->Content.StringInt.Integer + 1 > ret->MaxVariableCount )
+				ret->MaxVariableCount = op->Content.StringInt.Integer + 1;
+		}
+		if( ot == BC_OP_DEFINEVAR ) {
+			 int	s = (op->Content.StringInt.Integer >> 24);
+			if( s + 1 > ret->MaxVariableCount )
+				ret->MaxVariableCount = s + 1;
+		}
+	
+		op->Operation = ot;
+		op->Next = NULL;
+		op->CacheEnt = NULL;
+		if( ret->Operations )
+			ret->OperationsEnd->Next = op;
+		else
+			ret->Operations = op;
+		ret->OperationsEnd = op;
+	}
+	
+	// Fix labels
+	for( int i = 0; i < ret->LabelCount; i ++ )
+	{
+		 int	idx = 0;
+		for( op = ret->Operations; op && idx != (intptr_t)ret->Labels[i]; op = op->Next )
+			idx ++;
+		if( !op ) {
+			fprintf(stderr, "Function label %i is out of range (%i > %i)", i, (int)(intptr_t)ret->Labels[i], idx);
+		}
+		ret->Labels[i] = op;
+	}
+
+	return ret;
 }
 

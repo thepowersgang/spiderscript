@@ -66,10 +66,19 @@ void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 int SpiderScript_BytecodeScript(tSpiderScript *Script)
 {
 	tScript_Function	*fcn;
+	tScript_Class	*sc;
 	for(fcn = Script->Functions; fcn; fcn = fcn->Next)
 	{
 		if( Bytecode_ConvertFunction(Script, fcn) == 0 )
 			return -1;
+	}
+	for(sc = Script->FirstClass; sc; sc = sc->Next)
+	{
+		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
+		{
+			if( Bytecode_ConvertFunction(Script, fcn) == 0 )
+				return -1;
+		}
 	}
 	return 0;
 }

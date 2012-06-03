@@ -16,8 +16,6 @@ struct sBC_Op
 {
 	tBC_Op	*Next;
 	 int	Operation;
-	char	bUseInteger;	// Used for serialisation
-	char	bUseString;	// Used for serialisation
 
 	void	*CacheEnt;	// Used to runtime cache function calls
 
@@ -49,5 +47,8 @@ struct sBC_Function
 	tBC_Op	*Operations;
 	tBC_Op	*OperationsEnd;
 };
+
+extern int	Bytecode_int_OpUsesString(int Op);
+extern int	Bytecode_int_OpUsesInteger(int Op);
 
 #endif
