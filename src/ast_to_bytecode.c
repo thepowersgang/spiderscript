@@ -16,6 +16,7 @@
 #define TRACE_TYPE_STACK	0
 #define MAX_NAMESPACE_DEPTH	10
 #define MAX_STACK_DEPTH	10	// This is for one function, so shouldn't need more
+#define SS_DATATYPE_UNDEF	-1
 
 // === IMPORTS ===
 extern tSpiderFunction	*gpExports_First;
@@ -390,7 +391,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			void	*ident = NULL;
 			
 			// Look up object
-			if( SpiderScript_CreateObject(Block->Script, manglename, namespaces, 0, NULL, &ident, 0) == ERRPTR ) {
+			if( SpiderScript_CreateObject(Block->Script, manglename, namespaces, NULL, 0, NULL, NULL, &ident, 0) ) {
 				AST_RuntimeError(Node, "Undefined reference to class %s", manglename);
 				return -1;
 			}
@@ -452,7 +453,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			void	*ident = NULL;
 			
 			// Look up function definition
-			if( SpiderScript_ExecuteFunction(Block->Script, manglename, namespaces, 0, NULL, &ident, 0) == ERRPTR ) {
+			if( SpiderScript_ExecuteFunctionEx(Block->Script, manglename, namespaces, NULL, 0,NULL,NULL, &ident, 0) ) {
 				// Sad will be chucked
 				AST_RuntimeError(Node, "Undefined reference to %s", manglename);
 				return -1;
@@ -797,19 +798,19 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	
 	// Constant Values
 	case NODETYPE_STRING:
-		Bytecode_AppendConstString(Block->Handle, Node->Constant.String.Data, Node->Constant.String.Length);
+		Bytecode_AppendConstString(Block->Handle, Node->ConstString->Data, Node->ConstString->Length);
 		ret = _StackPush(Block, Node, SS_DATATYPE_STRING, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
 	case NODETYPE_INTEGER:
-		Bytecode_AppendConstInt(Block->Handle, Node->Constant.Integer);
+		Bytecode_AppendConstInt(Block->Handle, Node->ConstInt);
 		ret = _StackPush(Block, Node, SS_DATATYPE_INTEGER, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
 	case NODETYPE_REAL:
-		Bytecode_AppendConstReal(Block->Handle, Node->Constant.Real);
+		Bytecode_AppendConstReal(Block->Handle, Node->ConstReal);
 		ret = _StackPush(Block, Node, SS_DATATYPE_REAL, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
@@ -1060,7 +1061,7 @@ int BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
 
 	// TODO: Check types
 
-	_StackPop(Block, VarNode, var->Type, (void**)&var->Object);
+	_StackPop(Block, VarNode, var->Type, NULL);
 	Bytecode_AppendSaveVar(Block->Handle, VarNode->Variable.Name);
 	return 0;
 }
@@ -1076,7 +1077,7 @@ int BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
 	if(!var)	return -1;
 
 	// NOTE: Abuses ->Object as the info pointer	
-	_StackPush(Block, VarNode, var->Type, var->Object);
+	_StackPush(Block, VarNode, var->Type, NULL);
 	Bytecode_AppendLoadVar(Block->Handle, VarNode->Variable.Name);
 	return 0;
 }

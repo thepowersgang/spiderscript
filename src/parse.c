@@ -146,6 +146,7 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 			Parse_NamespaceContent(Parser);
 			break;
 
+#if 0
 		// Define a function
 		case TOK_RWD_FUNCTION:
 			if( !Script->Variant->bDyamicTyped )
@@ -153,6 +154,7 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 			
 			Parse_FunctionDefinition(NULL, Parser, SS_DATATYPE_UNDEF);
 			break;
+#endif
 		
 		// Ordinary Statement
 		default:
@@ -204,6 +206,7 @@ void Parse_NamespaceContent(tParser *Parser)
 			Parse_GetIdent(Parser, GETIDENTMODE_NAMESPACE, NULL);
 			break;
 		
+#if 0
 		// Dynamic function
 		case TOK_RWD_FUNCTION:
 			if( !Parser->Script->Variant->bDyamicTyped ) {
@@ -213,6 +216,7 @@ void Parse_NamespaceContent(tParser *Parser)
 			
 			Parse_FunctionDefinition(NULL, Parser, SS_DATATYPE_UNDEF);
 			break;
+#endif
 		
 		default:
 			fprintf(stderr, "Syntax Error: Unexpected %s on line %i, Expected class/namespace/function definition\n",
@@ -245,6 +249,7 @@ void Parse_ClassDefinition(tParser *Parser)
 			Parse_GetIdent(Parser, GETIDENTMODE_CLASS, class);
 			// TODO: Comma separated attributes?
 			break;
+#if 0
 		case TOK_RWD_FUNCTION:
 			if( !Parser->Script->Variant->bDyamicTyped ) {
 				SyntaxError(Parser, 1, "Dynamic functions are invalid in static mode");
@@ -253,6 +258,7 @@ void Parse_ClassDefinition(tParser *Parser)
 			
 			Parse_FunctionDefinition(class, Parser, SS_DATATYPE_UNDEF);
 			break;
+#endif
 		}
 	}
 }
@@ -278,13 +284,14 @@ void Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, int Type)
 	{
 		do {
 			tAST_Node *def;
+#if 0
 			if( Parser->Variant->bDyamicTyped ) {
 				GetToken(Parser);
 				def = Parse_GetVarDef(Parser, SS_DATATYPE_UNDEF, NULL);
 			}
-			else {
+			else
+#endif
 				def = Parse_GetIdent(Parser, GETIDENTMODE_FUNCTIONDEF, NULL);
-			}
 			last_arg->NextSibling = def;
 			last_arg = def;
 			last_arg->NextSibling = NULL;
@@ -582,12 +589,12 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class)
 	}
 	
 	// Maul the type to denote the dereference level
-	if( Parser->Variant->bDyamicTyped ) {
+	#if 0
+	if( Parser->Variant->bDyamicTyped )
 		Type = SS_DATATYPE_UNDEF;
-	}
-	else {
+	else
+	#endif
 		Type = SS_MAKEARRAYN(Type, level);
-	}
 
 	// Initial value
 	if( LookAhead(Parser) == TOK_ASSIGN )

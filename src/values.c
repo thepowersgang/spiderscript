@@ -15,62 +15,23 @@
 extern void	AST_RuntimeError(void *Node, const char *Format, ...);
 
 // === PROTOTYPES ===
-void	SpiderScript_DereferenceValue(tSpiderValue *Object);
-void	SpiderScript_ReferenceValue(tSpiderValue *Object);
-tSpiderValue	*SpiderScript_CreateInteger(uint64_t Value);
-tSpiderValue	*SpiderScript_CreateReal(double Value);
-tSpiderValue	*SpiderScript_CreateString(int Length, const char *Data);
-tSpiderValue	*SpiderScript_CastValueTo(int Type, tSpiderValue *Source);
- int	SpiderScript_IsValueTrue(tSpiderValue *Value);
-void	SpiderScript_FreeValue(tSpiderValue *Value);
-char	*SpiderScript_DumpValue(tSpiderValue *Value);
-// --- Operations
-tSpiderValue	*SpiderScript_DoOp(tSpiderValue *Left, enum eSpiderValueOps, int bCanCast, tSpiderValue *Right);
-tSpiderValue	*SpiderScript_int_DoOpInt(tSpiderValue *Left, enum eSpiderValueOps, int bCanCast, tSpiderValue *Right);
-tSpiderValue	*SpiderScript_int_DoOpReal(tSpiderValue *Left, enum eSpiderValueOps, int bCanCast, tSpiderValue *Right);
-tSpiderValue	*SpiderScript_int_DoOpString(tSpiderValue *Left, enum eSpiderValueOps, int bCanCast, tSpiderValue *Right);
-
 
 // === CODE ===
-/**
- * \brief Dereference a created object
- */
-void SpiderScript_DereferenceValue(tSpiderValue *Value)
+int _GetTypeSize(int TypeCode)
 {
-	if(!Value || Value == ERRPTR)	return ;
-	Value->ReferenceCount --;
-	if( Value->ReferenceCount == 0 )
+	switch(TypeCode)
 	{
-		if( SS_GETARRAYDEPTH(Value->Type) )
-		{
-			for( int i = 0; i < Value->Array.Length; i ++ )
-			{
-				if( Value->Array.Items[i] ) {
-					SpiderScript_DereferenceValue(Value->Array.Items[i]);
-				}
-				Value->Array.Items[i] = NULL;
-			}
-		}
-		else if( SS_ISTYPEOBJECT(Value->Type) )
-		{
-			SpiderScript_DereferenceObject( Value->Object );
-			Value->Object = NULL;
-		}
-		else
-		{
-			// Anything else has no special handling
-		}
-		free(Value);
+	case SS_DATATYPE_NOVALUE:
+		return -1;
+	case SS_DATATYPE_BOOLEAN:
+		return sizeof(tSpiderBool);
+	case SS_DATATYPE_INTEGER:
+		return sizeof(tSpiderInteger);
+	case SS_DATATYPE_REAL:
+		return sizeof(tSpiderReal);
+	default:	// Reference types
+		return 0;
 	}
-}
-
-/**
- * \brief Reference a value
- */
-void SpiderScript_ReferenceValue(tSpiderValue *Value)
-{
-	if(!Value || Value == ERRPTR)	return ;
-	Value->ReferenceCount ++;
 }
 
 /**
@@ -78,14 +39,62 @@ void SpiderScript_ReferenceValue(tSpiderValue *Value)
  */
 tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *Class, int ExtraBytes)
 {
-	 int	size = sizeof(tSpiderObject) + Class->NAttributes * sizeof(tSpiderValue*) + ExtraBytes;
-	tSpiderObject	*ret = malloc(size);
+	 int	size = sizeof(tSpiderObject) + Class->NAttributes * sizeof(void*);
+
+	for( int i = 0; i < Class->NAttributes; i ++ )
+	{
+		int sz = _GetTypeSize(Class->AttributeDefs[i].Type);
+		if( sz < 0 ) {
+			// Oops?
+		}
+		else
+			size += sz;
+	}
+
+	tSpiderObject	*ret = calloc(1, size + ExtraBytes);
 	
 	ret->TypeCode = SpiderScript_GetTypeCode(Script, Class->Name);
 	ret->Script = Script;
 	ret->ReferenceCount = 1;
-	ret->OpaqueData = &ret->Attributes[ Class->NAttributes ];
-	memset( ret->Attributes, 0, Class->NAttributes * sizeof(tSpiderValue*) );
+	ret->OpaqueData = (char*)ret + size;
+	
+	size = 0;
+	for( int i = 0; i < Class->NAttributes; i ++ )
+	{
+		ret->Attributes[i] = (char*)(ret->Attributes + Class->NAttributes) + size;
+		size += _GetTypeSize(Class->AttributeDefs[i].Type);
+	}
+	
+	return ret;
+}
+
+tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class)
+{
+	 int	n_attr = 0;
+	 int	size = sizeof(tSpiderObject);
+	tScript_Class_Var *at;
+	 int	i;
+
+	for( at = Class->FirstProperty; at; at = at->Next )
+	{
+		size += _GetTypeSize(at->Type);
+		n_attr ++;
+	}
+	
+	size += n_attr * sizeof(void*);
+	
+	tSpiderObject	*ret = calloc(1, size);
+	ret->TypeCode = SpiderScript_GetTypeCode(Script, Class->Name);
+	ret->Script = Script;
+	ret->ReferenceCount = 1;
+	ret->OpaqueData = 0;
+	
+	size = 0;
+	for( i = 0, at = Class->FirstProperty; at; at = at->Next, i ++ )
+	{
+		ret->Attributes[i] = (char*)(ret->Attributes + n_attr) + size;
+		size += _GetTypeSize(at->Type);
+	}
 	
 	return ret;
 }
@@ -116,94 +125,174 @@ void SpiderScript_DereferenceObject(tSpiderObject *Object)
 				n_att ++;
 		}
 	
-		// TODO: Clean up attributes
+		// Clean up attributes
 		for( int i = 0; i < n_att; i ++ )
-			SpiderScript_DereferenceValue(Object->Attributes[i]);
+		{
+			void	*ptr = Object->Attributes[i];
+			 int	type = nc->AttributeDefs[i].Type;
+			
+			if( !ptr )
+				continue ;
+			Object->Attributes[i] = NULL;
+			
+			if( SS_ISTYPEOBJECT(type) )
+				SpiderScript_DereferenceObject(ptr);
+			else if( SS_GETARRAYDEPTH(type) )
+				SpiderScript_DereferenceArray(ptr);
+			else if( type == SS_DATATYPE_STRING )
+				SpiderScript_DereferenceString(ptr);
+			else
+				;	// Local allocation
+		}
 
 		free(Object);
 	}
 }
 
 /**
- * \brief Create an integer object
- */
-tSpiderValue *SpiderScript_CreateInteger(uint64_t Value)
-{
-	tSpiderValue	*ret = malloc( sizeof(tSpiderValue) );
-	ret->Type = SS_DATATYPE_INTEGER;
-	ret->ReferenceCount = 1;
-	ret->Integer = Value;
-	return ret;
-}
-
-/**
- * \brief Create an real number object
- */
-tSpiderValue *SpiderScript_CreateReal(double Value)
-{
-	tSpiderValue	*ret = malloc( sizeof(tSpiderValue) );
-	ret->Type = SS_DATATYPE_REAL;
-	ret->ReferenceCount = 1;
-	ret->Real = Value;
-	return ret;
-}
-
-/**
  * \brief Create an string object
  */
-tSpiderValue *SpiderScript_CreateString(int Length, const char *Data)
+tSpiderString *SpiderScript_CreateString(int Length, const char *Data)
 {
-	tSpiderValue	*ret = malloc( sizeof(tSpiderValue) + Length + 1 );
-	ret->Type = SS_DATATYPE_STRING;
-	ret->ReferenceCount = 1;
-	ret->String.Length = Length;
+	tSpiderString	*ret = malloc( sizeof(tSpiderString) + Length + 1 );
+	ret->RefCount = 1;
+	ret->Length = Length;
 	if( Data )
-		memcpy(ret->String.Data, Data, Length);
+		memcpy(ret->Data, Data, Length);
 	else
-		memset(ret->String.Data, 0, Length);
-	ret->String.Data[Length] = '\0';
+		memset(ret->Data, 0, Length);
+	ret->Data[Length] = '\0';
 	return ret;
 }
 
-tSpiderValue *SpiderScript_CreateArray(int InnerType, int ItemCount)
+void SpiderScript_DereferenceString(tSpiderString *String)
 {
-	tSpiderValue	*ret = malloc( sizeof(tSpiderValue) + ItemCount*sizeof(tSpiderValue*) );
-	ret->Type = SS_MAKEARRAY(InnerType);
-	ret->ReferenceCount = 1;
-	ret->Array.Length = ItemCount;
-	memset(ret->Array.Items, 0, ItemCount*sizeof(tSpiderValue*));
+	if( !String )	return ;
+	
+	String->RefCount --;
+	if( String->RefCount > 0 )	return ;
+	
+	// Destruction time
+	free(String);
+	// that was easy
+}
+
+tSpiderArray *SpiderScript_CreateArray(int InnerType, int ItemCount)
+{
+	 int	ent_size;
+	tSpiderArray	*ret;
+	
+	// Get the size of one entry (reference types are zero sized, but need 1 pointer)
+	ent_size = _GetTypeSize(InnerType);
+	if( ent_size == 0 )	ent_size = sizeof(void*);
+
+	ret = malloc( sizeof(tSpiderArray) + ItemCount*ent_size );
+	ret->Type = InnerType;
+	ret->RefCount = 1;
+	ret->Length = ItemCount;
+	memset(ret->Bools, 0, ItemCount*ent_size);	// Could use any, but Bools works
 	return ret;
+}
+
+void SpiderScript_DereferenceArray(tSpiderArray *Array)
+{
+	if( !Array )	return;
+	
+	Array->RefCount --;
+	if( Array->RefCount > 0 )	return ;
+	
+	// Destruction time
+	if( SS_ISTYPEOBJECT(Array->Type) ) {
+		for( int i = 0; i < Array->Length; i ++ )
+			SpiderScript_DereferenceObject(Array->Objects[i]);
+	}
+	else if( SS_GETARRAYDEPTH(Array->Type) ) {
+		for( int i = 0; i < Array->Length; i ++ )
+			SpiderScript_DereferenceArray(Array->Arrays[i]);
+	}
+	else if( Array->Type == SS_DATATYPE_STRING ) {
+		for( int i = 0; i < Array->Length; i ++ )
+			SpiderScript_DereferenceString(Array->Strings[i]);
+	}
+	else
+		;	// Local allocation
+	
+	free(Array);
+}
+
+int SpiderScript_StringCompare(const tSpiderString *s1, const tSpiderString *s2)
+{
+	 int	cmp;
+	if( s1->Length > s2->Length )
+		cmp = memcmp(s1->Data, s2->Data, s2->Length);
+	else
+		cmp = memcmp(s1->Data, s2->Data, s1->Length);
+	
+	if( cmp == 0 )
+	{
+		if( s1->Length == s2->Length )
+			cmp = 0;
+		else if( s1->Length < s2->Length )
+			cmp = 1;
+		else
+			cmp = -1;
+	}
+	return cmp;
 }
 
 /**
  * \brief Concatenate two strings
  */
-tSpiderValue *SpiderScript_StringConcat(const tSpiderValue *Str1, const tSpiderValue *Str2)
+tSpiderString *SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2)
 {
-	 int	newLen = 0;
-	tSpiderValue	*ret;
+	size_t	newLen = 0;
+	tSpiderString	*ret;
 	
-	if( Str1 && Str1->Type != SS_DATATYPE_STRING)
-		return NULL;
-	if( Str2 && Str2->Type != SS_DATATYPE_STRING)
-		return NULL;
-	
-	if(Str1)	newLen += Str1->String.Length;
-	if(Str2)	newLen += Str2->String.Length;
-	ret = malloc( sizeof(tSpiderValue) + newLen + 1 );
-	ret->Type = SS_DATATYPE_STRING;
-	ret->ReferenceCount = 1;
-	ret->String.Length = newLen;
+	if(Str1)	newLen += Str1->Length;
+	if(Str2)	newLen += Str2->Length;
+	ret = malloc( sizeof(tSpiderString) + newLen + 1 );
+	ret->RefCount = 1;
+	ret->Length = newLen;
 	if(Str1)
-		memcpy(ret->String.Data, Str1->String.Data, Str1->String.Length);
+		memcpy(ret->Data, Str1->Data, Str1->Length);
 	if(Str2) {
 		if(Str1)
-			memcpy(ret->String.Data+Str1->String.Length, Str2->String.Data, Str2->String.Length);
+			memcpy(ret->Data+Str1->Length, Str2->Data, Str2->Length);
 		else
-			memcpy(ret->String.Data, Str2->String.Data, Str2->String.Length);
+			memcpy(ret->Data, Str2->Data, Str2->Length);
 	}
-	ret->String.Data[ newLen ] = '\0';
+	ret->Data[ newLen ] = '\0';
 	return ret;
+}
+
+/**
+ * \brief Condenses a value down to a boolean
+ */
+tSpiderBool SpiderScript_CastValueToBool(int Type, const void *Source)
+{
+	if( !Source )
+		return 0;
+	
+	if( SS_GETARRAYDEPTH(Type) )
+		return ((const tSpiderArray*)Source)->Length > 0;
+	else if( SS_ISTYPEOBJECT(Type) )
+		return 0;	// TODO: Objects
+	
+	switch( Type )
+	{
+	case SS_DATATYPE_NOVALUE:
+		return 0;
+	case SS_DATATYPE_BOOLEAN:
+		return *(const tSpiderBool*)Source;
+	case SS_DATATYPE_INTEGER:
+		return !!*(const tSpiderInteger*)Source;
+	case SS_DATATYPE_REAL:
+		return (-.5f < *(const tSpiderReal*)Source && *(const tSpiderReal*)Source < 0.5f);
+	case SS_DATATYPE_STRING:
+		return ((const tSpiderString*)Source)->Length > 0;
+	default:
+		return 0;
+	}
 }
 
 /**
@@ -211,300 +300,52 @@ tSpiderValue *SpiderScript_StringConcat(const tSpiderValue *Str1, const tSpiderV
  * \brief Type	Destination type
  * \brief Source	Input data
  */
-tSpiderValue *SpiderScript_CastValueTo(int Type, tSpiderValue *Source)
+tSpiderInteger SpiderScript_CastValueToInteger(int Type, const void *Source)
 {
-	tSpiderValue	*ret = ERRPTR;
-	 int	len = 0;
-
 	if( !Source )
-	{
-		switch(Type)
-		{
-		case SS_DATATYPE_INTEGER:	return SpiderScript_CreateInteger(0);
-		case SS_DATATYPE_REAL:	return SpiderScript_CreateReal(0);
-		case SS_DATATYPE_STRING:	return SpiderScript_CreateString(4, "null");
-		}
-		return NULL;
-	}
-	
-	// Check if anything needs to be done
-	if( Source->Type == Type ) {
-		SpiderScript_ReferenceValue(Source);
-		return Source;
-	}
-	
-	// Debug
-	#if 0
-	{
-		printf("Casting %i ", Source->Type);
-		switch(Source->Type)
-		{
-		case SS_DATATYPE_INTEGER:	printf("0x%lx", Source->Integer);	break;
-		case SS_DATATYPE_STRING:	printf("\"%s\"", Source->String.Data);	break;
-		case SS_DATATYPE_REAL:	printf("%f", Source->Real);	break;
-		default:	break;
-		}
-		printf(" to %i\n", Type);
-	}
-	#endif
-	
-	// Object casts
-	#if 0
-	if( Source->Type == SS_DATATYPE_OBJECT )
-	{
-		const char	*name = NULL;
-		switch(Type)
-		{
-		case SS_DATATYPE_INTEGER:	name = "cast Integer";	break;
-		case SS_DATATYPE_REAL:  	name = "cast Real";	break;
-		case SS_DATATYPE_STRING:	name = "cast String";	break;
-		case SS_DATATYPE_ARRAY: 	name = "cast Array";	break;
-		default:
-			AST_RuntimeError(NULL, "Invalid cast to %i from Object", Type);
-			return ERRPTR;
-		}
-		if( fcnname )
-		{
-			ret = Object_ExecuteMethod(Left->Object, fcnname, Right);
-			if( ret != ERRPTR )
-				return ret;
-			// Fall through and try casting (which will usually fail)
-		}
-	}
-	#endif
+		return 0;
+
+	if( SS_GETARRAYDEPTH(Type) )
+		return 0;
+	else if( SS_ISTYPEOBJECT(Type) )
+		return 0;	// TODO: Objects
 	
 	switch( Type )
 	{
-	case SS_DATATYPE_UNDEF:
-		AST_RuntimeError(NULL, "Invalid cast to %i", Type);
-		return ERRPTR;
-	
+	case SS_DATATYPE_BOOLEAN:
+		return *(const tSpiderBool*)Source;
 	case SS_DATATYPE_INTEGER:
-		ret = malloc(sizeof(tSpiderValue));
-		ret->Type = SS_DATATYPE_INTEGER;
-		ret->ReferenceCount = 1;
-		switch(Source->Type)
-		{
-		case SS_DATATYPE_INTEGER:	break;	// Handled above
-		case SS_DATATYPE_STRING:	ret->Integer = atoi(Source->String.Data);	break;
-		case SS_DATATYPE_REAL:	ret->Integer = Source->Real;	break;
-		default:
-			AST_RuntimeError(NULL, "Invalid cast from %i to Integer", Source->Type);
-			free(ret);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	
+		return *(const tSpiderInteger*)Source;
 	case SS_DATATYPE_REAL:
-		ret = malloc(sizeof(tSpiderValue));
-		ret->Type = SS_DATATYPE_REAL;
-		ret->ReferenceCount = 1;
-		switch(Source->Type)
-		{
-		case SS_DATATYPE_STRING:	ret->Real = atof(Source->String.Data);	break;
-		case SS_DATATYPE_INTEGER:	ret->Real = Source->Integer;	break;
-		default:
-			AST_RuntimeError(NULL, "Invalid cast from %i to Real", Source->Type);
-			free(ret);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	
+		return *(const tSpiderReal*)Source;
 	case SS_DATATYPE_STRING:
-		switch(Source->Type)
-		{
-		case SS_DATATYPE_INTEGER:	len = snprintf(NULL, 0, "%li", Source->Integer);	break;
-		case SS_DATATYPE_REAL:	len = snprintf(NULL, 0, "%g", Source->Real);	break;
-		default:	break;
-		}
-		ret = malloc(sizeof(tSpiderValue) + len + 1);
-		ret->Type = SS_DATATYPE_STRING;
-		ret->ReferenceCount = 1;
-		ret->String.Length = len;
-		switch(Source->Type)
-		{
-		case SS_DATATYPE_INTEGER:	sprintf(ret->String.Data, "%li", Source->Integer);	break;
-		case SS_DATATYPE_REAL:
-			sprintf(ret->String.Data, "%g", Source->Real);	break;
-		default:
-			AST_RuntimeError(NULL, "Invalid cast from %i to String", Source->Type);
-			free(ret);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	
+		return atoll( ((const tSpiderString*)Source)->Data);
 	default:
-		AST_RuntimeError(NULL, "BUG - BUG REPORT: Unimplemented cast target %i", Type);
-		ret = ERRPTR;
-		break;
-	}
-	
-	return ret;
-}
-
-/**
- * \brief Condenses a value down to a boolean
- */
-int SpiderScript_IsValueTrue(tSpiderValue *Value)
-{
-	if( Value == ERRPTR )	return 0;
-	if( Value == NULL )	return 0;
-
-	if( SS_GETARRAYDEPTH(Value->Type) )
-		return Value->Array.Length > 0;
-	
-	switch( Value->Type )
-	{
-	case SS_DATATYPE_UNDEF:
-		return 0;
-	
-	case SS_DATATYPE_INTEGER:
-		return !!Value->Integer;
-	
-	case SS_DATATYPE_REAL:
-		return (-.5f < Value->Real && Value->Real < 0.5f);
-	
-	case SS_DATATYPE_STRING:
-		return Value->String.Length > 0;
-	
-//	case SS_DATATYPE_OBJECT:
-//		return Value->Object != NULL;
-	
-	default:
-		AST_RuntimeError(NULL, "Unknown type %i in SpiderScript_IsValueTrue", Value->Type);
 		return 0;
 	}
-	return 0;
 }
 
-/**
- * \brief Free a value
- * \note Just calls Object_Dereference
- */
-void SpiderScript_FreeValue(tSpiderValue *Value)
+tSpiderReal SpiderScript_CastValueToReal(int Type, const void *Source)
 {
-	SpiderScript_DereferenceValue(Value);
-}
+	if( !Source )
+		return 0;
 
-/**
- * \brief Dump a value into a string
- * \return Heap string
- */
-char *SpiderScript_DumpValue(tSpiderValue *Value)
-{
-	char	*ret;
-	if( Value == ERRPTR )
-		return strdup("ERRPTR");
-	if( Value == NULL )
-		return strdup("null");
+	if( SS_GETARRAYDEPTH(Type) )
+		return 0;
+	else if( SS_ISTYPEOBJECT(Type) )
+		return 0;	// TODO: Objects
 	
-	switch( Value->Type )
+	switch( Type )
 	{
-	case SS_DATATYPE_UNDEF:	return strdup("undefined");
-	
+	case SS_DATATYPE_BOOLEAN:
+		return *(tSpiderBool*)Source;
 	case SS_DATATYPE_INTEGER:
-		ret = malloc( sizeof(Value->Integer)*2 + 3 );
-		sprintf(ret, "0x%lx", Value->Integer);
-		return ret;
-	
+		return *(tSpiderInteger*)Source;
 	case SS_DATATYPE_REAL:
-		ret = malloc( sprintf(NULL, "%f", Value->Real) + 1 );
-		sprintf(ret, "%f", Value->Real);
-		return ret;
-	
+		return *(tSpiderReal*)Source;
 	case SS_DATATYPE_STRING:
-		ret = malloc( Value->String.Length + 3 );
-		ret[0] = '"';
-		strcpy(ret+1, Value->String.Data);
-		ret[Value->String.Length+1] = '"';
-		ret[Value->String.Length+2] = '\0';
-		return ret;
-	
-//	case SS_DATATYPE_OBJECT:
-//		ret = malloc( sprintf(NULL, "{%s *%p}", Value->Object->Type->Name, Value->Object) + 1 );
-//		sprintf(ret, "{%s *%p}", Value->Object->Type->Name, Value->Object);
-//		return ret;
-	
-//	case SS_DATATYPE_OPAQUE:
-//		ret = malloc( sprintf(NULL, "*%p", Value->Opaque.Data) + 1 );
-//		sprintf(ret, "*%p", Value->Opaque.Data);
-//		return ret;
-	
-//	case SS_DATATYPE_ARRAY:
-//		return strdup("Array");
-	
+		return atof( ((tSpiderString*)Source)->Data);
 	default:
-		AST_RuntimeError(NULL, "Unknown type %i in Object_Dump", Value->Type);
-		return NULL;
-	}
-	
-}
-
-// ---
-tSpiderValue *SpiderScript_DoOp(tSpiderValue *Left, enum eSpiderValueOps Operation, int bCanCast, tSpiderValue *Right)
-{
-	switch(Left->Type)
-	{
-	case SS_DATATYPE_INTEGER:
-		return SpiderScript_int_DoOpInt(Left, Operation, bCanCast, Right);
-	default:
-		return NULL;
-	}
-	return NULL;
-}
-
-tSpiderValue *SpiderScript_int_DoOpInt(tSpiderValue *Left, enum eSpiderValueOps Operation, int bCanCast, tSpiderValue *Right)
-{
-	tSpiderValue	*oldright = Right;
-	tSpiderValue	*ret = NULL;
-	 int64_t	rv = 0;
-
-	// Casting
-	if(Right && Right->Type != SS_DATATYPE_INTEGER) {
-		if(!bCanCast)	return ERRPTR;
-		Right = SpiderScript_CastValueTo(SS_DATATYPE_INTEGER, Right);
-	}
-
-	// Do the operation
-	switch(Operation)
-	{
-	case SS_VALUEOP_NEGATE:
-		if(Right)	ret = ERRPTR;
-		else	rv = -Left->Integer;
-		break;
-	case SS_VALUEOP_ADD:
-		if(!Right)	ret = ERRPTR;
-		else	rv = Left->Integer + Right->Integer;
-		break;
-	case SS_VALUEOP_SUBTRACT:
-		if(!Right)	ret = ERRPTR;
-		else	rv = Left->Integer - Right->Integer;
-		break;
-	default:
-		ret = ERRPTR;
-		AST_RuntimeError(NULL, "BUG - BUG REPORT: Unimplemented integer operation %i", Operation);
-		break;
-	}
-
-	// Delete temporary value
-	if( Right != oldright )
-		SpiderScript_DereferenceValue(Right);
-
-	// Return error if signaled
-	if(ret == ERRPTR)
-		return ERRPTR;
-
-	// Reuse `Left` if possible, to reduce mallocs	
-	if(Left->ReferenceCount == 1) {
-		SpiderScript_ReferenceValue(Left);
-		Left->Integer = rv;
-		return Left;
-	}
-	else {
-		return SpiderScript_CreateInteger(rv);
+		return 0;
 	}
 }
-

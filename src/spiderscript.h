@@ -16,9 +16,14 @@ typedef struct sSpiderScript	tSpiderScript;
 typedef struct sSpiderVariant	tSpiderVariant;
 typedef struct sSpiderNamespace	tSpiderNamespace;
 typedef struct sSpiderFunction	tSpiderFunction;
-typedef struct sSpiderValue	tSpiderValue;
 typedef struct sSpiderClass	tSpiderClass;
+
+typedef char	tSpiderBool;
+typedef int64_t	tSpiderInteger;
+typedef double	tSpiderReal;
+typedef struct sSpiderString	tSpiderString;
 typedef struct sSpiderObject	tSpiderObject;
+typedef struct sSpiderArray	tSpiderArray;
 
 typedef int	tSpiderScript_DataType;
 
@@ -29,7 +34,6 @@ typedef int	tSpiderScript_DataType;
 enum eSpiderScript_InternalTypes
 {
 	SS_DATATYPE_NOVALUE,	// "void" - No value stored
-	SS_DATATYPE_UNDEF,	// "Variable" - Used for dynamic typing
 	SS_DATATYPE_BOOLEAN,	// "Boolean" - true/false
 	SS_DATATYPE_INTEGER,	// "Integer" - 64-bit signed integer
 	SS_DATATYPE_REAL,	// "Real" - 64-bit floating point
@@ -75,13 +79,12 @@ struct sSpiderVariant
 {
 	const char	*Name;	// Just for debug
 	
-	 int	bDyamicTyped;	//!< Use dynamic typing
 	 int	bImplicitCasts;	//!< Allow implicit casts (casts to lefthand side)
 	
 	tSpiderFunction	*Functions;	//!< Functions (Flat list)
 	tSpiderClass	*Classes;	//!< Classes (Flat list)
 	
-	tSpiderValue	(*GetConstant)(int Index);
+	 int	(*GetConstant)(void **Dest, int Index);
 	 int	NConstants;	//!< Number of constants
 	struct {
 		const char *Name;
@@ -89,44 +92,26 @@ struct sSpiderVariant
 	}	Constants[];	//!< Number of constants
 };
 
-/**
- * \brief SpiderScript data object
- */
-struct sSpiderValue
+struct sSpiderString
 {
-	tSpiderScript_DataType	Type;	//!< Variable type
-	 int	ReferenceCount;	//!< Reference count
-	
+	 int	RefCount;
+	size_t	Length;
+	char	Data[];
+};
+
+struct sSpiderArray
+{
+	 int	RefCount;
+	tSpiderScript_DataType	Type;
+	size_t	Length;
+//	char	Data[];
 	union {
-		int64_t	Integer;	//!< Integer data
-		double	Real;	//!< Real Number data
-		/**
-		 * \brief String data
-		 */
-		struct {
-			 int	Length;	//!< Length
-			char	Data[];	//!< Actual string (\a Length bytes)
-		}	String;
-		/**
-		 * \brief Variable data
-		 */
-		struct {
-			 int	Length;	//!< Length of the array
-			tSpiderValue	*Items[];	//!< Array elements (\a Length long)
-		}	Array;
-		
-		/**
-		 * \brief Opaque data
-		 */
-		struct {
-			void	*Data;	//!< Data (can be anywhere)
-			void	(*Destroy)(void *Data);	//!< Called on GC
-		}	Opaque;
-		
-		/**
-		 * \brief Object Instance
-		 */
-		tSpiderObject	*Object;
+		tSpiderBool	Bools[0];
+		tSpiderInteger	Integers[0];
+		tSpiderReal	Reals[0];
+		tSpiderArray	*Arrays[0];
+		tSpiderString	*Strings[0];
+		tSpiderObject	*Objects[0];
 	};
 };
 
@@ -152,7 +137,7 @@ struct sSpiderClass
 	 * \retval NULL	Invalid parameter (usually, actually just a NULL value)
 	 * \retval ERRPTR	Invalid parameter count
 	 */
-	tSpiderObject	*(*Constructor)(tSpiderScript *Script, int NArgs, tSpiderValue **Args);
+	tSpiderObject	*(*Constructor)(tSpiderScript *Script, int NArgs, const int *ArgTypes, void * const Args[]);
 	
 	/**
 	 * \brief Clean up and destroy the object
@@ -166,7 +151,7 @@ struct sSpiderClass
 	/**
 	 * \brief Get/Set an attribute's value
 	 */
-	tSpiderValue	*(*GetSetAttribute)(tSpiderObject *This, int AttibuteID, tSpiderValue *NewValue);
+	 int	(*GetSetAttribute)(tSpiderObject *This, int AttibuteID, void *Output, const void *NewValue);
 	
 	/**
 	 * \brief Method Definitions (linked list)
@@ -196,7 +181,7 @@ struct sSpiderObject
 	tSpiderScript	*Script;
 	 int	ReferenceCount;	//!< Number of references
 	void	*OpaqueData;	//!< Pointer to the end of the \a Attributes array
-	tSpiderValue	*Attributes[];	//!< Attribute Array
+	void	*Attributes[];	//!< Attribute Array (with attribute data afterwards)
 };
 
 /**
@@ -216,7 +201,7 @@ struct sSpiderFunction
 	/**
 	 * \brief Function handler
 	 */
-	tSpiderValue	*(*Handler)(tSpiderScript *Script, int nParams, tSpiderValue **Parameters);
+	 int	(*Handler)(tSpiderScript *Script, void *RetData, int nArgs, const int *ArgTypes, void * const Args[]);
 
 	/**
 	 * \brief What type is returned
@@ -243,30 +228,32 @@ struct sSpiderFunction
  * \return Script suitable for execution
  */
 extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
-/**
- * \brief Execute a function from a script
- * \param Script	Script to run
- * \param Function	Name of function to run ("" for the 'main')
- * \return Return value
- */
-extern tSpiderValue	*SpiderScript_ExecuteFunction(tSpiderScript *Script,
-	const char *Function, const char *DefaultNamespaces[],
-	int NArguments, tSpiderValue **Arguments,
-	void **FunctionIdent, int bExecute
+
+extern int	SpiderScript_ExecuteFunctionEx(tSpiderScript *Script,
+	const char *Function, const char *Namespaces[],
+	void *RetData,
+	int NArguments, const int *ArgTypes, void * const Arguments[],
+	void **Ident, int bExecute
+	);
+extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
+	void *RetData, int NArguments, const int *ArgTypes, void * const Arguments[]
 	);
 /**
  * \brief Execute an object method
  */
-extern tSpiderValue	*SpiderScript_ExecuteMethod(tSpiderScript *Script,
+extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderObject *Object, const char *MethodName,
-	int NArguments, tSpiderValue **Arguments
+	void *RetData,
+	int NArguments, const int *ArgTypes, void * const Arguments[],
+	void **Ident
 	);
 /**
  * \brief Creates an object instance
  */
-extern tSpiderValue	*SpiderScript_CreateObject(tSpiderScript *Script,
+extern int	SpiderScript_CreateObject(tSpiderScript *Script,
 	const char *ClassName, const char *DefaultNamespaces[],
-	int NArguments, tSpiderValue **Arguments,
+	tSpiderObject **RetData,
+	int NArguments, const int *ArgTypes, void * const Arguments[],
 	void **Ident, int bExecute
 	);
 
@@ -293,23 +280,20 @@ extern tSpiderObject	*SpiderScript_AllocateObject(tSpiderScript *Script, tSpider
 extern void	SpiderScript_ReferenceObject(tSpiderObject *Object);
 extern void	SpiderScript_DereferenceObject(tSpiderObject *Object);
 
-/**
- * \name tSpiderValue Manipulation functions
- * \{
- */
-extern void	SpiderScript_DereferenceValue(tSpiderValue *Object);
-extern void	SpiderScript_ReferenceValue(tSpiderValue *Object);
-extern tSpiderValue	*SpiderScript_CreateInteger(uint64_t Value);
-extern tSpiderValue	*SpiderScript_CreateReal(double Value);
-extern tSpiderValue	*SpiderScript_CreateString(int Length, const char *Data);
-extern tSpiderValue	*SpiderScript_CreateArray(int InnerType, int ItemCount);
-extern tSpiderValue	*SpiderScript_StringConcat(const tSpiderValue *Str1, const tSpiderValue *Str2);
-extern tSpiderValue	*SpiderScript_CastValueTo(int Type, tSpiderValue *Source);
-extern int	SpiderScript_IsValueTrue(tSpiderValue *Value);
-extern void	SpiderScript_FreeValue(tSpiderValue *Value);
-extern char	*SpiderScript_DumpValue(tSpiderValue *Value);
+extern tSpiderArray	*SpiderScript_CreateArray(int InnerType, int ItemCount);
+extern void	SpiderScript_ReferenceArray(tSpiderArray *Array);
+extern void	SpiderScript_DereferenceArray(tSpiderArray *Array);
 
-extern tSpiderValue	*SpiderScript_DoOp(tSpiderValue *Left, enum eSpiderValueOps Op, int bCanCast, tSpiderValue *Right);
+extern tSpiderString	*SpiderScript_CreateString(int Length, const char *Data);
+extern void	SpiderScript_ReferenceString(tSpiderString *String);
+extern void	SpiderScript_DereferenceString(tSpiderString *String);
+
+extern tSpiderString	*SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2);
+extern tSpiderString	*SpiderScript_CastValueToString(int SourceType, const void *Source);
+
+extern tSpiderBool	SpiderScript_CastValueToBool(int SourceType, const void *Source);
+extern tSpiderInteger	SpiderScript_CastValueToInteger(int SourceType, const void *Source);
+extern tSpiderReal	SpiderScript_CastValueToReal(int SourceType, const void *Source);
 /**
  * \}
  */

@@ -8,18 +8,20 @@
 #include <stdio.h>
 #include <spiderscript.h>
 
+#define SS_FCN(name)	int name(tSpiderScript*Script,void*RetData,int NArgs,const int*ArgTypes, void*const Args[])
+
 // === PROTOTYPES ===
-tSpiderValue	*Exports_sizeof(tSpiderScript *Script, int NArgs, tSpiderValue **Args);
-tSpiderValue	*Exports_array(tSpiderScript *Script, int NArgs, tSpiderValue **Args);
-tSpiderValue	*Exports_Lang_Strings_Split(tSpiderScript *Script, int NArgs, tSpiderValue **Args);
-tSpiderValue	*Exports_Lang_Struct(tSpiderScript *Script, int NArgs, tSpiderValue **Args);
+SS_FCN(Exports_sizeof);
+SS_FCN(Exports_array);
+SS_FCN(Exports_Lang_Strings_Split);
+SS_FCN(Exports_Lang_Struct);
 
 // === GLOBALS ===
 tSpiderFunction	gExports_Lang_Strings_Split = {
 	.Name = "Lang@Strings@Split",
 	.Handler = Exports_Lang_Strings_Split,
 	.ReturnType = SS_MAKEARRAY(SS_DATATYPE_STRING),
-	.ArgTypes = {SS_DATATYPE_STRING, SS_DATATYPE_STRING, -1}
+	.ArgTypes = {SS_DATATYPE_STRING, SS_DATATYPE_STRING, 0}
 };
 
 tSpiderFunction	gExports_Lang_Struct = {
@@ -34,7 +36,7 @@ tSpiderFunction	gExports_array = {
 	.Next = &gExports_Lang_Struct,
 	.Name = "array",
 	.Handler = Exports_array,
-	.ReturnType = SS_DATATYPE_UNDEF,
+	.ReturnType = SS_DATATYPE_NOVALUE,
 	.ArgTypes = {SS_DATATYPE_INTEGER, -1}
 };
 tSpiderFunction	gExports_sizeof = {
@@ -42,117 +44,123 @@ tSpiderFunction	gExports_sizeof = {
 	.Name = "sizeof",
 	.Handler = Exports_sizeof,
 	.ReturnType = SS_DATATYPE_INTEGER,
-	.ArgTypes = {SS_DATATYPE_UNDEF, -1}
+	.ArgTypes = {-1}
 };
 tSpiderFunction	*gpExports_First = &gExports_sizeof;
 
 // === CODE ===
-tSpiderValue *Exports_sizeof(tSpiderScript *Script, int NArgs, tSpiderValue **Args)
+SS_FCN(Exports_sizeof)
 {
-	if(NArgs != 1 || !Args[0])	return NULL;
+	tSpiderInteger	*ret = RetData;
+	if(NArgs != 1 || ArgTypes[0])	return -1;
 
-	if( SS_GETARRAYDEPTH(Args[0]->Type) )
-		return SpiderScript_CreateInteger(Args[0]->Array.Length);
-	switch( Args[0]->Type )
+	if( SS_GETARRAYDEPTH(ArgTypes[0]) ) {
+		*ret = ((tSpiderArray*)Args[0])->Length;
+		return SS_DATATYPE_INTEGER;
+	}
+	switch( ArgTypes[0] )
 	{
 	case SS_DATATYPE_STRING:
-		return SpiderScript_CreateInteger(Args[0]->String.Length);
+		*ret = ((tSpiderString*)Args[0])->Length;
+		return SS_DATATYPE_INTEGER;
 	default:
-		return NULL;
+		*ret = 0;
+		return SS_DATATYPE_NOVALUE;
 	}
 }
 
-tSpiderValue *Exports_array(tSpiderScript *Script, int NArgs, tSpiderValue **Args)
+SS_FCN(Exports_array)
 {
-	if(NArgs != 2)	return ERRPTR;
-	if(!Args[0] || !Args[1])	return ERRPTR;
+	tSpiderArray	**ret = RetData;
+	if(NArgs != 2)	return -1;
 	
-	if(Args[0]->Type != SS_DATATYPE_INTEGER || Args[1]->Type != SS_DATATYPE_INTEGER)
-		return ERRPTR;
+	if(ArgTypes[0] != SS_DATATYPE_INTEGER || ArgTypes[1] != SS_DATATYPE_INTEGER)
+		return -1;
 
-	 int	type = Args[1]->Integer;
-	 int	size = Args[0]->Integer;
+	 int	type = *(tSpiderInteger*)Args[1];
+	 int	size = *(tSpiderInteger*)Args[0];
 
-//	if( type != SS_DATATYPE_ARRAY )
-//	{
-		if( !SS_GETARRAYDEPTH(type) ) {
-			// ERROR - This should never happen
-			return ERRPTR;
-		}
-		type = SS_DOWNARRAY(type);
-//	}
+	if( !SS_GETARRAYDEPTH(type) ) {
+		// ERROR - This should never happen
+		return -1;
+	}
+	type = SS_DOWNARRAY(type);
 
-	return SpiderScript_CreateArray(type, size);
+	*ret = SpiderScript_CreateArray(type, size);
+	return type;
 }
 
-tSpiderValue *Exports_Lang_Strings_Split(tSpiderScript *Script, int NArgs, tSpiderValue **Args)
+SS_FCN(Exports_Lang_Strings_Split)
 {
-	 int	len, ofs, slen;
-	void	*haystack, *end;
+	 int	haystack_len, needle_len, ofs, slen;
+	const void	*haystack, *needle, *end;
 	 int	nSubStrs = 0;
-	tSpiderValue	**strings = NULL;
-	tSpiderValue	*ret;
+	tSpiderString	**strings = NULL;
+	tSpiderArray	*ret, **ret_ptr = RetData;
 
 	// Error checking
 	if( NArgs != 2 )
-		return ERRPTR;
+		return -1;
 	if( !Args[0] || !Args[1] )
-		return ERRPTR;
-	if( Args[0]->Type != SS_DATATYPE_STRING )
-		return ERRPTR;
-	if( Args[1]->Type != SS_DATATYPE_STRING )
-		return ERRPTR;
+		return -1;
+	if( ArgTypes[0] != SS_DATATYPE_STRING )
+		return -1;
+	if( ArgTypes[1] != SS_DATATYPE_STRING )
+		return -1;
 
 	// Split the string
-	len = Args[0]->String.Length;
-	haystack = Args[0]->String.Data;
+	haystack_len = ((tSpiderString*)Args[0])->Length;
+	haystack     = ((tSpiderString*)Args[0])->Data;
+	needle_len = ((tSpiderString*)Args[1])->Length;
+	needle     = ((tSpiderString*)Args[1])->Data;
 	ofs = 0;
 	do {
-		end = memmem(haystack + ofs, len - ofs, Args[1]->String.Data, Args[1]->String.Length);
+		end = memmem(haystack + ofs, haystack_len - ofs, needle, needle_len);
 		if( end )
 			slen = end - (haystack + ofs);
 		else
-			slen = len - ofs;
+			slen = haystack_len - ofs;
 		
-		strings = realloc(strings, (nSubStrs+1)*sizeof(tSpiderValue*));
+		strings = realloc(strings, (nSubStrs+1)*sizeof(tSpiderString*));
 		strings[nSubStrs] = SpiderScript_CreateString(slen, haystack + ofs);
 		nSubStrs ++;
 
-		ofs += slen + Args[1]->String.Length;
+		ofs += slen + needle_len;
 	} while(end);
 
 	// Create output array
 	ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, nSubStrs);
-	memcpy(ret->Array.Items, strings, nSubStrs*sizeof(tSpiderValue*));
+	memcpy(ret->Strings, strings, nSubStrs*sizeof(tSpiderString*));
 	free(strings);
 
-	return ret;
+	*ret_ptr = ret;
+	return SS_MAKEARRAY(SS_DATATYPE_STRING);
 }
 
-tSpiderValue *Exports_Lang_Struct(tSpiderScript *Script, int NArgs, tSpiderValue **Args)
+SS_FCN(Exports_Lang_Struct)
 {
 	 int	i;
 	printf("Exports_Lang_Struct: (Script=%p, NArgs=%i, Args=%p)\n", Script, NArgs, Args);
 	
 	for( i = 0; i < NArgs; i ++ )
 	{
-		printf(" Args[%i] = {Type: %i, ", i, Args[i]->Type);
-		switch(Args[i]->Type)
+		printf(" Args[%i] = {Type: %i, ", i, ArgTypes[i]);
+		switch(ArgTypes[i])
 		{
 		case SS_DATATYPE_INTEGER:
-			printf(" Integer: 0x%lx", Args[i]->Integer);
+			printf(" Integer: 0x%lx", *(tSpiderInteger*)Args[i]);
 			break;
 		case SS_DATATYPE_REAL:
-			printf(" Real: %f", Args[i]->Real);
+			printf(" Real: %f", *(tSpiderReal*)Args[i]);
 			break;
-		case SS_DATATYPE_STRING:
-			printf(" Length: %i, Data = '%s'", Args[i]->String.Length, Args[i]->String.Data);
-			break;
+//		case SS_DATATYPE_STRING:
+//			printf(" Length: %i, Data = '%s'", Args[i]->String.Length, Args[i]->String.Data);
+//			break;
 		default:
 			break;
 		}
 		printf("}\n");
 	}
 	
-	return NULL;
+	return -1;
 }

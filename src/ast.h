@@ -146,7 +146,7 @@ struct sAST_Node
 		 * \note Used for \a NODETYPE_VARIABLE and \a NODETYPE_CONSTANT
 		 */
 		struct {
-			char	_unused;	// Shut GCC up
+			char	_unused[0];	// Shut GCC up
 			char	Name[];
 		}	Variable;
 		
@@ -167,31 +167,16 @@ struct sAST_Node
 		}	Cast;
 		
 		// Used for NODETYPE_REAL, NODETYPE_INTEGER and NODETYPE_STRING
-		tSpiderValue	Constant;
+		tSpiderInteger	ConstInt;
+		tSpiderReal	ConstReal;
+		tSpiderString	*ConstString;
 	};
-};
-
-/**
- * \brief Code Block state (stores local variables)
- */
-struct sAST_BlockState
-{
-	tAST_BlockState	*Parent;
-	tSpiderScript	*Script;	//!< Script
-	tAST_Variable	*FirstVar;	//!< First variable in the list
-	tSpiderValue	*RetVal;
-	tSpiderNamespace	*BaseNamespace;	//!< Base namespace (for entire block)
-	tSpiderNamespace	*CurNamespace;	//!< Currently selected namespace
-	 int	Ident;	//!< ID number used for variable lookup caching
-	const char	*BreakTarget;
-	 int	BreakType;
 };
 
 struct sAST_Variable
 {
 	tAST_Variable	*Next;
 	 int	Type;	// Only used for static typing
-	tSpiderValue	*Object;
 	char	Name[];
 };
 
@@ -238,12 +223,7 @@ extern tAST_Node	*AST_NewScopeDereference(tParser *Parser, const char *Name, tAS
 extern void	AST_FreeNode(tAST_Node *Node);
 
 // exec_ast.h
-extern void	Object_Dereference(tSpiderValue *Object);
-extern void	Object_Reference(tSpiderValue *Object);
-extern tSpiderValue	*AST_ExecuteNode(tAST_BlockState *Block, tAST_Node *Node);
-extern tSpiderValue	*AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Left, tSpiderValue *Right);
-extern tSpiderValue	*AST_ExecuteNode_UniOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Value);
-extern tSpiderValue	*AST_ExecuteNode_Index(tSpiderScript *Script, tAST_Node *Node, tSpiderValue *Array, int Index, tSpiderValue *SaveValue);
-extern tSpiderValue	*AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node, tSpiderValue *Object, const char *Element, tSpiderValue *SaveValue);
+extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest, tSpiderArray *Array, int Index, int NewType, const void *NewValue);
+extern int	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest, tSpiderObject *Object, const char *Element, int NewType, const void *NewValue);
 
 #endif

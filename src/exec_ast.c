@@ -18,7 +18,6 @@
 
 // === PROTOTYPES ===
 // - Node Execution
-tSpiderValue	*AST_ExecuteNode(tAST_BlockState *Block, tAST_Node *Node);
 tSpiderValue	*AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Left, tSpiderValue *Right);
 tSpiderValue	*AST_ExecuteNode_UniOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Value);
 tSpiderValue	*AST_ExecuteNode_Index(tSpiderScript *Script, tAST_Node *Node, tSpiderValue *Array, int Index, tSpiderValue *SaveValue);
@@ -30,72 +29,132 @@ void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
  int	giNextBlockIdent = 1;
 
 // === CODE ===
-tSpiderValue *AST_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Arguments)
+tSpiderInteger *AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value)
 {
-	return ERRPTR;
+	switch(Op)
+	{
+	case NODETYPE_NEGATE:	return -Value;
+	case NODETYPE_BWNOT:	return ~Value;
+	default:
+		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Integer unknown op %i", Operation);
+		return 0;
+	}
+	
 }
 
-
-tSpiderValue *AST_ExecuteNode_UniOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Value)
+tSpiderReal *AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSpiderReal Value)
 {
-	tSpiderValue	*ret;
-	#if 0
-	if( Value->Type == SS_DATATYPE_OBJECT )
+	switch(Operation)
 	{
-		const char	*fcnname;
-		switch(Operation)
-		{
-		case NODETYPE_NEGATE:	fcnname = "-ve";	break;
-		case NODETYPE_BWNOT:	fcnname = "~";	break;
-		default:	fcnname = NULL;	break;
-		}
-		
-		if( fcnname )
-		{
-			ret = Object_ExecuteMethod(Value->Object, fcnname, );
-			if( ret != ERRPTR )
-				return ret;
-		}
-	}
-	#endif
-	switch(Value->Type)
-	{
-	// Integer Operations
-	case SS_DATATYPE_INTEGER:
-		if( Value->ReferenceCount == 1 )
-			SpiderScript_ReferenceValue(ret = Value);
-		else
-			ret = SpiderScript_CreateInteger(0);
-		switch(Operation)
-		{
-		case NODETYPE_NEGATE:	ret->Integer = -Value->Integer;	break;
-		case NODETYPE_BWNOT:	ret->Integer = ~Value->Integer;	break;
-		default:
-			AST_RuntimeError(Node, "SpiderScript internal error: Exec,UniOP,Integer unknown op %i", Operation);
-			SpiderScript_DereferenceValue(ret);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	// Real number Operations
-	case SS_DATATYPE_REAL:
-		switch(Operation)
-		{
-		case NODETYPE_NEGATE:	ret = SpiderScript_CreateInteger( -Value->Real );	break;
-		default:
-			AST_RuntimeError(Node, "SpiderScript internal error: Exec,UniOP,Real unknown op %i", Operation);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	
+	case NODETYPE_NEGATE:	return -Value;
 	default:
-		AST_RuntimeError(NULL, "Invalid operation (%i) on type (%i)", Operation, Value->Type);
-		ret = ERRPTR;
-		break;
+		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Real unknown op %i", Operation);
+		return 0;
 	}
+}
+
+int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, int Op,
+	void *RetData,
+	tSpiderInteger Left, int RightType, const void *Right)
+{
+	tSpiderInteger	*ret_i = RetData;
+	tSpiderBool	*ret_b = RetData;
+	tSpiderInteger	right = Right;
 	
-	return ret;
+	if( RightType != SS_DATATYPE_INTEGER )
+		return -1;	
+
+	switch(Op)
+	{
+	case NODETYPE_EQUALS:   	*ret_b = Left == right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_NOTEQUALS:	*ret_b = Left != right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_LESSTHAN: 	*ret_b = Left <  right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_GREATERTHAN:	*ret_b = Left >  right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_LESSTHANEQUAL:	*ret_b = Left <= right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_GREATERTHANEQUAL:	*ret_b = Left >= right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_ADD:	*ret_i = Left + right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_SUBTRACT:	*ret_i = Left - right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_MULTIPLY:	*ret_i = Left * right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_DIVIDE:	*ret_i = Left / right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_MODULO:	*ret_i = Left % right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_BWAND:	*ret_i = Left & right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_BWOR: 	*ret_i = Left | right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_BWXOR:	*ret_i = Left ^ right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_BITSHIFTLEFT: *ret_i = Left << right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_BITSHIFTRIGHT:*ret_i = Left >> right;	return SS_DATATYPE_INTEGER;
+	case NODETYPE_BITROTATELEFT:
+		*ret_i = (Left << right) | (Left >> (64-right));
+		return SS_DATATYPE_INTEGER;
+	default:
+		AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
+		return -1;
+	}
+}
+
+int AST_ExecuteNode_BinOp_Real(tSpiderScript *Script, int Op,
+	void *RetData,
+	tSpiderReal Left, int RightType, const void *Right)
+{
+	tSpiderReal	*ret_r = RetData;
+	tSpiderBool	*ret_b = RetData;
+	tSpiderReal	right = Right;
+	
+	if( RightType != SS_DATATYPE_REAL )
+		return -1;	
+
+	switch(Op)
+	{
+	// TODO: Less exact real number comparisons?
+	case NODETYPE_EQUALS:   	*ret_b = Left == right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_NOTEQUALS:	*ret_b = Left != right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_LESSTHAN: 	*ret_b = Left <  right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_GREATERTHAN:	*ret_b = Left >  right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_LESSTHANEQUAL:	*ret_b = Left <= right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_GREATERTHANEQUAL:	*ret_b = Left >= right;	return SS_DATATYPE_BOOLEAN;
+	case NODETYPE_ADD:	*ret_r = Left + right;	return SS_DATATYPE_REAL;
+	case NODETYPE_SUBTRACT:	*ret_r = Left - right;	return SS_DATATYPE_REAL;
+	case NODETYPE_MULTIPLY:	*ret_r = Left * right;	return SS_DATATYPE_REAL;
+	case NODETYPE_DIVIDE:	*ret_r = Left / right;	return SS_DATATYPE_REAL;
+	default:
+		AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
+		return -1;
+	}
+}
+
+int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, int Op,
+	void *RetData,
+	const tSpiderString *Left, int RightType, const void *Right)
+{
+	tSpiderString	**ret_s = RetData;
+	tSpiderBool	*ret_b = RetData;
+	const tSpiderString	*right_s = Right;
+
+	switch(Op)
+	{
+	case NODETYPE_EQUALS:
+	case NODETYPE_NOTEQUALS:
+	case NODETYPE_LESSTHAN:
+	case NODETYPE_GREATERTHAN:
+	case NODETYPE_LESSTHANEQUAL:
+	case NODETYPE_GREATERTHANEQUAL:
+		if( RightType != SS_DATATYPE_STRING )	return -1;
+		cmp = SpiderScript_StringCompare(Left, right_s);
+		switch(Op)
+		{
+		case NODETYPE_EQUALS:   	*ret_b = (cmp == 0);	break;
+		case NODETYPE_NOTEQUALS:	*ret_b = (cmp != 0);	break;
+		case NODETYPE_LESSTHAN: 	*ret_b = (cmp <  0);	break;
+		case NODETYPE_GREATERTHAN:	*ret_b = (cmp >  0);	break;
+		case NODETYPE_LESSTHANEQUAL:	*ret_b = (cmp <= 0);	break;
+		case NODETYPE_GREATERTHANEQUAL:	*ret_b = (cmp >= 0);	break;
+		}
+		return SS_DATATYPE_BOOLEAN;
+	
+	case NODETYPE_ADD:	// Concatenate
+		if( RightType != SS_DATATYPE_STRING )	return -1;
+		*ret_s = SpiderScript_StringConcat(Left, right_s);
+		return SS_DATATYPE_STRING;
+	}
 }
 
 tSpiderValue *AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Left, tSpiderValue *Right)

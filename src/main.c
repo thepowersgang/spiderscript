@@ -12,9 +12,6 @@
 
 // === IMPORTS ===
 extern  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
-extern tAST_Variable *Variable_Define(tAST_BlockState *Block, int Type, const char *Name);
-extern void	Variable_SetValue(tAST_BlockState *Block, const char *Name, tSpiderValue *Value);
-extern void	Variable_Destroy(tAST_Variable *Variable);
 extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 
 // === CODE ===

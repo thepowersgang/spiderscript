@@ -15,9 +15,6 @@
 #define BC_NS_SEPARATOR	'@'
 
 // === IMPORTS ===
-extern tSpiderFunction	*gpExports_First;
-extern tSpiderValue	*AST_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Arguments);
-extern tSpiderValue	*Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, int NArguments, tSpiderValue **Args);
 
 // === PROTOTYPES ===
 void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
@@ -58,18 +55,17 @@ DEF_GETFCNCLASS(tScript_Class, SpiderScript_int_GetScriptClass)
  * \param NArguments	Number of arguments to pass
  * \param Arguments	Arguments passed
  */
-tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
-	const char *Function,
-	const char *DefaultNamespaces[],
-	int NArguments, tSpiderValue **Arguments,
+int SpiderScript_ExecuteFunctionEx(tSpiderScript *Script,
+	const char *Function, const char *DefaultNamespaces[],
+	void *RetData, int NArguments, const int *ArgTypes, void * const Arguments[],
 	void **FunctionIdent, int bExecute
 	)
 {
-	tSpiderValue	*ret = ERRPTR;
 	tSpiderFunction	*fcn = NULL;
 	tScript_Function	*sfcn = NULL;
 	 int	i;
 
+	// Check for a chached name
 	if( FunctionIdent && *FunctionIdent ) {
 		if( *(intptr_t*)FunctionIdent & 1 )
 			sfcn = (void*)( *(intptr_t*)FunctionIdent & ~1 );
@@ -104,36 +100,25 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
 
 		// Execute!
 		if( bExecute )
-		{
-			if( sfcn->BCFcn )
-				ret = Bytecode_ExecuteFunction(Script, sfcn, NArguments, Arguments);
-			else
-				ret = AST_ExecuteFunction(Script, sfcn, NArguments, Arguments);
-		}
+			return Bytecode_ExecuteFunction(Script, sfcn, RetData, NArguments, ArgTypes, Arguments);
 		else
-		{
-			ret = NULL;
-		}
-
-		return ret;
+			return 0;
 	}
 	else if(fcn)
 	{
 		if( FunctionIdent )
-			*FunctionIdent = fcn;		
+			*FunctionIdent = fcn;
 
 		// Execute!
 		if( bExecute )
-			ret = fcn->Handler( Script, NArguments, Arguments );
+			return fcn->Handler( Script, RetData, NArguments, ArgTypes, Arguments );
 		else
-			ret = NULL;
-	
-		return ret;
+			return 0;
 	}
 	else
 	{
 		fprintf(stderr, "Undefined reference to function '%s'\n", Function);
-		return ERRPTR;
+		return -1;
 	}
 }
 
@@ -145,105 +130,130 @@ tSpiderValue *SpiderScript_ExecuteFunction(tSpiderScript *Script,
  * \param NArguments	Number of arguments to pass
  * \param Arguments	Arguments passed
  */
-tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
+int SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderObject *Object, const char *MethodName,
-	int NArguments, tSpiderValue **Arguments)
+	void *RetData, int NArguments, const int *ArgTypes, void * const Arguments[],
+	void **FunctionIdent
+	)
 {
-	tSpiderFunction	*fcn;
-	tSpiderValue	this;
-	tSpiderValue	*newargs[NArguments+1];
+	tSpiderFunction	*fcn = NULL;
+	tScript_Function *sf = NULL;
+	int	newtypes[NArguments+1];
+	void	*newargs [NArguments+1];
 	 int	i;
 	tScript_Class	*sc;
 	tSpiderClass *nc;
 	
 	// Create the "this" argument
-	this.Type = Object->TypeCode;
-	this.ReferenceCount = 1;
-	this.Object = Object;
-	newargs[0] = &this;
-	memcpy(&newargs[1], Arguments, NArguments*sizeof(tSpiderValue*));
+	newargs[0] = Object;
+	memcpy(&newargs[1], Arguments, NArguments*sizeof(void*));
+	newtypes[0] = Object->TypeCode;
+	memcpy(&newtypes[1], ArgTypes, NArguments*sizeof(void*));
 
-	// Check type	
-	if( (sc = SpiderScript_GetClass_Script(Script, Object->TypeCode)) )
-	{
-		tScript_Function *sf;
-
-		for( sf = sc->FirstFunction; sf; sf = sf->Next )
-		{
-			if( strcmp(sf->Name, MethodName) == 0 )
-				break ;
-		}
-		if( !sf )
-		{
-			AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
-				sc->Name, MethodName);
-			return ERRPTR;
-		}
-
-		if( NArguments+1 != sf->ArgumentCount ) {
-			AST_RuntimeError(NULL, "%s->%s requires %i arguments, %i given",
-				sc->Name, MethodName, sf->ArgumentCount, NArguments);
-			return ERRPTR;
-		}
-
-		// Type checking (eventually will not be needed)
-		for( i = 0; i < 1+NArguments; i ++ )
-		{
-			if( newargs[i] && newargs[i]->Type != sf->Arguments[i].Type )
-			{
-				AST_RuntimeError(NULL, "Argument %i of %s->%s should be %i, got %i",
-					i+1, sc->Name, MethodName, sf->Arguments[i].Type, Arguments[i]->Type);
-				return ERRPTR;
-			}
-		}
-
-		// Call function
-		if( sf->BCFcn )
-			return Bytecode_ExecuteFunction(Script, sf, NArguments+1, newargs);
+	// Check for a chached name
+	if( FunctionIdent && *FunctionIdent ) {
+		if( *(intptr_t*)FunctionIdent & 1 )
+			sf = (void*)( *(intptr_t*)FunctionIdent & ~1 );
 		else
-			return AST_ExecuteFunction(Script, sf, NArguments+1, newargs);
+			fcn = *FunctionIdent;
 	}
-	else if( (nc = SpiderScript_GetClass_Native(Script, Object->TypeCode)) )
+
+	// Only do the lookup if the cache is NULL
+	if( !sf && !fcn )
 	{
-		// Search for the function
-		for( fcn = nc->Methods; fcn; fcn = fcn->Next )
+		// Script-defined classes
+		if( (sc = SpiderScript_GetClass_Script(Script, Object->TypeCode)) )
 		{
-			if( strcmp(fcn->Name, MethodName) == 0 )
-				break;
-		}
-		// Error
-		if( !fcn )
-		{
-			AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
-				nc->Name, MethodName);
-			return ERRPTR;
-		}
-		
-		// Check the type of the arguments
-		for( i = 0; fcn->ArgTypes[i]; i ++ )
-		{
-			if( i >= NArguments ) {
-				for( ; fcn->ArgTypes[i]; i ++ )	;
-				AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i expected)",
-					NArguments, i);
-				return ERRPTR;
-			}
-			if( Arguments[i] && Arguments[i]->Type != fcn->ArgTypes[i] )
+			for( sf = sc->FirstFunction; sf; sf = sf->Next )
 			{
-				AST_RuntimeError(NULL, "Argument type mismatch (%i, expected %i)",
-					Arguments[i]->Type, fcn->ArgTypes[i]);
-				return ERRPTR;
+				if( strcmp(sf->Name, MethodName) == 0 )
+					break ;
+			}
+			if( !sf )
+			{
+				AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
+						sc->Name, MethodName);
+				return -1;
+			}
+
+			if( NArguments+1 != sf->ArgumentCount ) {
+				AST_RuntimeError(NULL, "%s->%s requires %i arguments, %i given",
+					sc->Name, MethodName, sf->ArgumentCount, NArguments);
+				return -1;
+			}
+
+			// Type checking (eventually will not be needed)
+			for( i = 0; i < 1+NArguments; i ++ )
+			{
+				if( newtypes[i] != sf->Arguments[i].Type )
+				{
+					AST_RuntimeError(NULL, "Argument %i of %s->%s should be %i, got %i",
+						i+1, sc->Name, MethodName, sf->Arguments[i].Type, newtypes[i]);
+					return -1;
+				}
 			}
 		}
-		
-		// Call handler
-		return fcn->Handler(Script, NArguments+1, newargs);
+		else if( (nc = SpiderScript_GetClass_Native(Script, Object->TypeCode)) )
+		{
+			// Search for the function
+			for( fcn = nc->Methods; fcn; fcn = fcn->Next )
+			{
+				if( strcmp(fcn->Name, MethodName) == 0 )
+					break;
+			}
+			// Error
+			if( !fcn )
+			{
+				AST_RuntimeError(NULL, "Class '%s' does not have a method '%s'",
+					nc->Name, MethodName);
+				return -1;
+			}
+			
+			// Check the type of the arguments
+			for( i = 0; fcn->ArgTypes[i]; i ++ )
+			{
+				if( i >= NArguments ) {
+					for( ; fcn->ArgTypes[i]; i ++ )	;
+					AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i expected)",
+						NArguments, i);
+					return -1;
+				}
+				if( ArgTypes[i] != fcn->ArgTypes[i] )
+				{
+					AST_RuntimeError(NULL, "Argument type mismatch (%i, expected %i)",
+						ArgTypes[i], fcn->ArgTypes[i]);
+					return -1;
+				}
+			}
+			
+			// Call handler
+		}
+		else
+		{
+			AST_RuntimeError(NULL, "Method call on non-object");
+			return -1;
+		}
 	}
-	else
+
+	// Call function
+	if( sf )
 	{
-		AST_RuntimeError(NULL, "Method call on non-object");
-		return ERRPTR;
+		// Abuses alignment requirements on almost all platforms
+		if( FunctionIdent )
+			*FunctionIdent = (void*)( (intptr_t)sf | 1 );
+		return Bytecode_ExecuteFunction(Script, sf, RetData, NArguments+1, newtypes, newargs);
 	}
+	else if( fcn )
+	{
+		if( FunctionIdent )
+			*FunctionIdent = fcn;
+		return fcn->Handler(Script, RetData, NArguments+1, newtypes, newargs);
+	}
+	else {
+		AST_RuntimeError(NULL, "BUG - Method call '%s' did not resolve", MethodName);
+		return -1;
+	}
+		
 }
 
 /**
@@ -253,22 +263,27 @@ tSpiderValue *SpiderScript_ExecuteMethod(tSpiderScript *Script,
  * \param NArguments	Number of arguments to pass
  * \param Arguments	Arguments passed
  */
-tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
+int SpiderScript_CreateObject(tSpiderScript *Script,
 	const char *ClassPath, const char *DefaultNamespaces[],
-	int NArguments, tSpiderValue **Arguments,
+	tSpiderObject **RetData, int NArguments, const int *ArgTypes, void * const Arguments[],
 	void **FunctionIdent, int bExecute
 	)
 {
-	tSpiderValue	*ret = ERRPTR;
 	tSpiderClass	*class = NULL;
 	tScript_Class	*sc = NULL;
 	 int	i;	
 
+	// Check for the cache
 	if( FunctionIdent && *FunctionIdent ) {
 		if( (intptr_t)*FunctionIdent & 1 )
 			sc = (void*)( *(intptr_t*) FunctionIdent & ~1ULL );
 		else
 			class = *FunctionIdent;
+	}
+
+	if( bExecute && !RetData ) {
+		AST_RuntimeError(NULL, "Object being discarded, not creating");
+		return -1;
 	}
 
 	// Scan list, Last item should always be NULL, so abuse that to check without a prefix
@@ -299,29 +314,22 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 		{
 			tSpiderObject	*obj;
 			// TODO: Type Checking
-			obj = class->Constructor( Script, NArguments, Arguments );
+			obj = class->Constructor( Script, NArguments, ArgTypes, Arguments );
 			if( obj == NULL || obj == ERRPTR )
-				return (void *)obj;
-			
-			// Creatue return object
-			ret = malloc( sizeof(tSpiderValue) );
-			ret->Type = SpiderScript_GetTypeCode(Script, class->Name);
-			ret->ReferenceCount = 1;
-			ret->Object = obj;
-			
-			return ret;
+				return -1;
+
+			*RetData = obj;
+			return 0;		
 		}
 		else
 		{
-			return NULL;
+			return 0;
 		}
 	}
 	else if( sc )
 	{
-		void	*ident = (void*)( (intptr_t)sc | 1 );
-		
 		if( FunctionIdent )
-			*FunctionIdent = ident;
+			*FunctionIdent = (void*)( (intptr_t)sc | 1 );
 		
 		// Call constructor
 		if( bExecute )
@@ -329,12 +337,7 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 			tSpiderObject	*obj;
 			tScript_Function	*f;
 			
-			obj = calloc( 1, sizeof(tSpiderObject) + sc->nProperties*sizeof(tSpiderValue*) );
-			if(!obj)	return ERRPTR;
-	
-			obj->Script = Script;
-			obj->TypeCode = sc->TypeCode;
-			obj->ReferenceCount = 1;
+			obj = SpiderScript_AllocateScriptObject(Script, sc);
 
 			// Call constructor?
 			for( f = sc->FirstFunction; f; f = f->Next )
@@ -343,32 +346,27 @@ tSpiderValue *SpiderScript_CreateObject(tSpiderScript *Script,
 					break;
 			}
 			
-			ret = malloc( sizeof(tSpiderValue) );
-			ret->Type = sc->TypeCode;
-			ret->ReferenceCount = 1;
-			ret->Object = obj;
+			*RetData = obj;
+			
 			if( f )
 			{
-				tSpiderValue	*args[NArguments+1];
-				args[0] = ret;
-				memcpy(args+1, Arguments, NArguments*sizeof(tSpiderValue*));
-				if( f->BCFcn )
-					Bytecode_ExecuteFunction(Script, f, NArguments+1, args);
-				else
-					AST_ExecuteFunction(Script, f, NArguments+1, args);
+				void	*args[NArguments+1];
+				 int	argtypes[NArguments+1];
+				args[0] = obj;
+				argtypes[0] = sc->TypeCode;
+				memcpy(args+1, Arguments, NArguments*sizeof(void*));
+				memcpy(argtypes+1, ArgTypes, NArguments*sizeof(int));
+				Bytecode_ExecuteFunction(Script, f, NULL, NArguments+1, argtypes, args);
 			}
 	
-			return ret;
+			return 0;
 		}
-		else
-		{
-			return NULL;
-		}
+		return 0;
 	}
 	else	// Not found?
 	{
 		fprintf(stderr, "Undefined reference to class '%s'\n", ClassPath);
-		return ERRPTR;
+		return -1;
 	}
 }
 
