@@ -229,7 +229,6 @@ void AST_FreeNode(tAST_Node *Node)
 		AST_FreeNode(Node->Cast.Value);
 		break;
 	
-	case NODETYPE_SCOPE:
 	case NODETYPE_ELEMENT:
 		AST_FreeNode(Node->Scope.Element);
 		break;
@@ -577,18 +576,7 @@ void AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg)
 }
 
 /**
- * \brief Add a scope node
- */
-tAST_Node *AST_NewScopeDereference(tParser *Parser, const char *Name, tAST_Node *Child)
-{
-	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_SCOPE, strlen(Name) + 1 );
-	ret->Scope.Element = Child;
-	strcpy(ret->Scope.Name, Name);
-	return ret;
-}
-
-/**
- * \brief Add a scope node
+ * \brief Reference an element of a class
  */
 tAST_Node *AST_NewClassElement(tParser *Parser, tAST_Node *Object, const char *Name)
 {

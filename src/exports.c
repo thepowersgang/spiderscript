@@ -8,7 +8,8 @@
 #include <stdio.h>
 #include <spiderscript.h>
 
-#define SS_FCN(name)	int name(tSpiderScript*Script,void*RetData,int NArgs,const int*ArgTypes, void*const Args[])
+#define SS_FCN(name)	int name(tSpiderScript*Script,void*RetData,int NArgs,const int*ArgTypes,const void*const Args[])
+#define SS_GETARG(_t, _i)	(*(const _t*)Args[_i])
 
 // === PROTOTYPES ===
 SS_FCN(Exports_sizeof);
@@ -77,8 +78,8 @@ SS_FCN(Exports_array)
 	if(ArgTypes[0] != SS_DATATYPE_INTEGER || ArgTypes[1] != SS_DATATYPE_INTEGER)
 		return -1;
 
-	 int	type = *(tSpiderInteger*)Args[1];
-	 int	size = *(tSpiderInteger*)Args[0];
+	 int	type = SS_GETARG(tSpiderInteger, 1);
+	 int	size = SS_GETARG(tSpiderInteger, 0);
 
 	if( !SS_GETARRAYDEPTH(type) ) {
 		// ERROR - This should never happen

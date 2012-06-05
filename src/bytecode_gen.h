@@ -62,9 +62,9 @@ extern void	Bytecode_AppendSetElement(tBC_Function *Handle, const char *Name);	/
 extern void	Bytecode_AppendIndex(tBC_Function *Handle);	// Index into an array
 extern void	Bytecode_AppendSetIndex(tBC_Function *Handle);	// Write an array element
 //  > Function Calls
-extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, const char *Name, int ArgumentCount);
-extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, const char *Name, int ArgumentCount);
-extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, const char *Name, int ArgumentCount);
+extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, int Type, int ArgumentCount);
+extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, int Index, int ArgumentCount);
+extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount);
 //  > Manipulation
 extern void	Bytecode_AppendBinOp(tBC_Function *Handle, int Operation);
 extern void	Bytecode_AppendUniOp(tBC_Function *Handle, int Operation);

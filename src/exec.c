@@ -57,7 +57,7 @@ DEF_GETFCNCLASS(tScript_Class, SpiderScript_int_GetScriptClass)
  */
 int SpiderScript_ExecuteFunctionEx(tSpiderScript *Script,
 	const char *Function, const char *DefaultNamespaces[],
-	void *RetData, int NArguments, const int *ArgTypes, void * const Arguments[],
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent, int bExecute
 	)
 {
@@ -132,14 +132,14 @@ int SpiderScript_ExecuteFunctionEx(tSpiderScript *Script,
  */
 int SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderObject *Object, const char *MethodName,
-	void *RetData, int NArguments, const int *ArgTypes, void * const Arguments[],
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent
 	)
 {
 	tSpiderFunction	*fcn = NULL;
 	tScript_Function *sf = NULL;
 	int	newtypes[NArguments+1];
-	void	*newargs [NArguments+1];
+	const void	*newargs [NArguments+1];
 	 int	i;
 	tScript_Class	*sc;
 	tSpiderClass *nc;
@@ -265,7 +265,7 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script,
  */
 int SpiderScript_CreateObject(tSpiderScript *Script,
 	const char *ClassPath, const char *DefaultNamespaces[],
-	tSpiderObject **RetData, int NArguments, const int *ArgTypes, void * const Arguments[],
+	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent, int bExecute
 	)
 {
@@ -314,9 +314,7 @@ int SpiderScript_CreateObject(tSpiderScript *Script,
 		{
 			tSpiderObject	*obj;
 			// TODO: Type Checking
-			obj = class->Constructor( Script, NArguments, ArgTypes, Arguments );
-			if( obj == NULL || obj == ERRPTR )
-				return -1;
+			class->Constructor->Handler( Script, &obj, NArguments, ArgTypes, Arguments );
 
 			*RetData = obj;
 			return 0;		
@@ -350,7 +348,7 @@ int SpiderScript_CreateObject(tSpiderScript *Script,
 			
 			if( f )
 			{
-				void	*args[NArguments+1];
+				const void	*args[NArguments+1];
 				 int	argtypes[NArguments+1];
 				args[0] = obj;
 				argtypes[0] = sc->TypeCode;

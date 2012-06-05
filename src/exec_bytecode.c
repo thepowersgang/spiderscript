@@ -53,7 +53,7 @@ struct sBC_Stack
 
 // === PROTOTYPES ===
  int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
-	void *RetData, int NArgs, const int *ArgTypes, void * const *Args);
+	void *RetData, int NArgs, const int *ArgTypes, const void * const *Args);
  int	Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, tBC_Stack *Stack, int ArgCount);
 
 // === CODE ===
@@ -276,7 +276,7 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 #define OP_STRING(op_ptr)	((op_ptr)->Content.StringInt.String)
 
 int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
-	void *RetData, int NArguments, const int *ArgTypes, void * const Args[]
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Args[]
 	)
 {
 	const int	stack_size = 100;
@@ -325,7 +325,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	const char	*name = OP_STRING(op);
 	 int	arg_count = OP_INDX(op);
 	 int	i, rv = 0;
-	void	*args[arg_count];
+	const void	*args[arg_count];
 	 int	arg_types[arg_count];
 	tBC_StackEnt	val1, ret;
 	const char	*namespaces[] = {NULL};	// TODO: Default/imported namespaces
@@ -335,8 +335,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	// Read arguments
 	for( i = arg_count; i --; )
 	{
-		arg_types[i] = Stack->Entries[Stack->EntryCount - i].Type;
-		args[i] = &Stack->Entries[Stack->EntryCount - i].Boolean;	// All take up the same space
+		arg_types[i] = Bytecode_int_GetSpiderValue(&Stack->Entries[Stack->EntryCount - i], &args[i]);
 	}
 	
 	// Call the function etc.
@@ -387,55 +386,6 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	return 0;
 }
 
-int Bytecode_int_LocalBinOp_Integer(int Operation, tBC_StackEnt *Val1, tBC_StackEnt *Val2)
-{
-	switch(Operation)
-	{
-	case BC_OP_ADD: 	Val1->Integer = Val1->Integer + Val2->Integer;	break;
-	case BC_OP_SUBTRACT:	Val1->Integer = Val1->Integer - Val2->Integer;	break;
-	case BC_OP_MULTIPLY:	Val1->Integer = Val1->Integer * Val2->Integer;	break;
-	case BC_OP_DIVIDE:	Val1->Integer = Val1->Integer / Val2->Integer;	break;
-	
-	case BC_OP_EQUALS:      	Val1->Integer = (Val1->Integer == Val2->Integer);	break;
-	case BC_OP_NOTEQUALS:   	Val1->Integer = (Val1->Integer != Val2->Integer);	break;
-	case BC_OP_LESSTHAN:    	Val1->Integer = (Val1->Integer <  Val2->Integer);	break;
-	case BC_OP_LESSTHANOREQUAL:	Val1->Integer = (Val1->Integer <= Val2->Integer);	break;
-	case BC_OP_GREATERTHAN: 	Val1->Integer = (Val1->Integer >  Val2->Integer);	break;
-	case BC_OP_GREATERTHANOREQUAL:	Val1->Integer = (Val1->Integer >= Val2->Integer);	break;
-	
-	case BC_OP_BITAND:	Val1->Integer = Val1->Integer & Val2->Integer;	break;
-	case BC_OP_BITOR:	Val1->Integer = Val1->Integer | Val2->Integer;	break;
-	case BC_OP_BITXOR:	Val1->Integer = Val1->Integer ^ Val2->Integer;	break;
-	case BC_OP_MODULO:	Val1->Integer = Val1->Integer % Val2->Integer;	break;
-	default:	AST_RuntimeError(NULL, "Invalid operation on datatype Integer"); return -1;
-	}
-	return 0;
-}
-
-int Bytecode_int_LocalBinOp_Real(int Operation, tBC_StackEnt *Val1, tBC_StackEnt *Val2)
-{
-	switch(Operation)
-	{
-	// Real = Real OP Real
-	case BC_OP_ADD: 	Val1->Real = Val1->Real + Val2->Real;	return 0;
-	case BC_OP_SUBTRACT:	Val1->Real = Val1->Real - Val2->Real;	return 0;
-	case BC_OP_MULTIPLY:	Val1->Real = Val1->Real * Val2->Real;	return 0;
-	case BC_OP_DIVIDE:	Val1->Real = Val1->Real / Val2->Real;	return 0;
-
-	// Bool/Integer = Real OP Real
-	case BC_OP_EQUALS:      	Val1->Integer = (Val1->Real == Val2->Real);	break;
-	case BC_OP_NOTEQUALS:   	Val1->Integer = (Val1->Real != Val2->Real);	break;
-	case BC_OP_LESSTHAN:    	Val1->Integer = (Val1->Real <  Val2->Real);	break;
-	case BC_OP_LESSTHANOREQUAL:	Val1->Integer = (Val1->Real <= Val2->Real);	break;
-	case BC_OP_GREATERTHAN: 	Val1->Integer = (Val1->Real >  Val2->Real);	break;
-	case BC_OP_GREATERTHANOREQUAL:	Val1->Integer = (Val1->Real >= Val2->Real);	break;
-	
-	default:	AST_RuntimeError(NULL, "Invalid operation on datatype Real"); return -1;
-	}
-	Val1->Type = SS_DATATYPE_INTEGER;	// Becomes logical
-	return 0;
-}
-
 #define STATE_HDR()	DEBUG_F("%p %2i %02i ", op, Stack->EntryCount, op->Operation)
 
 /**
@@ -443,11 +393,13 @@ int Bytecode_int_LocalBinOp_Real(int Operation, tBC_StackEnt *Val1, tBC_StackEnt
  */
 int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, tBC_Stack *Stack, int ArgCount)
 {
-	 int	ret, ast_op, i;
+	 int	ast_op, i;
 	tBC_Op	*op;
 	tBC_StackEnt	val1, val2;
 	 int	local_var_count = Fcn->BCFcn->MaxVariableCount;
 	tBC_StackEnt	local_vars[local_var_count];	// Includes arguments
+	 int	type;
+	void	*ptr;
 
 	// Initialise local vars
 	for( i = 0; i < local_var_count; i ++ )
@@ -599,13 +551,14 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				GET_STACKVAL(val2);
 				
 				DEBUG_F("SETINDEX %li ", val1.Integer); PRINT_STACKVAL(val2); DEBUG_F("\n");
+				type = Bytecode_int_GetSpiderValue(&val2, &ptr);
 			
-				AST_ExecuteNode_Index(Script, array, NULL, val1.Integer, val2.Type, &val2.Boolean);
+				AST_ExecuteNode_Index(Script, NULL, array, val1.Integer, type, ptr);
 			}
 			else {
 				tSpiderArray	*array = val2.Array;
 				DEBUG_F("INDEX %li ", val1.Integer);
-				val2.Type = AST_ExecuteNode_Index(Script, array, &val2.Boolean, val1.Integer, 0, NULL);
+				val2.Type = AST_ExecuteNode_Index(Script, &val2.Boolean, array, val1.Integer, 0, NULL);
 				
 				PUT_STACKVAL(val2);
 				DEBUG_F("[Got "); PRINT_STACKVAL(val2); DEBUG_F("]\n");
@@ -630,12 +583,12 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				DEBUG_F("SETELEMENT %s ", OP_STRING(op)); PRINT_STACKVAL(val2); DEBUG_F("\n");
 				type = Bytecode_int_GetSpiderValue(&val2, &ptr);
 
-				AST_ExecuteNode_Element(Script, val1.Object, NULL, OP_STRING(op), type, ptr);
+				AST_ExecuteNode_Element(Script, NULL, val1.Object, OP_STRING(op), type, ptr);
 			}
 			else {
 				DEBUG_F("ELEMENT %s ", OP_STRING(op));
 				
-				val2.Type = AST_ExecuteNode_Element(Script, val1.Object, &val2.Boolean, OP_STRING(op), 0, NULL);
+				val2.Type = AST_ExecuteNode_Element(Script, &val2.Boolean, val1.Object, OP_STRING(op), 0, NULL);
 	
 				PUT_STACKVAL(val2);
 				DEBUG_F("[Got "); PRINT_STACKVAL(val2); DEBUG_F("]\n");
@@ -744,14 +697,18 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			DEBUG_F("%s\n", opstr);
 
 			GET_STACKVAL(val1);
-			pval1 = Bytecode_int_GetSpiderValue(&val1, &tmpVal1);
-			Bytecode_int_DerefStackValue(&val1);			
-
-			ret_val = AST_ExecuteNode_UniOp(Script, NULL, ast_op, pval1);
-			if(pval1 != &tmpVal1)	SpiderScript_DereferenceValue(pval1);
-			Bytecode_int_SetSpiderValue(&val1, ret_val);
-			if(ret_val != &tmpVal1)	SpiderScript_DereferenceValue(ret_val);
-			Bytecode_int_StackPush(Stack, &val1);
+			switch(val1.Type)
+			{
+			case SS_DATATYPE_INTEGER:
+				val1.Integer = AST_ExecuteNode_UniOp_Integer(Script, ast_op, val1.Integer);
+				break;
+			case SS_DATATYPE_REAL:
+				val1.Real = AST_ExecuteNode_UniOp_Real(Script, ast_op, val1.Real);
+				break;
+			default:
+				AST_RuntimeError(NULL, "No _ExecuteNode_UniOp for type 0x%x", val1.Type);
+				break;
+			}
 			
 			break;
 
@@ -836,44 +793,24 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			DEBUG_F(" ("); PRINT_STACKVAL(val1); DEBUG_F(")");
 			DEBUG_F(" ("); PRINT_STACKVAL(val2); DEBUG_F(")\n");
 
-			// Perform integer operations locally
-			if( val1.Type == SS_DATATYPE_INTEGER && val2.Type == SS_DATATYPE_INTEGER )
+			switch( val1.Type )
 			{
-				if( Bytecode_int_LocalBinOp_Integer(op->Operation, &val1, &val2) ) {
-					nextop = NULL;
-					break;
-				}
-				PUT_STACKVAL(val1);
+			case SS_DATATYPE_INTEGER:
+				val1.Type = AST_ExecuteNode_BinOp_Integer(Script,
+					&val1.Boolean, ast_op, val1.Integer, val2.Type, &val2.Boolean);
+				break;
+			case SS_DATATYPE_REAL:
+				val1.Type = AST_ExecuteNode_BinOp_Real(Script,
+					&val1.Boolean, ast_op, val1.Real, val2.Type, &val2.Boolean);
+				break;
+			case SS_DATATYPE_STRING:
+				val1.Type = AST_ExecuteNode_BinOp_String(Script,
+					&val1.Boolean, ast_op, val1.String, val2.Type, &val2.Boolean);
+				break;
+			default:
+				AST_RuntimeError(NULL, "No _ExecuteNode_BinOp for type 0x%x", val1.Type);
 				break;
 			}
-
-			if(val1. Type == SS_DATATYPE_REAL && val2.Type == SS_DATATYPE_REAL )
-			{
-				if( Bytecode_int_LocalBinOp_Real(op->Operation, &val1, &val2) ) {
-					nextop = NULL;
-					break;
-				}
-				PUT_STACKVAL(val1);
-				break;
-			}
-		
-			pval1 = Bytecode_int_GetSpiderValue(&val1, &tmpVal1);
-			pval2 = Bytecode_int_GetSpiderValue(&val2, &tmpVal2);
-			Bytecode_int_DerefStackValue(&val1);
-			Bytecode_int_DerefStackValue(&val2);
-
-			// Hand to AST execution code
-			ret_val = AST_ExecuteNode_BinOp(Script, NULL, ast_op, pval1, pval2);
-			if(pval1 != &tmpVal1)	SpiderScript_DereferenceValue(pval1);
-			if(pval2 != &tmpVal2)	SpiderScript_DereferenceValue(pval2);
-
-			if(ret_val == ERRPTR) {
-				AST_RuntimeError(NULL, "_BinOp returned ERRPTR");
-				nextop = NULL;
-				break;
-			}
-			Bytecode_int_SetSpiderValue(&val1, ret_val);
-			if(ret_val != &tmpVal1)	SpiderScript_DereferenceValue(ret_val);
 			PUT_STACKVAL(val1);
 			break;
 

@@ -33,11 +33,10 @@ enum eAST_NodeTypes
 	
 	// 8
 	NODETYPE_DEFVAR,	//!< Define a variable (Variable)
-	NODETYPE_SCOPE,	//!< Dereference a Namespace/Class static
 	NODETYPE_ELEMENT,	//!< Reference a class attribute
 	NODETYPE_CAST,	//!< Cast a value to another (Uniop)
 	
-	// 12
+	// 11
 	NODETYPE_RETURN,	//!< Return from a function (reserved word)
 	NODETYPE_BREAK, 	//!< Break out of a loop
 	NODETYPE_CONTINUE,	//!< Next loop iteration
@@ -48,14 +47,14 @@ enum eAST_NodeTypes
 	NODETYPE_METHODCALL,	//!< Call a class method
 	NODETYPE_CREATEOBJECT,	//!< Create an object
 	
-	// 21
+	// 20
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_LOOP,	//!< Looping Construct
 	
-	// 23
+	// 22
 	NODETYPE_INDEX,	//!< Index into an array
 	
-	// 24
+	// 23
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
@@ -218,12 +217,24 @@ extern tAST_Node	*AST_NewCast(tParser *Parser, int Target, tAST_Node *Value);
 extern tAST_Node	*AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right);
 extern tAST_Node	*AST_NewUniOp(tParser *Parser, int Operation, tAST_Node *Value);
 extern tAST_Node	*AST_NewBreakout(tParser *Parser, int Type, const char *DestTag);
-extern tAST_Node	*AST_NewScopeDereference(tParser *Parser, const char *Name, tAST_Node *Child);
 
 extern void	AST_FreeNode(tAST_Node *Node);
 
 // exec_ast.h
-extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest, tSpiderArray *Array, int Index, int NewType, const void *NewValue);
-extern int	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest, tSpiderObject *Object, const char *Element, int NewType, const void *NewValue);
+extern int	AST_ExecuteNode_UniOp_GetType(int Type);
+extern tSpiderInteger	AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value);
+extern tSpiderReal	AST_ExecuteNode_UniOp_Real   (tSpiderScript *Script, int Op, tSpiderReal Value);
+
+extern int	AST_ExecuteNode_BinOp_GetType(int LeftType, int RightType);
+extern int	AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *Dest,
+	int Op, tSpiderInteger Left, int RightType, const void *Right);
+extern int	AST_ExecuteNode_BinOp_Real   (tSpiderScript *Script, void *Dest,
+	int Op, tSpiderReal    Left, int RightType, const void *Right);
+extern int	AST_ExecuteNode_BinOp_String (tSpiderScript *Script, void *Dest,
+	int Op, const tSpiderString *Left, int RightType, const void *Right);
+extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest,
+	tSpiderArray *Array, int Index, int NewType, void *NewValue);
+extern int	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest,
+	tSpiderObject *Object, const char *Element, int NewType, void *NewValue);
 
 #endif

@@ -269,12 +269,27 @@ void Bytecode_AppendIndex(tBC_Function *Handle)
 void Bytecode_AppendSetIndex(tBC_Function *Handle)
 	DEF_BC_NONE(BC_OP_SETINDEX);
 
-void Bytecode_AppendCreateObj(tBC_Function *Handle, const char *Name, int ArgumentCount)
-	DEF_BC_STRINT(BC_OP_CREATEOBJ, Name, ArgumentCount)
-void Bytecode_AppendMethodCall(tBC_Function *Handle, const char *Name, int ArgumentCount)
-	DEF_BC_STRINT(BC_OP_CALLMETHOD, Name, ArgumentCount)
-void Bytecode_AppendFunctionCall(tBC_Function *Handle, const char *Name, int ArgumentCount)
-	DEF_BC_STRINT(BC_OP_CALLFUNCTION, Name, ArgumentCount)
+void Bytecode_AppendCreateObj(tBC_Function *Handle, int Type, int ArgumentCount)
+{
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CREATEOBJ, 0);
+	op->Content.Function.ID = Type;
+	op->Content.Function.ArgCount = ArgumentCount;
+	Bytecode_int_AppendOp(Handle, op);
+}
+void Bytecode_AppendMethodCall(tBC_Function *Handle, int Index, int ArgumentCount)
+{
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CALLMETHOD, 0);
+	op->Content.Function.ID = Index;
+	op->Content.Function.ArgCount = ArgumentCount;
+	Bytecode_int_AppendOp(Handle, op);
+}
+void Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount)
+{
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CALLFUNCTION, 0);
+	op->Content.Function.ID = ID;
+	op->Content.Function.ArgCount = ArgumentCount;
+	Bytecode_int_AppendOp(Handle, op);
+}
 
 void Bytecode_AppendBinOp(tBC_Function *Handle, int Operation)
 	DEF_BC_NONE(Operation)

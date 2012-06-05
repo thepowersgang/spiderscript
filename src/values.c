@@ -17,7 +17,7 @@ extern void	AST_RuntimeError(void *Node, const char *Format, ...);
 // === PROTOTYPES ===
 
 // === CODE ===
-int _GetTypeSize(int TypeCode)
+int SpiderScript_int_GetTypeSize(int TypeCode)
 {
 	switch(TypeCode)
 	{
@@ -43,7 +43,7 @@ tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *
 
 	for( int i = 0; i < Class->NAttributes; i ++ )
 	{
-		int sz = _GetTypeSize(Class->AttributeDefs[i].Type);
+		int sz = SpiderScript_int_GetTypeSize(Class->AttributeDefs[i].Type);
 		if( sz < 0 ) {
 			// Oops?
 		}
@@ -62,7 +62,7 @@ tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *
 	for( int i = 0; i < Class->NAttributes; i ++ )
 	{
 		ret->Attributes[i] = (char*)(ret->Attributes + Class->NAttributes) + size;
-		size += _GetTypeSize(Class->AttributeDefs[i].Type);
+		size += SpiderScript_int_GetTypeSize(Class->AttributeDefs[i].Type);
 	}
 	
 	return ret;
@@ -77,7 +77,7 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 
 	for( at = Class->FirstProperty; at; at = at->Next )
 	{
-		size += _GetTypeSize(at->Type);
+		size += SpiderScript_int_GetTypeSize(at->Type);
 		n_attr ++;
 	}
 	
@@ -93,7 +93,7 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 	for( i = 0, at = Class->FirstProperty; at; at = at->Next, i ++ )
 	{
 		ret->Attributes[i] = (char*)(ret->Attributes + n_attr) + size;
-		size += _GetTypeSize(at->Type);
+		size += SpiderScript_int_GetTypeSize(at->Type);
 	}
 	
 	return ret;
@@ -165,6 +165,12 @@ tSpiderString *SpiderScript_CreateString(int Length, const char *Data)
 	return ret;
 }
 
+void SpiderScript_ReferenceString(tSpiderString *String)
+{
+	if( !String )	return ;
+	String->RefCount ++;
+}
+
 void SpiderScript_DereferenceString(tSpiderString *String)
 {
 	if( !String )	return ;
@@ -183,7 +189,7 @@ tSpiderArray *SpiderScript_CreateArray(int InnerType, int ItemCount)
 	tSpiderArray	*ret;
 	
 	// Get the size of one entry (reference types are zero sized, but need 1 pointer)
-	ent_size = _GetTypeSize(InnerType);
+	ent_size = SpiderScript_int_GetTypeSize(InnerType);
 	if( ent_size == 0 )	ent_size = sizeof(void*);
 
 	ret = malloc( sizeof(tSpiderArray) + ItemCount*ent_size );
@@ -192,6 +198,12 @@ tSpiderArray *SpiderScript_CreateArray(int InnerType, int ItemCount)
 	ret->Length = ItemCount;
 	memset(ret->Bools, 0, ItemCount*ent_size);	// Could use any, but Bools works
 	return ret;
+}
+
+void SpiderScript_ReferenceArray(tSpiderArray *Array)
+{
+	if( !Array )	return ;
+	Array->RefCount ++;
 }
 
 void SpiderScript_DereferenceArray(tSpiderArray *Array)

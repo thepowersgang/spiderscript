@@ -5,6 +5,7 @@
 #define _SPIDERSCRIPT_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #define ERRPTR	((void*)((intptr_t)0-1))
 
@@ -129,30 +130,20 @@ struct sSpiderClass
 	 * \brief Object type name
 	 */
 	const char * const	Name;
+
 	/**
-	 * \brief Construct an instance of the object
-	 * \param NArgs	Number of arguments
-	 * \param Args	Argument array
-	 * \return Pointer to an object instance (which must be fully valid)
-	 * \retval NULL	Invalid parameter (usually, actually just a NULL value)
-	 * \retval ERRPTR	Invalid parameter count
-	 */
-	tSpiderObject	*(*Constructor)(tSpiderScript *Script, int NArgs, const int *ArgTypes, void * const Args[]);
+	 * \brief Create a new instance of the object
+	 * \return Allocated tSpiderObject in \a RetData
+	 */	
+	tSpiderFunction	*Constructor;
 	
 	/**
 	 * \brief Clean up and destroy the object
 	 * \param This	Object instace
-	 * \note The object pointer (\a This) should be invalidated and freed
-	 *       by this function.
+	 * \note The object pointer (\a This) should not be free'd by this function
 	 */
 	void	(*Destructor)(tSpiderObject *This);
 
-
-	/**
-	 * \brief Get/Set an attribute's value
-	 */
-	 int	(*GetSetAttribute)(tSpiderObject *This, int AttibuteID, void *Output, const void *NewValue);
-	
 	/**
 	 * \brief Method Definitions (linked list)
 	 */
@@ -198,10 +189,17 @@ struct sSpiderFunction
 	 * \brief Function name
 	 */
 	const char	*Name;
+	
 	/**
 	 * \brief Function handler
+	 * \param Script	Script instance
+	 * \param RetData	Pointer the storage location (pointer to pointer for
+	 *               	objects/arrays/strings, pointer to data for bools/integers/reals)
+	 * \param nArgs 	Number of arguments passed
+	 * \param ArgTypes	Types of each argument
+	 * \param Args  	Pointers to each argument (all point to actual data, unlike \a RetData)
 	 */
-	 int	(*Handler)(tSpiderScript *Script, void *RetData, int nArgs, const int *ArgTypes, void * const Args[]);
+	 int	(*Handler)(tSpiderScript *Script, void *RetData, int nArgs, const int *ArgTypes, const void * const Args[]);
 
 	/**
 	 * \brief What type is returned
@@ -232,11 +230,11 @@ extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char
 extern int	SpiderScript_ExecuteFunctionEx(tSpiderScript *Script,
 	const char *Function, const char *Namespaces[],
 	void *RetData,
-	int NArguments, const int *ArgTypes, void * const Arguments[],
+	int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident, int bExecute
 	);
 extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
-	void *RetData, int NArguments, const int *ArgTypes, void * const Arguments[]
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[]
 	);
 /**
  * \brief Execute an object method
@@ -244,7 +242,7 @@ extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Funct
 extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderObject *Object, const char *MethodName,
 	void *RetData,
-	int NArguments, const int *ArgTypes, void * const Arguments[],
+	int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
@@ -253,7 +251,7 @@ extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script,
 extern int	SpiderScript_CreateObject(tSpiderScript *Script,
 	const char *ClassName, const char *DefaultNamespaces[],
 	tSpiderObject **RetData,
-	int NArguments, const int *ArgTypes, void * const Arguments[],
+	int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident, int bExecute
 	);
 
@@ -289,6 +287,7 @@ extern void	SpiderScript_ReferenceString(tSpiderString *String);
 extern void	SpiderScript_DereferenceString(tSpiderString *String);
 
 extern tSpiderString	*SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2);
+extern int        	SpiderScript_StringCompare(const tSpiderString *Str1, const tSpiderString *Str2);
 extern tSpiderString	*SpiderScript_CastValueToString(int SourceType, const void *Source);
 
 extern tSpiderBool	SpiderScript_CastValueToBool(int SourceType, const void *Source);

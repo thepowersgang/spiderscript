@@ -15,12 +15,9 @@
 #define TRACE_NODE_RETURNS	0
 
 // === IMPORTS ===
+ int	SpiderScript_int_GetTypeSize(int Type);
 
 // === PROTOTYPES ===
-// - Node Execution
-tSpiderValue	*AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Left, tSpiderValue *Right);
-tSpiderValue	*AST_ExecuteNode_UniOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Value);
-tSpiderValue	*AST_ExecuteNode_Index(tSpiderScript *Script, tAST_Node *Node, tSpiderValue *Array, int Index, tSpiderValue *SaveValue);
 // - Errors
 void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
 void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
@@ -29,20 +26,20 @@ void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
  int	giNextBlockIdent = 1;
 
 // === CODE ===
-tSpiderInteger *AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value)
+tSpiderInteger AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value)
 {
 	switch(Op)
 	{
 	case NODETYPE_NEGATE:	return -Value;
 	case NODETYPE_BWNOT:	return ~Value;
 	default:
-		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Integer unknown op %i", Operation);
+		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Integer unknown op %i", Op);
 		return 0;
 	}
 	
 }
 
-tSpiderReal *AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSpiderReal Value)
+tSpiderReal AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSpiderReal Value)
 {
 	switch(Operation)
 	{
@@ -53,16 +50,17 @@ tSpiderReal *AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tS
 	}
 }
 
-int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, int Op,
-	void *RetData,
+int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *RetData,
+	int Op,
 	tSpiderInteger Left, int RightType, const void *Right)
 {
 	tSpiderInteger	*ret_i = RetData;
 	tSpiderBool	*ret_b = RetData;
-	tSpiderInteger	right = Right;
+	tSpiderInteger	right;
 	
 	if( RightType != SS_DATATYPE_INTEGER )
 		return -1;	
+	right = *(const tSpiderInteger*)Right;
 
 	switch(Op)
 	{
@@ -86,21 +84,22 @@ int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, int Op,
 		*ret_i = (Left << right) | (Left >> (64-right));
 		return SS_DATATYPE_INTEGER;
 	default:
-		AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
+		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
 		return -1;
 	}
 }
 
-int AST_ExecuteNode_BinOp_Real(tSpiderScript *Script, int Op,
-	void *RetData,
+int AST_ExecuteNode_BinOp_Real(tSpiderScript *Script, void *RetData,
+	int Op,
 	tSpiderReal Left, int RightType, const void *Right)
 {
 	tSpiderReal	*ret_r = RetData;
 	tSpiderBool	*ret_b = RetData;
-	tSpiderReal	right = Right;
+	tSpiderReal	right;
 	
 	if( RightType != SS_DATATYPE_REAL )
 		return -1;	
+	right = *(const tSpiderReal*)Right;
 
 	switch(Op)
 	{
@@ -116,18 +115,18 @@ int AST_ExecuteNode_BinOp_Real(tSpiderScript *Script, int Op,
 	case NODETYPE_MULTIPLY:	*ret_r = Left * right;	return SS_DATATYPE_REAL;
 	case NODETYPE_DIVIDE:	*ret_r = Left / right;	return SS_DATATYPE_REAL;
 	default:
-		AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
+		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
 		return -1;
 	}
 }
 
-int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, int Op,
-	void *RetData,
-	const tSpiderString *Left, int RightType, const void *Right)
+int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, void *RetData,
+	int Op, const tSpiderString *Left, int RightType, const void *Right)
 {
 	tSpiderString	**ret_s = RetData;
 	tSpiderBool	*ret_b = RetData;
 	const tSpiderString	*right_s = Right;
+	 int	cmp;
 
 	switch(Op)
 	{
@@ -154,9 +153,13 @@ int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, int Op,
 		if( RightType != SS_DATATYPE_STRING )	return -1;
 		*ret_s = SpiderScript_StringConcat(Left, right_s);
 		return SS_DATATYPE_STRING;
+	default:
+		AST_RuntimeError(NULL, "Unknown operation on string (%i)", Op);
+		return -1;
 	}
 }
 
+#if 0
 tSpiderValue *AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Left, tSpiderValue *Right)
 {
 	tSpiderValue	*preCastValue = Right;
@@ -319,59 +322,6 @@ tSpiderValue *AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int 
 		// TODO: Support string repititions
 //		case NODETYPE_MULTIPLY:
 //			break;
-
-		default:
-			AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,String unknown op %i", Operation);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	// Integer Operations
-	case SS_DATATYPE_INTEGER:
-		if( Left->ReferenceCount == 1 )
-			SpiderScript_ReferenceValue(ret = Left);
-		else
-			ret = SpiderScript_CreateInteger(0);
-		switch(Operation)
-		{
-		case NODETYPE_ADD:	ret->Integer = Left->Integer + Right->Integer;	break;
-		case NODETYPE_SUBTRACT:	ret->Integer = Left->Integer - Right->Integer;	break;
-		case NODETYPE_MULTIPLY:	ret->Integer = Left->Integer * Right->Integer;	break;
-		case NODETYPE_DIVIDE:	ret->Integer = Left->Integer / Right->Integer;	break;
-		case NODETYPE_MODULO:	ret->Integer = Left->Integer % Right->Integer;	break;
-		case NODETYPE_BWAND:	ret->Integer = Left->Integer & Right->Integer;	break;
-		case NODETYPE_BWOR: 	ret->Integer = Left->Integer | Right->Integer;	break;
-		case NODETYPE_BWXOR:	ret->Integer = Left->Integer ^ Right->Integer;	break;
-		case NODETYPE_BITSHIFTLEFT: ret->Integer = Left->Integer << Right->Integer;	break;
-		case NODETYPE_BITSHIFTRIGHT:ret->Integer = Left->Integer >> Right->Integer;	break;
-		case NODETYPE_BITROTATELEFT:
-			ret->Integer = (Left->Integer << Right->Integer) | (Left->Integer >> (64-Right->Integer));
-			break;
-		default:
-			AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Operation);
-			SpiderScript_DereferenceValue(ret);
-			ret = ERRPTR;
-			break;
-		}
-		break;
-	
-	// Real Numbers
-	case SS_DATATYPE_REAL:
-		if( Left->ReferenceCount == 1 )
-			SpiderScript_ReferenceValue(ret = Left);
-		else
-			ret = SpiderScript_CreateReal(0);
-		switch(Operation)
-		{
-		case NODETYPE_ADD:	ret->Real = Left->Real + Right->Real;	break;
-		case NODETYPE_SUBTRACT:	ret->Real = Left->Real - Right->Real;	break;
-		case NODETYPE_MULTIPLY:	ret->Real = Left->Real * Right->Real;	break;
-		case NODETYPE_DIVIDE:	ret->Real = Left->Real / Right->Real;	break;
-		default:
-			AST_RuntimeError(Node, "SpiderScript internal error: Exec,BinOP,Real unknown op %i", Operation);
-			SpiderScript_DereferenceValue(ret);
-			ret = ERRPTR;
-			break;
 		}
 		break;
 	
@@ -385,49 +335,64 @@ tSpiderValue *AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int 
 	
 	return ret;
 }
+#endif
 
-tSpiderValue *AST_ExecuteNode_Index(tSpiderScript *Script, tAST_Node *Node,
-	tSpiderValue *Array, int Index, tSpiderValue *SaveValue)
+int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
+	tSpiderArray *Array, int Index, int NewType, void *NewData)
 {
+	 int	size;
+
 	// Quick sanity check
-	if( !Array )
-	{
-		AST_RuntimeError(Node, "Indexing NULL, not a good idea");
-		return ERRPTR;
+	if( !Array ) {
+		AST_RuntimeError(NULL, "Indexing NULL, not a good idea");
+		return -1;
 	}
 
 	// Array?
-	if( SS_GETARRAYDEPTH(Array->Type) )
+	if( Index < 0 || Index >= Array->Length ) {
+		AST_RuntimeError(NULL, "Array index out of bounds %i not in (0, %i]",
+			Index, Array->Length);
+		return -1;
+	}
+
+	size = SpiderScript_int_GetTypeSize(Array->Type);	
+	if( size == -1 ) {
+		return -1;
+	}
+
+	if( NewData )
 	{
-		if( Index < 0 || Index >= Array->Array.Length ) {
-			AST_RuntimeError(Node, "Array index out of bounds %i not in (0, %i]",
-				Index, Array->Array.Length);
-			return ERRPTR;
+		if( NewType != Array->Type ) {
+			// TODO: Implicit casting?
+			AST_RuntimeError(NULL, "Type mismatch assiging to array element");
+			return -1;
 		}
-		
-		if( SaveValue != ERRPTR )
-		{
-			if( SaveValue && SaveValue->Type != SS_DOWNARRAY(Array->Type) ) {
-				// TODO: Implicit casting
-				AST_RuntimeError(Node, "Type mismatch assiging to array element");
-				return ERRPTR;
-			}
-			SpiderScript_DereferenceValue( Array->Array.Items[Index] );
-			Array->Array.Items[Index] = SaveValue;
-			SpiderScript_ReferenceValue( Array->Array.Items[Index] );
-			return NULL;
+		if( SS_GETARRAYDEPTH(NewType) ) {
+			SpiderScript_DereferenceArray( Array->Arrays[Index] );
+			Array->Arrays[Index] = NewData;
+			SpiderScript_ReferenceArray( Array->Arrays[Index] );
 		}
-		else
-		{
-			SpiderScript_ReferenceValue( Array->Array.Items[Index] );
-			return Array->Array.Items[Index];
+		else if( SS_ISTYPEOBJECT(NewType) ) {
+			SpiderScript_DereferenceObject( Array->Objects[Index] );
+			Array->Objects[Index] = NewData;
+			SpiderScript_ReferenceObject  ( Array->Objects[Index] );
 		}
+		else if( NewType == SS_DATATYPE_STRING ) {
+			SpiderScript_DereferenceString( Array->Strings[Index] );
+			Array->Strings[Index] = NewData;
+			SpiderScript_ReferenceString  ( Array->Strings[Index] );
+		}
+		else {
+			memcpy(Array->Bools + size*Index, NewData, size);
+		}
+		return Array->Type;
 	}
 	else
 	{
-		AST_RuntimeError(Node, "TODO - Implement indexing on non-arrays (type = %x)",
-			Array->Type);
-		return ERRPTR;
+		if( size == 0 )
+			size = sizeof(void*);
+		memcpy(RetData, Array->Bools + size*Index, size);
+		return Array->Type;
 	}
 }
 
@@ -439,22 +404,22 @@ tSpiderValue *AST_ExecuteNode_Index(tSpiderScript *Script, tAST_Node *Node,
  * \param ElementName	Name of the attribute to be accessed
  * \param SaveValue	Value to set the element to (if ERRPTR, element value is returned)
  */
-tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
-	tSpiderValue *Object, const char *ElementName, tSpiderValue *SaveValue)
+int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
+	tSpiderObject *Object, const char *ElementName, int NewType, void *NewData)
 {
-	 int	i;
-	tSpiderValue	*ret;	
+	 int	i, type;
+	const char	*className;
 
 	if( !Object ) {
-		AST_RuntimeError(Node, "Tried to access an element of NULL");
-		return ERRPTR;
+		AST_RuntimeError(NULL, "Tried to access an element of NULL");
+		return -1;
 	}
 	
 	tSpiderClass *nc;
 	tScript_Class	*sc;
 	
-	nc = SpiderScript_GetClass_Native(Script, Object->Type);
-	sc = SpiderScript_GetClass_Script(Script, Object->Type);
+	nc = SpiderScript_GetClass_Native(Script, Object->TypeCode);
+	sc = SpiderScript_GetClass_Script(Script, Object->TypeCode);
 
 	if( nc ) {
 		for( i = 0; i < nc->NAttributes; i ++ )
@@ -463,9 +428,11 @@ tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
 				break ;
 		}
 		if( i == nc->NAttributes ) {
-			AST_RuntimeError(Node, "No attribute %s of %s", ElementName, nc->Name);
-			return ERRPTR;
+			AST_RuntimeError(NULL, "No attribute %s of %s", ElementName, nc->Name);
+			return -1;
 		}
+		type = nc->AttributeDefs[i].Type;
+		className = nc->Name;
 	}
 	else if( sc ) {
 		tScript_Class_Var *at;
@@ -475,26 +442,67 @@ tSpiderValue *AST_ExecuteNode_Element(tSpiderScript *Script, tAST_Node *Node,
 				break;
 		}
 		if( !at ) {
-			AST_RuntimeError(Node, "No attribute %s of %s", ElementName, sc->Name);
-			return ERRPTR;
+			AST_RuntimeError(NULL, "No attribute %s of %s", ElementName, sc->Name);
+			return -1;
+		}
+		type = at->Type;
+		className = sc->Name;
+	}
+	else {
+		AST_RuntimeError(NULL, "Unable to get element of type %i", Object->TypeCode);
+		return -1;
+	}
+	
+	int size = SpiderScript_int_GetTypeSize(type);
+	if( size == -1 ) {
+		AST_RuntimeError(NULL, "Type of element %s of %s is invalid (%i)", ElementName, className, type);
+		return -1;
+	}
+	
+	if( NewData )
+	{
+		if( type != NewType ) {
+			AST_RuntimeError(NULL, "Assignment of element '%s' of '%s' mismatch (%i should be %i)",
+				ElementName, className, NewType, type);
+			return -1;
+		}
+		if( SS_GETARRAYDEPTH(NewType) ) {
+			SpiderScript_DereferenceArray( Object->Attributes[i] );
+			Object->Attributes[i] = NewData;
+			SpiderScript_ReferenceArray( Object->Attributes[i] );
+		}
+		else if( SS_ISTYPEOBJECT(NewType) ) {
+			SpiderScript_DereferenceObject( Object->Attributes[i] );
+			Object->Attributes[i] = NewData;
+			SpiderScript_ReferenceObject  ( Object->Attributes[i] );
+		}
+		else if( NewType == SS_DATATYPE_STRING ) {
+			SpiderScript_DereferenceString( Object->Attributes[i] );
+			Object->Attributes[i] = NewData;
+			SpiderScript_ReferenceString  ( Object->Attributes[i] );
+		}
+		else {
+			memcpy(Object->Attributes[i], NewData, size);
 		}
 	}
 	else {
-		AST_RuntimeError(Node, "Unable to get element of type %i", Object->Type);
-		return ERRPTR;
+		if( SS_GETARRAYDEPTH(NewType) ) {
+			SpiderScript_ReferenceArray( Object->Attributes[i] );
+			*(void**)RetData = Object->Attributes[i];
+		}
+		else if( SS_ISTYPEOBJECT(NewType) ) {
+			SpiderScript_ReferenceObject  ( Object->Attributes[i] );
+			*(void**)RetData = Object->Attributes[i];
+		}
+		else if( NewType == SS_DATATYPE_STRING ) {
+			SpiderScript_ReferenceString  ( Object->Attributes[i] );
+			*(void**)RetData = Object->Attributes[i];
+		}
+		else {
+			memcpy(RetData, Object->Attributes[i], size);
+		}
 	}
-	
-	if( SaveValue != ERRPTR ) {
-		SpiderScript_DereferenceValue( Object->Object->Attributes[i] );
-		Object->Object->Attributes[i] = SaveValue;
-		SpiderScript_ReferenceValue(SaveValue);
-		return NULL;
-	}
-	else {
-		ret = Object->Object->Attributes[i];
-		SpiderScript_ReferenceValue(ret);
-		return ret;
-	}
+	return type;
 }
 
 

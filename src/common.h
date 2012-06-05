@@ -76,7 +76,11 @@ extern int	SpiderScript_BytecodeScript(tSpiderScript *Script);
 extern tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type);
 extern tScript_Class *SpiderScript_GetClass_Script(tSpiderScript *Script, int Type);
 extern tSpiderFunction	*gpExports_First;
-extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, void *RetValue, int NArgs, const int *ArgTypes, void * const Args[]);
+extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
+	void *RetValue, int NArgs, const int *ArgTypes, const void * const Args[]);
+
+extern int	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name);
+extern int	SpiderScript_ResolveFunction(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **Ident);
 
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
 #endif

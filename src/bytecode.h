@@ -24,6 +24,10 @@ struct sBC_Op
 			 int	Integer;
 			char	String[];
 		} StringInt;
+		struct {
+			 int	ID;
+			 int	ArgCount;
+		} Function;
 		
 		uint64_t	Integer;
 		double	Real;
