@@ -663,7 +663,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		else {
 			Bytecode_AppendUniOp(Block->Handle, op);
-			type = AST_ExecuteNode_UniOp_GetType(type);
+			type = AST_ExecuteNode_UniOp_GetType(Block->Script, op, type);
 			if( type == -1 ) {
 				AST_RuntimeError(Node, "Invalid unary operation on type");
 				return -1;
@@ -723,7 +723,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		else {
 			Bytecode_AppendBinOp(Block->Handle, op);
-			type = AST_ExecuteNode_BinOp_GetType(type, ret);
+			type = AST_ExecuteNode_BinOp_GetType(Block->Script, op, type, ret);
 			if( type == -1 ) {
 				AST_RuntimeError(Node, "Invalid binary operation");
 				return -1;

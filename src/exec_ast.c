@@ -26,6 +26,32 @@ void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
  int	giNextBlockIdent = 1;
 
 // === CODE ===
+int AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type)
+{
+	switch(Type)
+	{
+	case SS_DATATYPE_INTEGER:
+		switch(Op)
+		{
+		case NODETYPE_NEGATE:
+		case NODETYPE_BWNOT:
+			return SS_DATATYPE_INTEGER;
+		default:
+			return -1;
+		}
+	case SS_DATATYPE_REAL:
+		switch(Op)
+		{
+		case NODETYPE_NEGATE:
+			return SS_DATATYPE_REAL;
+		default:
+			return -1;
+		}
+	default:
+		return -1;
+	}
+}
+
 tSpiderInteger AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value)
 {
 	switch(Op)
@@ -48,6 +74,57 @@ tSpiderReal AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSp
 		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Real unknown op %i", Operation);
 		return 0;
 	}
+}
+
+int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int RType)
+{
+	switch(LType)
+	{
+	case SS_DATATYPE_INTEGER:
+		if( RType != SS_DATATYPE_INTEGER )	return -1;	
+		switch(Op)
+		{
+		case NODETYPE_EQUALS:
+		case NODETYPE_NOTEQUALS:
+		case NODETYPE_LESSTHAN: 
+		case NODETYPE_GREATERTHAN:
+		case NODETYPE_LESSTHANEQUAL:
+		case NODETYPE_GREATERTHANEQUAL:
+			return SS_DATATYPE_BOOLEAN;
+		case NODETYPE_ADD:
+		case NODETYPE_SUBTRACT:
+		case NODETYPE_MULTIPLY:
+		case NODETYPE_DIVIDE:
+		case NODETYPE_MODULO:
+		case NODETYPE_BWAND:
+		case NODETYPE_BWOR:
+		case NODETYPE_BWXOR:
+		case NODETYPE_BITSHIFTLEFT:
+		case NODETYPE_BITSHIFTRIGHT:
+		case NODETYPE_BITROTATELEFT:
+			return SS_DATATYPE_INTEGER;
+		}
+		break;
+	case SS_DATATYPE_REAL:
+		if( RType != SS_DATATYPE_REAL )	return -1;
+		switch(Op)
+		{
+		case NODETYPE_EQUALS:
+		case NODETYPE_NOTEQUALS:
+		case NODETYPE_LESSTHAN: 
+		case NODETYPE_GREATERTHAN:
+		case NODETYPE_LESSTHANEQUAL:
+		case NODETYPE_GREATERTHANEQUAL:
+			return SS_DATATYPE_BOOLEAN;
+		case NODETYPE_ADD:
+		case NODETYPE_SUBTRACT:
+		case NODETYPE_MULTIPLY:
+		case NODETYPE_DIVIDE:
+			return SS_DATATYPE_REAL;
+		}
+		break;	
+	}
+	return -1;
 }
 
 int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *RetData,

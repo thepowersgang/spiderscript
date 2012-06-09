@@ -322,13 +322,12 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
  */
 int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC_Op *op)
 {
-	const char	*name = OP_STRING(op);
-	 int	arg_count = OP_INDX(op);
+	 int	id = op->Content.Function.ID;
+	 int	arg_count = op->Content.Function.ArgCount;
 	 int	i, rv = 0;
 	const void	*args[arg_count];
 	 int	arg_types[arg_count];
 	tBC_StackEnt	val1, ret;
-	const char	*namespaces[] = {NULL};	// TODO: Default/imported namespaces
 
 	DEBUG_F("CALL (general) %s %i args\n", name, arg_count);
 	
@@ -341,13 +340,13 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	// Call the function etc.
 	if( op->Operation == BC_OP_CALLFUNCTION )
 	{
-		rv = SpiderScript_ExecuteFunctionEx(Script, name, namespaces,
-			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt, 1);
+		rv = SpiderScript_int_ExecuteFunction(Script, id,
+			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
 	}
 	else if( op->Operation == BC_OP_CREATEOBJ )
 	{
-		rv = SpiderScript_CreateObject(Script, name, namespaces,
-			&ret.Object, arg_count, arg_types, args, &op->CacheEnt, 1);
+		rv = SpiderScript_int_ConstructObject(Script, id,
+			&ret.Object, arg_count, arg_types, args, &op->CacheEnt);
 	}
 	else if( op->Operation == BC_OP_CALLMETHOD )
 	{
@@ -361,7 +360,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 			AST_RuntimeError(NULL, "OP_CALLMETHOD on non object");
 			return -1;
 		}
-		rv = SpiderScript_ExecuteMethod(Script, obj, name,
+		rv = SpiderScript_int_ExecuteMethod(Script, obj, id,
 			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
 		Bytecode_int_DerefStackValue(&val1);
 	}
@@ -371,7 +370,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 		rv = -1;
 	}
 	if(rv == -1) {
-		AST_RuntimeError(NULL, "Function call %s failed, op = %i", name, op->Operation);
+		AST_RuntimeError(NULL, "Function call %i failed, op = %i", id, op->Operation);
 		return -1;
 	}
 	// Clean up args

@@ -227,32 +227,25 @@ struct sSpiderFunction
  */
 extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
 
-extern int	SpiderScript_ExecuteFunctionEx(tSpiderScript *Script,
-	const char *Function, const char *Namespaces[],
-	void *RetData,
-	int NArguments, const int *ArgTypes, const void * const Arguments[],
-	void **Ident, int bExecute
-	);
 extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
-	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[]
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
 	);
 /**
  * \brief Execute an object method
  */
 extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script,
 	tSpiderObject *Object, const char *MethodName,
-	void *RetData,
-	int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
  * \brief Creates an object instance
  */
 extern int	SpiderScript_CreateObject(tSpiderScript *Script,
-	const char *ClassName, const char *DefaultNamespaces[],
-	tSpiderObject **RetData,
-	int NArguments, const int *ArgTypes, const void * const Arguments[],
-	void **Ident, int bExecute
+	const char *ClassName,
+	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
 	);
 
 /**

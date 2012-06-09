@@ -82,6 +82,19 @@ extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn
 extern int	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name);
 extern int	SpiderScript_ResolveFunction(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **Ident);
 
+extern int	SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
+	void *RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
+	void **Ident
+	);
+extern int	SpiderScript_int_ConstructObject(tSpiderScript *Script, int TypeCode,
+	tSpiderObject **RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
+	void **Ident
+	);
+extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object, int MethodID,
+	void *RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
+	void **Ident
+	);
+
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
 #endif
 

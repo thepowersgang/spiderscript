@@ -221,11 +221,11 @@ extern tAST_Node	*AST_NewBreakout(tParser *Parser, int Type, const char *DestTag
 extern void	AST_FreeNode(tAST_Node *Node);
 
 // exec_ast.h
-extern int	AST_ExecuteNode_UniOp_GetType(int Type);
+extern int	AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type);
 extern tSpiderInteger	AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value);
 extern tSpiderReal	AST_ExecuteNode_UniOp_Real   (tSpiderScript *Script, int Op, tSpiderReal Value);
 
-extern int	AST_ExecuteNode_BinOp_GetType(int LeftType, int RightType);
+extern int	AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LeftType, int RightType);
 extern int	AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *Dest,
 	int Op, tSpiderInteger Left, int RightType, const void *Right);
 extern int	AST_ExecuteNode_BinOp_Real   (tSpiderScript *Script, void *Dest,
