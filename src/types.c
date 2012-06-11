@@ -9,6 +9,7 @@
 #include "common.h"
 #include <string.h>
 #include <stdio.h>
+#include <assert.h>
 
 #define SS_DATATYPE_FLAG_MASK	0x3000
 #define SS_DATATYPE_FLAG_INT	0x0000
@@ -44,6 +45,57 @@ const char *SpiderScript_GetTypeName(tSpiderScript *Script, int Type)
 		return "INVAL";
 	else
 		return casSpiderScript_InternalTypeNames[Type];
+}
+
+int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, const char *Template, int Type)
+{
+	 int	len = 0;
+	
+	void addch(char ch) {
+		if( len < MaxLen )
+			Data[len] = ch;
+		len ++;
+	}
+	void adds(const char *s) {
+		while(*s)
+			addch(*s++);
+	}
+	
+	for( ; *Template; Template ++)
+	{
+		if( *Template != '%' ) {
+			addch(*Template);
+			continue ;
+		}
+		
+		Template++;
+		switch( *Template )
+		{
+		case '%':
+			addch('%');
+			break;
+		case 's':	// String representation
+			adds(SpiderScript_GetTypeName(Script, Type));
+			if( SS_GETARRAYDEPTH(Type) ) {
+				addch('#');
+				assert( SS_GETARRAYDEPTH(Type) < 10 );
+				addch('0' + SS_GETARRAYDEPTH(Type));
+			}
+			break;
+		}
+	}
+	if( len < MaxLen )
+		Data[len] = '\0';
+	return len;
+}
+
+char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, int Type1)
+{
+	int len = SpiderScript_FormatTypeStrV(Script, NULL, 0, Template, Type1);
+	char *ret = malloc(len+1);
+	SpiderScript_FormatTypeStrV(Script, ret, len+1, Template, Type1);
+	snprintf(ret, len+1, Template, Type1);
+	return ret;
 }
 
 int SpiderScript_GetTypeCode(tSpiderScript *Script, const char *Name)

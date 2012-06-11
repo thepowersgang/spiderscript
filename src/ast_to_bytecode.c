@@ -19,7 +19,9 @@
 #define SS_DATATYPE_UNDEF	-1
 
 // === IMPORTS ===
+// TODO: These should not be here
 extern tSpiderFunction	*gpExports_First;
+extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, int Type1);
 
 // === TYPES ===
 typedef struct sAST_BlockInfo
@@ -354,10 +356,11 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		 int	if_end;
 		ret = AST_ConvertNode(Block, Node->If.Condition, 1);
 		if(ret)	return ret;
-		// TODO: Should be boolean/integer, but meh
+		
+		// Note: Technically should be boolean, but there's logic in execution to handle it
 		ret = _StackPop(Block, Node->If.Condition, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
-		
+	
 		if_end = Bytecode_AllocateLabel(Block->Handle);
 
 		if( Node->If.False->Type != NODETYPE_NOP )
@@ -414,7 +417,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			ret = AST_ConvertNode(Block, Node->For.Condition, 1);
 			if(ret)	return ret;
 			Bytecode_AppendUniOp(Block->Handle, BC_OP_LOGICNOT);
-			ret = _StackPop(Block, Node->For.Condition, SS_DATATYPE_UNDEF, NULL);	// Boolean?
+			// Boolean magic in exec_bytecode.c
+			ret = _StackPop(Block, Node->For.Condition, SS_DATATYPE_UNDEF, NULL);
 			if(ret < 0)	return -1;
 			Bytecode_AppendCondJump(Block->Handle, loop_end);
 		}
@@ -434,7 +438,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		{
 			ret = AST_ConvertNode(Block, Node->For.Condition, 1);
 			if(ret)	return ret;
-			ret = _StackPop(Block, Node->If.Condition, SS_DATATYPE_UNDEF, NULL);	// Boolean?
+			// Boolean magic in exec_bytecode.c
+			ret = _StackPop(Block, Node->If.Condition, SS_DATATYPE_UNDEF, NULL);
 			if(ret < 0)	return ret;
 			Bytecode_AppendCondJump(Block->Handle, loop_start);
 		}
@@ -476,11 +481,21 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				Node->Variable.Name);
 			return 1;
 		}
-		// TODO: Check if BreakTarget/ContinueTarget are valid
-		if( Node->Type == NODETYPE_BREAK )
+		
+		if( Node->Type == NODETYPE_BREAK ) {
+			if( bi->BreakTarget == 0 ) {
+				AST_RuntimeError(Node, "Break target invalid");
+				return 1;
+			}
 			Bytecode_AppendJump(Block->Handle, bi->BreakTarget);
-		else
+		}
+		else {
+			if( bi->ContinueTarget == 0 ) {
+				AST_RuntimeError(Node, "Continue target invalid");
+				return 1;
+			}
 			Bytecode_AppendJump(Block->Handle, bi->ContinueTarget);
+		}
 		} break;
 	
 	// Define a variable
@@ -557,11 +572,21 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
 
-		// TODO: Check if the type is castable (if object, if it has a cast operator)	
-	
-		Bytecode_AppendCast(Block->Handle, Node->Cast.DataType);
-		ret = _StackPush(Block, Node, Node->Cast.DataType, NULL);
-		if(ret < 0)	return -1;
+		if( SS_GETARRAYDEPTH(ret) ) {
+			AST_RuntimeError(Node, "Invalid cast from array");
+			return 1;
+		}
+		else if( SS_ISTYPEOBJECT(ret) ) {
+			char *name = SpiderScript_FormatTypeStr1(Block->Script, "operator (%s)", Node->Cast.DataType);
+			int args[] = {ret};
+			ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
+			if(ret)	return ret;
+		}
+		else {
+			Bytecode_AppendCast(Block->Handle, Node->Cast.DataType);
+			ret = _StackPush(Block, Node, Node->Cast.DataType, NULL);
+			if(ret < 0)	return -1;
+		}
 		CHECK_IF_NEEDED(1);
 		break;
 
@@ -581,7 +606,6 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = _StackPop(Block, Node, SS_DATATYPE_INTEGER, NULL);
 		if(ret < 0)	return -1;
 		
-		// TODO: Support indexing on objects
 		if(SS_GETARRAYDEPTH(type) != 0)
 		{
 			Bytecode_AppendIndex(Block->Handle);
@@ -594,8 +618,9 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		else if( SS_ISTYPEOBJECT(type) )
 		{
 			 int	args[] = {type, ret};	// `ret` is the index type
-			// TODO: Different types?
-			ret = BC_CallFunction(Block, Node, NULL, "operator[]", 2, args);
+			char	*name = SpiderScript_FormatTypeStr1(Block->Script, "operator [](%s)", ret);
+			ret = BC_CallFunction(Block, Node, NULL, name, 2, args);
+			free(name);
 			if(ret < 0)	return -1;
 		}
 		else
@@ -657,9 +682,19 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			return -1;
 		}
 		else if( SS_ISTYPEOBJECT(type) ) {
-			// TODO: Insert a function call
-			AST_RuntimeError(Node, "TODO: Impliment unary operator overloads");
-			return -1;
+			const char *name;
+			int args[] = {type};
+			switch(Node->Type)
+			{
+			case NODETYPE_LOGICALNOT:	name = "operator !";	break;
+			case NODETYPE_BWNOT:	name = "operator ~";	break;
+			case NODETYPE_NEGATE:	name = "operator -";	break;
+			default:
+				AST_RuntimeError(Node, "BUG - Node %i unhandled in UniOp on Object", Node->Type);
+				return -1;
+			}
+			ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
+			if(ret)	return ret;
 		}
 		else {
 			Bytecode_AppendUniOp(Block->Handle, op);
@@ -668,9 +703,9 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				AST_RuntimeError(Node, "Invalid unary operation on type");
 				return -1;
 			}
+			ret = _StackPush(Block, Node, type, NULL);
+			if(ret < 0)	return -1;
 		}
-		ret = _StackPush(Block, Node, type, NULL);
-		if(ret < 0)	return -1;
 		
 		CHECK_IF_NEEDED(1);
 		break;
@@ -712,13 +747,41 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		if(ret < 0)	return -1;
 		
 		if( SS_GETARRAYDEPTH(type) != 0 ) {
-			// TODO: Could this be valid?
 			AST_RuntimeError(Node, "Binary operation on array is invalid");
 			return -1;
 		}
 		else if( SS_ISTYPEOBJECT(type) ) {
-			// TODO: Insert function call
-			AST_RuntimeError(Node, "TODO: Impliment operator overloads");
+			const char *name_tpl;
+			int args[] = {type, ret};
+			switch(Node->Type)
+			{
+			case NODETYPE_LOGICALAND:	name_tpl = "operator &&(%s)";	break;
+			case NODETYPE_LOGICALOR:	name_tpl = "operator ||(%s)";	break;
+			case NODETYPE_LOGICALXOR:	name_tpl = "operator ^^(%s)";	break;
+			case NODETYPE_EQUALS:   	name_tpl = "operator ==(%s)";	break;
+			case NODETYPE_NOTEQUALS:	name_tpl = "operator !=(%s)";	break;
+			case NODETYPE_LESSTHAN: 	name_tpl = "operator <(%s)";	break;
+			case NODETYPE_LESSTHANEQUAL:	name_tpl = "operator <=(%s)";	break;
+			case NODETYPE_GREATERTHAN: 	name_tpl = "operator >(%s)";	break;
+			case NODETYPE_GREATERTHANEQUAL:	name_tpl = "operator >=(%s)";	break;
+			case NODETYPE_ADD:	name_tpl = "operator +(%s)";	break;
+			case NODETYPE_SUBTRACT:	name_tpl = "operator -(%s)";	break;
+			case NODETYPE_MULTIPLY:	name_tpl = "operator *(%s)";	break;
+			case NODETYPE_DIVIDE:	name_tpl = "operator %(%s)";	break;
+			case NODETYPE_BWAND:	name_tpl = "operator &(%s)";	break;
+			case NODETYPE_BWOR:	name_tpl = "operator |(%s)";	break;
+			case NODETYPE_BWXOR:	name_tpl = "operator ^(%s)";	break;
+			case NODETYPE_BITSHIFTLEFT:	name_tpl = "operator <<(%s)";	break;
+			case NODETYPE_BITSHIFTRIGHT:	name_tpl = "operator >>(%s)";	break;
+			case NODETYPE_BITROTATELEFT:	name_tpl = "operator <<<(%s)";	break;
+			default:
+				AST_RuntimeError(Node, "BUG - Node %i unhandled in BinOp on Object", Node->Type);
+				return -1;
+			}
+			char	*name = SpiderScript_FormatTypeStr1(Block->Script, "operator [](%s)", ret);
+			ret = BC_CallFunction(Block, Node, NULL, name, 2, args);
+			free(name);
+			if(ret)	return ret;
 			return -1;
 		}
 		else {
