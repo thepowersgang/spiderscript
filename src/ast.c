@@ -9,7 +9,7 @@
 #include "ast.h"
 
 // === IMPORTS ===
-extern void	SyntaxError(tParser *Parser, int bFatal, const char *Message, ...);
+extern void	SyntaxError_(tParser *Parser, int Line, int bFatal, const char *Message, ...);
 
 // === CODE ===
 tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
@@ -224,8 +224,9 @@ void AST_FreeNode(tAST_Node *Node)
 		AST_FreeNode(Node->Assign.Value);
 		break;
 	
-	// Casting
+	// Casting / Array Creation
 	case NODETYPE_CAST:
+	case NODETYPE_CREATEARRAY:
 		AST_FreeNode(Node->Cast.Value);
 		break;
 	
@@ -366,7 +367,7 @@ tAST_Node *AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_N
 	if( Dest->Type != NODETYPE_VARIABLE && Dest->Type != NODETYPE_ELEMENT && Dest->Type != NODETYPE_INDEX )
 	{
 		free(ret);
-		SyntaxError(Parser, 1, "Assign target is not a variable or attribute (instead %i)",
+		SyntaxError_(Parser, -__LINE__, 1, "Assign target is not a variable or attribute (instead %i)",
 			Dest->Type);
 		AST_FreeNode(Dest);
 		AST_FreeNode(Value);
@@ -573,6 +574,17 @@ void AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg)
 		Node->FunctionCall.LastArg = Arg;
 	}
 	Node->FunctionCall.NumArgs ++;
+}
+
+/*
+ * \brief Insert an "Allocate Array" meta-op
+ */
+tAST_Node *AST_NewCreateArray(tParser *Parser, int Type, tAST_Node *Size)
+{
+	tAST_Node *ret = AST_int_AllocateNode(Parser, NODETYPE_CREATEARRAY, 0);
+	ret->Cast.DataType = Type;
+	ret->Cast.Value = Size;
+	return ret;
 }
 
 /**

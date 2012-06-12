@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include "spiderscript.h"
 #include "common.h"
+#include <stdarg.h>
+#include <inttypes.h>
 
 // === IMPORTS ===
 extern void	AST_RuntimeError(void *Node, const char *Format, ...);
@@ -361,3 +363,42 @@ tSpiderReal SpiderScript_CastValueToReal(int Type, const void *Source)
 		return 0;
 	}
 }
+
+tSpiderString *SpiderScript_CreateString_Fmt(const char *Format, ...)
+{
+	tSpiderString	*ret;
+	 int	len;
+	va_list	args;
+	
+	va_start(args, Format);
+	len = vsnprintf(NULL, 0, Format, args);
+	va_end(args);
+	
+	ret = SpiderScript_CreateString(len+1, NULL);	// Does memset, but meh
+	ret->Length = len;
+	
+	va_start(args, Format);
+	len = vsnprintf(ret->Data, len+1, Format, args);
+	va_end(args);
+	
+	return ret;
+}
+
+tSpiderString *SpiderScript_CastValueToString(int Type, const void *Source)
+{
+	switch(Type)
+	{
+	case SS_DATATYPE_BOOLEAN:
+		return SpiderScript_CreateString_Fmt("%s", *(const tSpiderBool*)Source ? "True" : "False");
+	case SS_DATATYPE_INTEGER:
+		return SpiderScript_CreateString_Fmt("%"PRIi64, *(const tSpiderInteger*)Source);
+	case SS_DATATYPE_REAL:
+		return SpiderScript_CreateString_Fmt("%llf", *(const tSpiderReal*)Source);
+	case SS_DATATYPE_STRING:
+		SpiderScript_ReferenceString( (tSpiderString*)Source );
+		return (tSpiderString*)Source;
+	default:
+		return NULL;
+	}
+}
+

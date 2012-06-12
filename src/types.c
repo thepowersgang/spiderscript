@@ -19,7 +19,6 @@
 // === GLOBALS ===
 const char	*casSpiderScript_InternalTypeNames[] = {
 	"void",
-	"Variable",
 	"Boolean",
 	"Integer",
 	"Real",

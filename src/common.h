@@ -96,5 +96,7 @@ extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *
 	);
 
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
+
+extern int	SpiderScript_int_GetTypeSize(int TypeCode);
 #endif
 

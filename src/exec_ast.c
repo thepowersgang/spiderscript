@@ -37,7 +37,7 @@ int AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type)
 		case NODETYPE_BWNOT:
 			return SS_DATATYPE_INTEGER;
 		default:
-			return -1;
+			return 0;
 		}
 	case SS_DATATYPE_REAL:
 		switch(Op)
@@ -45,10 +45,10 @@ int AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type)
 		case NODETYPE_NEGATE:
 			return SS_DATATYPE_REAL;
 		default:
-			return -1;
+			return 0;
 		}
 	default:
-		return -1;
+		return 0;
 	}
 }
 
@@ -76,12 +76,18 @@ tSpiderReal AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSp
 	}
 }
 
+/**
+ * \brief Gets the return type of an operation
+ * \return >0 = Valid, BinOp would return this type
+ * \return =0 = Invalid operation (no casting possible)
+ * \return <0 = Valid operation, but needs to be cast to -ve this value
+ */
 int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int RType)
 {
 	switch(LType)
 	{
 	case SS_DATATYPE_INTEGER:
-		if( RType != SS_DATATYPE_INTEGER )	return -1;	
+		if( RType != SS_DATATYPE_INTEGER )	return -SS_DATATYPE_INTEGER;
 		switch(Op)
 		{
 		case NODETYPE_EQUALS:
@@ -106,7 +112,7 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 		}
 		break;
 	case SS_DATATYPE_REAL:
-		if( RType != SS_DATATYPE_REAL )	return -1;
+		if( RType != SS_DATATYPE_REAL )	return -SS_DATATYPE_REAL;
 		switch(Op)
 		{
 		case NODETYPE_EQUALS:
@@ -122,7 +128,23 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 		case NODETYPE_DIVIDE:
 			return SS_DATATYPE_REAL;
 		}
-		break;	
+		break;
+	case SS_DATATYPE_STRING:
+		switch(Op)
+		{
+		case NODETYPE_EQUALS:
+		case NODETYPE_NOTEQUALS:
+		case NODETYPE_LESSTHAN:
+		case NODETYPE_GREATERTHAN:
+		case NODETYPE_LESSTHANEQUAL:
+		case NODETYPE_GREATERTHANEQUAL:
+			if( RType != SS_DATATYPE_STRING )	return -SS_DATATYPE_STRING;
+			return SS_DATATYPE_BOOLEAN;
+		case NODETYPE_ADD:	// Concatenate
+			if( RType != SS_DATATYPE_STRING )	return -SS_DATATYPE_STRING;
+			return SS_DATATYPE_STRING;
+		}
+		break;
 	}
 	return -1;
 }

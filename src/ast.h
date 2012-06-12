@@ -46,20 +46,22 @@ enum eAST_NodeTypes
 	NODETYPE_FUNCTIONCALL,	//!< Call a function
 	NODETYPE_METHODCALL,	//!< Call a class method
 	NODETYPE_CREATEOBJECT,	//!< Create an object
+	NODETYPE_CREATEARRAY,	//!< Create an empty array
 	
-	// 20
+	// 21
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_LOOP,	//!< Looping Construct
 	
-	// 22
+	// 23
 	NODETYPE_INDEX,	//!< Index into an array
 	
-	// 23
+	// 24
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
 	NODETYPE_LOGICALXOR,	//!< Logical XOR operator
 	
+	// 28
 	NODETYPE_EQUALS,	//!< Comparison Equals
 	NODETYPE_NOTEQUALS,	//!< Comparison Not Equals
 	NODETYPE_LESSTHAN,	//!< Comparison Less Than
@@ -67,15 +69,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
+	// 33
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
+	// 37
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
+	// 40
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract
@@ -205,6 +210,7 @@ extern tAST_Node	*AST_NewFunctionCall(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewCreateObject(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Name);
 extern void	AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg);
+extern tAST_Node	*AST_NewCreateArray(tParser *Parser, int Type, tAST_Node *Size);
 
 extern tAST_Node	*AST_NewCodeBlock(tParser *Parser);
 extern void	AST_AppendNode(tAST_Node *Parent, tAST_Node *Child);

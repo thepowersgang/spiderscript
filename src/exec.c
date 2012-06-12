@@ -29,7 +29,7 @@ int _name(tSpiderScript *Script, _type *First, const char *BasePath, const char 
 	_type	*e; \
 	 int	baseLen = (BasePath ? strlen(BasePath) : 0); \
 	 int	i = 0; \
-	for( e = First; e; e = e->Next ) \
+	for( e = First; e; e = e->Next, i ++ ) \
 	{ \
 		 int	ofs = baseLen ? baseLen + 1 : 0; \
 		if( baseLen ) { \
@@ -37,7 +37,7 @@ int _name(tSpiderScript *Script, _type *First, const char *BasePath, const char 
 			if( e->Name[baseLen] != BC_NS_SEPARATOR )	continue ; \
 		} \
 		if( strcmp(e->Name + ofs, Path) == 0 ) { \
-			*Ident = e; \
+			if(Ident)	*Ident = e; \
 			return i; \
 		} \
 	} \
@@ -95,6 +95,17 @@ int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespa
 	return -1;
 }
 
+int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
+	)
+{
+	int id = 0;
+	if( !Ident || !*Ident )
+		id = SpiderScript_ResolveFunction(Script, NULL, Function, Ident);
+	return SpiderScript_int_ExecuteFunction(Script, id, RetData, NArguments, ArgTypes, Arguments, Ident);
+}
+
 /**
  * \brief Execute a script function
  * \param Script	Script context to execute in
@@ -123,34 +134,20 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 	// Scan list, Last item should always be NULL, so abuse that to check non-prefixed	
 	if( !sfcn && !fcn )
 	{
+		i = FunctionID & 0xFFFF;
 		switch( FunctionID >> 16 )
 		{
 		case 0:	// Script
-			i = 0;
-			for( sfcn = Script->Functions; fcn; fcn = fcn->Next )
-			{
-				if( i < (FunctionID & 0xFFFF) )
-					break;
-				i ++;
-			}
+			for( sfcn = Script->Functions; sfcn && i --; sfcn = sfcn->Next )
+				;
 			break;
 		case 1:	// Exports
-			i = 0;
-			for( fcn = gpExports_First; fcn; fcn = fcn->Next )
-			{
-				if( i < (FunctionID & 0xFFFF) )
-					break;
-				i ++;
-			}
+			for( fcn = gpExports_First; fcn && i --; fcn = fcn->Next )
+				;
 			break;
 		case 2:	// Variant
-			i = 0;
-			for( fcn = Script->Variant->Functions; fcn; fcn = fcn->Next )
-			{
-				if( i < (FunctionID & 0xFFFF) )
-					break;
-				i ++;
-			}
+			for( fcn = Script->Variant->Functions; fcn && i--; fcn = fcn->Next )
+				;
 			break;
 		}
 	}

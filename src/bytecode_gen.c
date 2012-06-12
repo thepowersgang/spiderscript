@@ -163,6 +163,7 @@ int Bytecode_int_OpUsesInteger(int Op)
 	case BC_OP_CALLMETHOD:
 	case BC_OP_CALLFUNCTION:
 	case BC_OP_CREATEOBJ:
+	case BC_OP_CREATEARRAY:
 	case BC_OP_JUMP:
 	case BC_OP_JUMPIF:
 	case BC_OP_JUMPIFNOT:
@@ -201,7 +202,8 @@ tBC_Op *Bytecode_int_AllocateOp(int Operation, int ExtraBytes)
 #define DEF_BC_INT(_op, _int) {\
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0);\
 	op->Content.StringInt.Integer = _int;\
-	if(Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
+	if(Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op))\
+		printf("%s:%i - op "#_op" not _INT\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 
@@ -209,13 +211,15 @@ tBC_Op *Bytecode_int_AllocateOp(int Operation, int ExtraBytes)
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, strlen(_str));\
 	op->Content.StringInt.Integer = _int;\
 	strcpy(op->Content.StringInt.String, _str);\
-	if(!Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
+	if(!Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op))\
+		printf("%s:%i BUG - op "#_op" not _STRINT\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 #define DEF_BC_STR(_op, _str) {\
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, strlen(_str));\
 	strcpy(op->Content.StringInt.String, _str);\
-	if(!Bytecode_int_OpUsesString(_op) || Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
+	if(!Bytecode_int_OpUsesString(_op) || Bytecode_int_OpUsesInteger(_op))\
+		printf("%s:%i BUG - op "#_op" not _STR\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 
@@ -290,6 +294,8 @@ void Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount
 	op->Content.Function.ArgCount = ArgumentCount;
 	Bytecode_int_AppendOp(Handle, op);
 }
+void Bytecode_AppendCreateArray(tBC_Function *Handle, int DataType)
+	DEF_BC_INT(BC_OP_CREATEARRAY, DataType)
 
 void Bytecode_AppendBinOp(tBC_Function *Handle, int Operation)
 	DEF_BC_NONE(Operation)

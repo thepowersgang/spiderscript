@@ -15,6 +15,12 @@
 #define DEBUG	0
 #define	SUPPORT_BREAK_TAGS	1
 
+#if DEBUG >= 2
+# define DEBUGS2(s, v...)	printf("%s: "s"\n", __func__, ## v)
+#else
+# define DEBUGS2(...)	do{}while(0)
+#endif
+
 enum eGetIdentMode
 {
 	GETIDENTMODE_VALUE,
@@ -53,8 +59,10 @@ tAST_Node	*Parse_GetNumeric(tParser *Parser);
 tAST_Node	*Parse_GetVariable(tParser *Parser);
 tAST_Node	*Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Class *Class);
 
-void	SyntaxAssert(tParser *Parser, int Have, int Want);
-void	SyntaxError(tParser *Parser, int bFatal, const char *Message, ...);
+void	SyntaxAssert_(tParser *Parser, int SourceLine, int Have, int Want);
+void	SyntaxError_(tParser *Parser, int SourceLine, int bFatal, const char *Message, ...);
+#define SyntaxAssert(p,h,w)	SyntaxAssert_(p,__LINE__,h,w)
+#define SyntaxError(p,f,m...)	SyntaxError_(p,__LINE__,f,m)
 
 #if 0
 #define SyntaxAssert(_parser, _have, _want)	SyntaxAssertV(_parser, _have, _want, NULL)
@@ -574,8 +582,7 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class)
 		// Only the highest level can be sized
 		if( LookAhead(Parser) != TOK_SQUARE_CLOSE )
 		{
-			init = AST_NewFunctionCall(Parser, "array");
-			AST_AppendFunctionCallArg(init, Parse_DoExpr0(Parser));
+			init = Parse_DoExpr0(Parser);
 		}
 		SyntaxAssert(Parser, GetToken(Parser), TOK_SQUARE_CLOSE);
 	
@@ -587,7 +594,7 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class)
 		SyntaxAssert(Parser, GetToken(Parser), TOK_SQUARE_CLOSE);
 		level ++;
 	}
-	
+
 	// Maul the type to denote the dereference level
 	#if 0
 	if( Parser->Variant->bDyamicTyped )
@@ -607,7 +614,7 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class)
 	}
 	else if( init )
 	{
-		AST_AppendFunctionCallArg(init, AST_NewInteger(Parser, Type));
+		init = AST_NewCreateArray(Parser, Type, init);
 	}
 	
 	if( Class ) {
@@ -912,27 +919,26 @@ tAST_Node *Parse_DoExpr8(tParser *Parser)
 // --------------------
 tAST_Node *Parse_DoParen(tParser *Parser)
 {
-	#if DEBUG >= 2
-	printf("Parse_DoParen: (Parser=%p)\n", Parser);
-	#endif
 	if(LookAhead(Parser) == TOK_PAREN_OPEN)
 	{
 		tAST_Node	*ret;
 		 int	type;
 		GetToken(Parser);
 		
-		// TODO: Handle casts here
 		switch(LookAhead(Parser))
 		{
+		// Handle casts if the identifer gives a valid type
 		case TOK_IDENT:
 			GetToken(Parser);
 			type = SpiderScript_GetTypeCodeEx(Parser->Script, Parser->TokenStr, Parser->TokenLen);
 			if( type != -1 )
 			{
 				SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE);
+				DEBUGS2("Casting to %i", type);
 				ret = AST_NewCast(Parser, type, Parse_DoParen(Parser));
 				break;
 			}
+			DEBUGS2("'%.*s' doesn't give a type", Parser->TokenLen, Parser->TokenStr);
 			PutBack(Parser);
 			// Fall through
 		default:		
@@ -953,9 +959,7 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 {
 	 int	tok = LookAhead(Parser);
 
-	#if DEBUG >= 2
-	printf("Parse_DoValue: tok = %i\n", tok);
-	#endif
+	DEBUGS2("tok = %i (%s)", tok, csaTOKEN_NAMES[tok]);
 
 	switch(tok)
 	{
@@ -980,8 +984,8 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 		return Parse_GetIdent(Parser, GETIDENTMODE_NEW, NULL);
 
 	default:
-		fprintf(stderr, "Syntax Error: Unexpected %s on line %i, Expected TOK_T_VALUE\n",
-			csaTOKEN_NAMES[tok], Parser->CurLine);
+		SyntaxError(Parser, 1, "Unexpected %s, expected TOK_T_VALUE\n",
+			csaTOKEN_NAMES[tok]);
 		longjmp( Parser->JmpTarget, -1 );
 	}
 }
@@ -1175,6 +1179,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		
 	if( Parser->Token == TOK_IDENT )
 	{
+		DEBUGS2("Function definition");
 		// Function definition
 		int type = SpiderScript_GetTypeCode(Parser->Script, name);
 		free(name);
@@ -1192,6 +1197,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	}
 	else if( Parser->Token == TOK_VARIABLE )
 	{
+		DEBUGS2("Variable definition");
 		// Variable definition
 		int type = SpiderScript_GetTypeCode(Parser->Script, name);
 		free(name);
@@ -1207,6 +1213,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	}
 	else if( Parser->Token == TOK_PAREN_OPEN )
 	{
+		DEBUGS2("Function call");
 		// Function call / object creation
 		if( Mode != GETIDENTMODE_VALUE
 		 && Mode != GETIDENTMODE_EXPRROOT
@@ -1242,6 +1249,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	}
 	else
 	{
+		DEBUGS2("Constant");
 		// Runtime Constant / Variable (When implemented)
 		if( Mode != GETIDENTMODE_VALUE
 		 && Mode != GETIDENTMODE_EXPRROOT
@@ -1270,26 +1278,26 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 }
 
 
-void SyntaxError(tParser *Parser, int bFatal, const char *Message, ...)
+void SyntaxError_(tParser *Parser, int Line, int bFatal, const char *Message, ...)
 {
 	va_list	args;
 	va_start(args, Message);
-	fprintf(stderr, "%s:%i: error: ", Parser->Filename, Parser->CurLine);
+	fprintf(stderr, "%s:%i: (parse.c:%i) error: ", Parser->Filename, Parser->CurLine, Line);
 	vfprintf(stderr, Message, args);
 	fprintf(stderr, "\n");
 	va_end(args);
 	
 	if( bFatal ) {
-		//longjmp(Parser->JmpTarget, -1);
+		longjmp(Parser->JmpTarget, -1);
 		Parser->ErrorHit = 1;
 	}
 }
 
-void SyntaxAssert(tParser *Parser, int Have, int Want)
+void SyntaxAssert_(tParser *Parser, int Line, int Have, int Want)
 {
 	if( Have != Want )
 	{
-		SyntaxError(Parser, 1, "Unexpected %s(%i), expecting %s(%i)\n",
+		SyntaxError_(Parser, Line, 1, "Unexpected %s(%i), expecting %s(%i)\n",
 			csaTOKEN_NAMES[Have], Have, csaTOKEN_NAMES[Want], Want);
 	}
 }

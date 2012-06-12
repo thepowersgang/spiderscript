@@ -18,6 +18,14 @@
 #define MAX_STACK_DEPTH	10	// This is for one function, so shouldn't need more
 #define SS_DATATYPE_UNDEF	-1
 
+#define DEBUG	1
+
+#if DEBUG >= 1
+# define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
+#else
+# define DEBUGS1(...)	do{}while(0)
+#endif
+
 // === IMPORTS ===
 // TODO: These should not be here
 extern tSpiderFunction	*gpExports_First;
@@ -51,6 +59,7 @@ typedef struct sAST_BlockInfo
  int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, int ArgTypes[]);
  int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, int ArgTypes[]);
  int	BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode);
+ int	BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, int DestType, int SourceType);
 
 // Variables
  int 	BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name);
@@ -151,9 +160,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	void	*ident;	// used for classes
 	tScript_Class	*sc;
 	tSpiderClass *nc;
-	
-	Node = Node;
-	
+
+	DEBUGS1("Node->Type = %i", Node->Type);
 	switch(Node->Type)
 	{
 	// No Operation
@@ -278,16 +286,14 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 	// Function Call
 	case NODETYPE_METHODCALL: {
-		 int	nargs = 0;
+		 int	nargs = 1;	// `this`
 		
 		// Push arguments to the stack
 		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
-		{
 			nargs ++;
-		}
 		
-		int argtypes[nargs+1];
-		int i = 0;
+		int argtypes[nargs];
+		int i = 1;
 		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling, i++)
 		{
 			// Convert argument
@@ -295,8 +301,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			if(ret)	return ret;
 			
 			// Pop type off the stack
-			argtypes[i+1] = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
-			if(argtypes[i+1] < 0)	return -1;
+			argtypes[i] = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
+			if(argtypes[i] < 0)	return -1;
 		}
 		
 		ret = AST_ConvertNode(Block, Node->FunctionCall.Object, 1);
@@ -351,6 +357,18 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		// TODO: Implement warn_unused_ret
 		} break;
 	
+	case NODETYPE_CREATEARRAY:
+		ret = AST_ConvertNode(Block, Node->Cast.Value, 1);
+		if(ret)	return ret;
+		ret = _StackPop(Block, Node->Cast.Value, SS_DATATYPE_INTEGER, NULL);
+		if(ret < 0)	return -1;
+
+		Bytecode_AppendCreateArray(Block->Handle, Node->Cast.DataType);
+		ret = _StackPush(Block, Node, Node->Cast.DataType, NULL);
+		if(ret < 0)	return ret;
+		ret = 0;
+		break;
+
 	// Conditional
 	case NODETYPE_IF: {
 		 int	if_end;
@@ -572,21 +590,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
 		if(ret < 0)	return -1;
 
-		if( SS_GETARRAYDEPTH(ret) ) {
-			AST_RuntimeError(Node, "Invalid cast from array");
-			return 1;
-		}
-		else if( SS_ISTYPEOBJECT(ret) ) {
-			char *name = SpiderScript_FormatTypeStr1(Block->Script, "operator (%s)", Node->Cast.DataType);
-			int args[] = {ret};
-			ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
-			if(ret)	return ret;
-		}
-		else {
-			Bytecode_AppendCast(Block->Handle, Node->Cast.DataType);
-			ret = _StackPush(Block, Node, Node->Cast.DataType, NULL);
-			if(ret < 0)	return -1;
-		}
+		ret = BC_CastValue(Block, Node, Node->Cast.DataType, ret);
 		CHECK_IF_NEEDED(1);
 		break;
 
@@ -698,13 +702,14 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		else {
 			Bytecode_AppendUniOp(Block->Handle, op);
-			type = AST_ExecuteNode_UniOp_GetType(Block->Script, op, type);
-			if( type == -1 ) {
-				AST_RuntimeError(Node, "Invalid unary operation on type");
+			i = AST_ExecuteNode_UniOp_GetType(Block->Script, Node->Type, type);
+			if( i <= 0 ) {
+				AST_RuntimeError(Node, "Invalid unary operation #%i on 0x%x", Node->Type, type);
 				return -1;
 			}
 			ret = _StackPush(Block, Node, type, NULL);
 			if(ret < 0)	return -1;
+			type = i;
 		}
 		
 		CHECK_IF_NEEDED(1);
@@ -782,15 +787,28 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			ret = BC_CallFunction(Block, Node, NULL, name, 2, args);
 			free(name);
 			if(ret)	return ret;
-			return -1;
+			break ;
 		}
 		else {
-			Bytecode_AppendBinOp(Block->Handle, op);
-			type = AST_ExecuteNode_BinOp_GetType(Block->Script, op, type, ret);
-			if( type == -1 ) {
-				AST_RuntimeError(Node, "Invalid binary operation");
+			i = AST_ExecuteNode_BinOp_GetType(Block->Script, Node->Type, type, ret);
+			if( i > 0 ) {
+				// All good
+				type = i;
+			}
+			else if( i < 0 && Block->Script->Variant->bImplicitCasts ) {
+				// Implicit cast
+				i = -i;
+				BC_CastValue(Block, Node, i, ret);
+				_StackPop(Block, Node, i, NULL);
+				type = AST_ExecuteNode_BinOp_GetType(Block->Script, Node->Type, type, i);
+			}
+			else {
+				// Bad combo / no implicit
+				AST_RuntimeError(Node, "Invalid binary operation (0x%x #%i 0x%x)",
+					type, op, ret);
 				return -1;
 			}
+			Bytecode_AppendBinOp(Block->Handle, op);
 		}
 		_StackPush(Block, Node, type, NULL);
 		CHECK_IF_NEEDED(1);
@@ -877,7 +895,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 		{
 			if( nf->ArgTypes[i] != ArgTypes[i] ) {
 				// Sad to be chucked
-				AST_RuntimeError(Node, "Argument %i of %s should be %i, given %i",
+				AST_RuntimeError(Node, "Argument %i of constructor %s should be %i, given %i",
 					i, Name, nf->ArgTypes[i], ArgTypes[i]);
 				return -1;
 			}
@@ -909,7 +927,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 	 int	ret;
 	tScript_Function *sf = NULL;
 	tSpiderFunction  *nf = NULL;
-	
+
 	if( Namespaces == NULL )
 	{
 		tSpiderClass	*nc;
@@ -964,9 +982,9 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 		
 		// TODO: Assuming the internals is hacky
 		if( id >> 16 )
-			sf = ident;
-		else
 			nf = ident;
+		else
+			sf = ident;
 	}
 
 	if( sf )
@@ -1011,6 +1029,12 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 		// Check argument types (and passing too few arguments)
 		for( int i = 0; i < minArgc; i ++ )
 		{
+			if( i == 0 && !Namespaces ) {
+				if( nf->ArgTypes[i] != -2 ) {
+					// TODO: Should I chuck?
+				}
+				continue ;
+			}
 			if( nf->ArgTypes[i] != ArgTypes[i] ) {
 				// Sad to be chucked
 				AST_RuntimeError(Node, "Argument %i of %s should be %i, given %i",
@@ -1114,6 +1138,28 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 		// TODO: Support assigning to object attributes
 		AST_RuntimeError(DestNode, "Assignment target is not a LValue");
 		return -1;
+	}
+	return 0;
+}
+
+int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, int DestType, int SourceType)
+{
+	 int	ret;
+	if( SS_GETARRAYDEPTH(SourceType) ) {
+		AST_RuntimeError(Node, "Invalid cast from array (0x%x)", SourceType);
+		return 1;
+	}
+	else if( SS_ISTYPEOBJECT(SourceType) ) {
+		char *name = SpiderScript_FormatTypeStr1(Block->Script, "operator (%s)", DestType);
+		int args[] = {SourceType};
+		ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
+		free(name);
+		if(ret)	return ret;
+	}
+	else {
+		Bytecode_AppendCast(Block->Handle, DestType);
+		ret = _StackPush(Block, Node, DestType, NULL);
+		if(ret < 0)	return -1;
 	}
 	return 0;
 }
@@ -1288,7 +1334,7 @@ int _StackPop(tAST_BlockInfo *Block, tAST_Node *Node, int WantedType, void **Inf
 	}
 	havetype = Block->Stack[ Block->StackDepth ].Type;
 	#if TRACE_TYPE_STACK
-	AST_RuntimeMessage(Node, "_StackPop", "%x(?==%x) - NT%i", havetype, WantedType, Node->Type);
+	AST_RuntimeMessage(Node, "_StackPop", "%x(==%x) - NT%i", havetype, WantedType, Node->Type);
 	#endif
 	if(WantedType != SS_DATATYPE_UNDEF && havetype != SS_DATATYPE_UNDEF)
 	{
