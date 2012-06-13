@@ -46,7 +46,7 @@ extern void	Bytecode_SetLabel(tBC_Function *Handle, int Label);
 // - Flow Control
 extern void	Bytecode_AppendJump(tBC_Function *Handle, int Label);
 extern void	Bytecode_AppendCondJump(tBC_Function *Handle, int Label);
-extern void	 Bytecode_AppendCondJumpNot(tBC_Function *Handle, int Label);
+extern void	Bytecode_AppendCondJumpNot(tBC_Function *Handle, int Label);
 extern void	Bytecode_AppendReturn(tBC_Function *Handle);
 // - Operation Stack
 //  > Load/Store
@@ -55,7 +55,7 @@ extern void	Bytecode_AppendSaveVar(tBC_Function *Handle, const char *Name);	// (
 extern void	Bytecode_AppendConstInt(tBC_Function *Handle, uint64_t Value);
 extern void	Bytecode_AppendConstReal(tBC_Function *Handle, double Value);
 extern void	Bytecode_AppendConstString(tBC_Function *Handle, const void *Data, size_t Length);
-extern void	Bytecode_AppendConstNull(tBC_Function *Handle);
+extern void	Bytecode_AppendConstNull(tBC_Function *Handle, int Type);
 //  > Scoping
 extern void	Bytecode_AppendElement(tBC_Function *Handle, const char *Name);	// Obj->SubObj
 extern void	Bytecode_AppendSetElement(tBC_Function *Handle, const char *Name);	// Set an object member

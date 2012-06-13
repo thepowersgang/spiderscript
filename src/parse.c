@@ -138,14 +138,6 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 		{
 		case TOK_EOF:
 			break;
-		
-		// Typed variables/functions
-//		case TOK_IDENT:
-//			PutBack(Parser);
-//			node = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
-//			if( node )
-//				AST_AppendNode( mainCode, node );
-//			break;
 
 		case TOK_RWD_CLASS:
 			Parse_ClassDefinition(Parser);
@@ -154,16 +146,6 @@ int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename
 			Parse_NamespaceContent(Parser);
 			break;
 
-#if 0
-		// Define a function
-		case TOK_RWD_FUNCTION:
-			if( !Script->Variant->bDyamicTyped )
-				SyntaxError(Parser, 1, "Dynamic functions are invalid in static mode");
-			
-			Parse_FunctionDefinition(NULL, Parser, SS_DATATYPE_UNDEF);
-			break;
-#endif
-		
 		// Ordinary Statement
 		default:
 			PutBack(Parser);
@@ -213,19 +195,7 @@ void Parse_NamespaceContent(tParser *Parser)
 			// Setting Class=ERRPTR only allows function definitions
 			Parse_GetIdent(Parser, GETIDENTMODE_NAMESPACE, NULL);
 			break;
-		
-#if 0
-		// Dynamic function
-		case TOK_RWD_FUNCTION:
-			if( !Parser->Script->Variant->bDyamicTyped ) {
-				SyntaxError(Parser, 1, "Dynamic functions are invalid in static mode");
-				longjmp(Parser->JmpTarget, -1);
-			}
-			
-			Parse_FunctionDefinition(NULL, Parser, SS_DATATYPE_UNDEF);
-			break;
-#endif
-		
+	
 		default:
 			fprintf(stderr, "Syntax Error: Unexpected %s on line %i, Expected class/namespace/function definition\n",
 				csaTOKEN_NAMES[Parser->Token], Parser->CurLine);
@@ -383,6 +353,11 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 	case TOK_RWD_RETURN:
 		GetToken(Parser);
 		ret = AST_NewUniOp(Parser, NODETYPE_RETURN, Parse_DoExpr0(Parser));
+		break;
+
+	case TOK_RWD_DELETE:
+		GetToken(Parser);
+		ret = AST_NewUniOp(Parser, NODETYPE_DELETE, Parse_GetVariable(Parser));
 		break;
 	
 	// Break / Continue (end a loop / go to next iteration)
@@ -976,9 +951,6 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 		return Parse_GetIdent(Parser, GETIDENTMODE_VALUE, NULL);
 	case TOK_VARIABLE:
 		return Parse_GetVariable(Parser);
-	case TOK_RWD_NULL:
-		GetToken(Parser);
-		return AST_NewNull(Parser);	// NODETYPE_NOP returns NULL
 	case TOK_RWD_NEW:
 		GetToken(Parser);
 		return Parse_GetIdent(Parser, GETIDENTMODE_NEW, NULL);

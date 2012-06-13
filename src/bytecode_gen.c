@@ -91,8 +91,12 @@ void Bytecode_SetLabel(tBC_Function *Handle, int Label)
 	if(Label < 0)	return ;
 	
 	if(Label >= Handle->LabelCount)	return ;
-
-	Handle->Labels[Label] = Handle->OperationsEnd;
+	
+	if( Handle->Labels[Label] != 0 ) {
+		fprintf(stderr, "BUG - Re-setting of label %i\n", Label);
+	}
+	else
+		Handle->Labels[Label] = Handle->OperationsEnd;
 	return ;
 }
 
@@ -171,6 +175,7 @@ int Bytecode_int_OpUsesInteger(int Op)
 	case BC_OP_SAVEVAR:
 	case BC_OP_CAST:
 	case BC_OP_DEFINEVAR:
+	case BC_OP_LOADNULL:
 		return 1;
 	default:
 		return 0;
@@ -260,8 +265,8 @@ void Bytecode_AppendConstString(tBC_Function *Handle, const void *Data, size_t L
 	op->Content.StringInt.String[Length] = 0;
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendConstNull(tBC_Function *Handle)
-	DEF_BC_NONE(BC_OP_LOADNULL)
+void Bytecode_AppendConstNull(tBC_Function *Handle, int Type)
+	DEF_BC_INT(BC_OP_LOADNULL, Type)
 
 // --- Indexing / Scoping
 void Bytecode_AppendElement(tBC_Function *Handle, const char *Name)

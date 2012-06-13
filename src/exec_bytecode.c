@@ -18,8 +18,10 @@
 
 #if TRACE
 # define DEBUG_F(v...)	printf(v)
+# define DEBUGS1(f,a...)	printf("%s:%i - "f"\n", __func__, __LINE__,## a)
 #else
 # define DEBUG_F(v...)
+# define DEBUGS1(f,a...)	do{}while(0)
 #endif
 
 // === IMPORTS ===
@@ -83,6 +85,7 @@ int Bytecode_int_IsStackEntTrue(tBC_StackEnt *Ent)
 	case SS_DATATYPE_NOVALUE:
 		return 0;
 	case SS_DATATYPE_BOOLEAN:
+		return !!Ent->Boolean;
 	case SS_DATATYPE_INTEGER:
 		return !!Ent->Integer;
 	case SS_DATATYPE_REAL:
@@ -117,22 +120,25 @@ int Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, void **Dest)
 		return 0;
 	// Direct types
 	case SS_DATATYPE_BOOLEAN:
+		DEBUGS1("(Boolean)%s", Ent->Boolean ? "true" : "false"); if(0)
 	case SS_DATATYPE_INTEGER:
+		DEBUGS1("(Integer)%"PRIi64, Ent->Integer); if(0)
 	case SS_DATATYPE_REAL:
+		DEBUGS1("(Real)%lf", Ent->Real);
 		*Dest = &Ent->Boolean;
 		break;
 	case SS_DATATYPE_STRING:
 		// TODO: Do I need to do _Reference here?
-		SpiderScript_ReferenceString(Ent->String);
+//		SpiderScript_ReferenceString(Ent->String);
 		*Dest = Ent->String;
 		break;
 	default:
 		if( SS_GETARRAYDEPTH(Ent->Type) ) {
-			SpiderScript_ReferenceArray(Ent->Array);
+//			SpiderScript_ReferenceArray(Ent->Array);
 			*Dest = Ent->Array;
 		}
 		else if( SS_ISTYPEOBJECT(Ent->Type) ) {
-			SpiderScript_ReferenceObject(Ent->Object);
+//			SpiderScript_ReferenceObject(Ent->Object);
 			*Dest = Ent->Object;
 		}
 		else {
@@ -238,7 +244,7 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 	switch(Ent->Type)
 	{
 	case SS_DATATYPE_NOVALUE:
-		printf("null");
+		printf("_NOVALUE");
 		break;
 	case SS_DATATYPE_BOOLEAN:
 		printf("%s", (Ent->Boolean ? "true" : "false"));
@@ -303,24 +309,24 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	// Call
 	Bytecode_int_ExecuteFunction(Script, Fcn, stack, NArguments);
 
-	// Get return value
-	if( Bytecode_int_StackPop(stack, &val) ) {
-		free(stack);
-		return -1;
-	}
-	free(stack);
-
-	if( Fcn->ReturnType != val.Type )
-	{
-		AST_RuntimeError(NULL, "'%s' Returned type 0x%x not 0x%x",
-			Fcn->Name, val.Type, Fcn->ReturnType);
-		return -1;
-	}
 	if( Fcn->ReturnType != SS_DATATYPE_NOVALUE ) {
+		// Get return value
+		if( Bytecode_int_StackPop(stack, &val) ) {
+			free(stack);
+			return -1;
+		}
+
+		if( Fcn->ReturnType != val.Type )
+		{
+			AST_RuntimeError(NULL, "'%s' Returned type 0x%x not 0x%x",
+				Fcn->Name, val.Type, Fcn->ReturnType);
+			free(stack);
+			return -1;
+		}
 		memcpy(RetData, &val.Boolean, SpiderScript_int_GetTypeSize(val.Type));
 	}
 
-	return 0;
+	return Fcn->ReturnType;
 }
 
 /**
@@ -334,14 +340,16 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	const void	*args[arg_count];
 	 int	arg_types[arg_count];
 	tBC_StackEnt	val1, ret;
+	tSpiderObject	*obj = NULL;
 
 	DEBUG_F("CALL (general) 0x%x %i args\n", id, arg_count);
-	
+
 	// Read arguments
 	for( i = 0; i < arg_count; i ++ )
 	{
+		int stack_ofs = (Stack->EntryCount - 1) - (arg_count-1 - i);
 		// Arg 0 is at top of stack (EntryCount-1)
-		arg_types[i] = Bytecode_int_GetSpiderValue(&Stack->Entries[Stack->EntryCount - 1 - i], (void**)&args[i]);
+		arg_types[i] = Bytecode_int_GetSpiderValue(&Stack->Entries[stack_ofs], (void**)&args[i]);
 		DEBUG_F("- Arg %i = 0x%x %p\n", i, arg_types[i], args[i]);
 	}
 	
@@ -350,45 +358,59 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	{
 		rv = SpiderScript_int_ExecuteFunction(Script, id,
 			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
+		if(rv < 0)
+			AST_RuntimeError(NULL, "Calling function 0x%x failed", id);
 	}
 	else if( op->Operation == BC_OP_CREATEOBJ )
 	{
 		rv = SpiderScript_int_ConstructObject(Script, id,
 			&ret.Object, arg_count, arg_types, args, &op->CacheEnt);
+		if(rv < 0)
+			AST_RuntimeError(NULL, "Creating object 0x%x failed", id);
 	}
 	else if( op->Operation == BC_OP_CALLMETHOD )
 	{
-		tSpiderObject	*obj;
-		GET_STACKVAL(val1);
-		
-		if( SS_ISTYPEOBJECT(val1.Type) )
-			obj = val1.Object;
-		else {
-			// Error
+		if( !SS_ISTYPEOBJECT(arg_types[0]) ) {
 			AST_RuntimeError(NULL, "OP_CALLMETHOD on non object");
-			return -1;
+			rv = -1;
 		}
-		rv = SpiderScript_int_ExecuteMethod(Script, obj, id,
-			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
-		Bytecode_int_DerefStackValue(&val1);
+		else
+		{
+			obj = (void*)args[0];
+			
+			DEBUG_F("- Object 0x%x %p\n", arg_types[0], obj);
+			if( obj ) {
+				rv = SpiderScript_int_ExecuteMethod(Script, obj, id,
+					&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
+				if(rv < 0)
+					AST_RuntimeError(NULL, "Calling method 0x%x of 0x%x failed", id, val1.Type);
+				
+				// TODO: Should a dereference be done?
+			}
+			else {
+				rv = -1;
+				AST_RuntimeError(NULL, "NULL object dereference");
+			}
+		}
 	}
 	else
 	{
 		AST_RuntimeError(NULL, "BUG - Unknown operation for CALL/CREATEOBJ (%i)", op->Operation);
 		rv = -1;
 	}
-	if(rv == -1) {
-		AST_RuntimeError(NULL, "Function call 0x%x failed, op = %i", id, op->Operation);
-		return -1;
-	}
 	// Clean up args
 	for( i = arg_count; i --; ) {
 		GET_STACKVAL(val1);
 		Bytecode_int_DerefStackValue(&val1);
 	}
+	if(rv < 0) {
+		return -1;
+	}
 	// Get and push return
-	ret.Type = rv;
-	PUT_STACKVAL(ret);
+	if( rv != 0 ) {
+		ret.Type = rv;
+		PUT_STACKVAL(ret);
+	}
 
 	return 0;
 }
@@ -462,16 +484,18 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		case BC_OP_JUMPIF:
 			STATE_HDR();
 			jmp_target = Fcn->BCFcn->Labels[ OP_INDX(op) ]->Next;
-			DEBUG_F("JUMPIF #%i %p\n", OP_INDX(op), jmp_target);
+			DEBUG_F("JUMPIF #%i %p - ", OP_INDX(op), jmp_target);
 			GET_STACKVAL(val1);
+			PRINT_STACKVAL(val1); DEBUG_F("\n");
 			if( Bytecode_int_IsStackEntTrue(&val1) )
 				nextop = jmp_target;
 			break;
 		case BC_OP_JUMPIFNOT:
 			STATE_HDR();
 			jmp_target = Fcn->BCFcn->Labels[ OP_INDX(op) ]->Next;
-			DEBUG_F("JUMPIFNOT #%i %p\n", OP_INDX(op), jmp_target);
+			DEBUG_F("JUMPIFNOT #%i %p - ", OP_INDX(op), jmp_target);
 			GET_STACKVAL(val1);
+			PRINT_STACKVAL(val1); DEBUG_F("\n");
 			if( !Bytecode_int_IsStackEntTrue(&val1) )
 				nextop = jmp_target;
 			break;
@@ -486,7 +510,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				nextop = NULL; break;
 			}
 			STATE_HDR();
-			DEBUG_F("DEFVAR %i of type %i\n", slot, type);
+			DEBUG_F("DEFVAR %i of type 0x%x\n", slot, type);
 			// Clear out if the slot is reused
 			if( local_vars[slot].Type != SS_DATATYPE_NOVALUE ) {
 				Bytecode_int_DerefStackValue( &local_vars[slot] );
@@ -498,14 +522,18 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 
 		// Create an array
 		case BC_OP_CREATEARRAY:
+			val1.Type = OP_INDX(op);
+			DEBUG_F("CREATEARRAY 0x%x ", SS_DOWNARRAY(val1.Type));
 			GET_STACKVAL(val2);
 			if( val2.Type != SS_DATATYPE_INTEGER ) {
 				AST_RuntimeError(NULL, "Array size is not integer");
 				nextop = NULL;
 				break;
 			}
-			val1.Type = OP_INDX(op);
+			// TODO: Range checks?
+			DEBUG_F("[%i]", (int)val2.Integer);
 			val1.Array = SpiderScript_CreateArray( SS_DOWNARRAY(val1.Type), val2.Integer );
+			PUT_STACKVAL(val1);
 			break;
 
 		// Enter/Leave context
@@ -640,8 +668,13 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			break;
 		case BC_OP_LOADNULL:
 			STATE_HDR();
-			DEBUG_F("LOADNULL\n");
-			val1.Type = SS_DATATYPE_NOVALUE;
+			DEBUG_F("LOADNULL 0x%x\n", OP_INDX(op));
+			if( !SS_ISTYPEOBJECT( OP_INDX(op) ) ) {
+				AST_RuntimeError(NULL, "LOADNULL with non-object 0x%x", OP_INDX(op));
+				nextop = NULL;
+				break;
+			}
+			val1.Type = OP_INDX(op);
 			val1.Integer = 0;
 			PUT_STACKVAL(val1);
 			break;
@@ -671,10 +704,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 					val2.Integer = SpiderScript_CastValueToInteger(type, ptr);
 					break;
 				case SS_DATATYPE_REAL:
-					val2.Real = SpiderScript_CastValueToReal(type, &ptr);
+					val2.Real = SpiderScript_CastValueToReal(type, ptr);
 					break;
 				case SS_DATATYPE_STRING:
-					val2.String = SpiderScript_CastValueToString(type, &ptr);
+					val2.String = SpiderScript_CastValueToString(type, ptr);
 					break;
 				default:
 					AST_RuntimeError(NULL, "No cast for type 0x%x", val2.Type);
@@ -721,9 +754,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			if(!ast_op)	ast_op = NODETYPE_NEGATE,	opstr = "NEG";
 
 			STATE_HDR();
-			DEBUG_F("%s\n", opstr);
-
 			GET_STACKVAL(val1);
+			DEBUG_F("%s", opstr);
+			DEBUG_F(" ("); PRINT_STACKVAL(val1); DEBUG_F(")\n");
+
 			switch(val1.Type)
 			{
 			case SS_DATATYPE_INTEGER:
@@ -736,7 +770,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				AST_RuntimeError(NULL, "No _ExecuteNode_UniOp for type 0x%x", val1.Type);
 				break;
 			}
-			
+			PUT_STACKVAL(val1);
 			break;
 
 		// Binary Operations
@@ -839,6 +873,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				AST_RuntimeError(NULL, "No _ExecuteNode_BinOp for type 0x%x", val1.Type);
 				break;
 			}
+			DEBUG_F(" = ("); PRINT_STACKVAL(val1); DEBUG_F(")\n");
 			PUT_STACKVAL(val1);
 			break;
 
@@ -853,18 +888,23 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				tScript_Function	*fcn = NULL;
 				 int	id = op->Content.Function.ID;
 				 int	arg_count = op->Content.Function.ArgCount;
-				DEBUG_F("CALL (local) 0x%x %i args\n", id, arg_count);
 				// Check current script functions (for fast call)
 				if( (id >> 16) == 0 ) {
+					DEBUG_F("CALL (local) 0x%x %i args\n", id, arg_count);
 					for(fcn = Script->Functions; fcn && id --; fcn = fcn->Next)
 						;
 					if( !fcn ) {
-						// TODO: Chuck sad on no function
+						AST_RuntimeError(NULL, "Function ID #%i is invalid", id);
+						nextop = NULL;
+						break;
 					}
 					if( !fcn->BCFcn ) {
-						// TODO: Chuck sad when not compiled
+						AST_RuntimeError(NULL, "Function #%i %s is not compiled", id, fcn->Name);
+						nextop = NULL;
+						break;
 					}
 					Bytecode_int_ExecuteFunction(Script, fcn, Stack, arg_count);
+					break ;
 				}
 			}
 		

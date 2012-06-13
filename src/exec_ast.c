@@ -86,8 +86,7 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 {
 	switch(LType)
 	{
-	case SS_DATATYPE_INTEGER:
-		if( RType != SS_DATATYPE_INTEGER )	return -SS_DATATYPE_INTEGER;
+	case SS_DATATYPE_BOOLEAN:
 		switch(Op)
 		{
 		case NODETYPE_EQUALS:
@@ -96,6 +95,24 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 		case NODETYPE_GREATERTHAN:
 		case NODETYPE_LESSTHANEQUAL:
 		case NODETYPE_GREATERTHANEQUAL:
+		
+		case NODETYPE_LOGICALAND:
+		case NODETYPE_LOGICALOR:
+		case NODETYPE_LOGICALXOR:
+			if( RType != SS_DATATYPE_BOOLEAN )	return -SS_DATATYPE_BOOLEAN;
+			return SS_DATATYPE_BOOLEAN;
+		}
+		break;
+	case SS_DATATYPE_INTEGER:
+		switch(Op)
+		{
+		case NODETYPE_EQUALS:
+		case NODETYPE_NOTEQUALS:
+		case NODETYPE_LESSTHAN: 
+		case NODETYPE_GREATERTHAN:
+		case NODETYPE_LESSTHANEQUAL:
+		case NODETYPE_GREATERTHANEQUAL:
+			if( RType != SS_DATATYPE_INTEGER )	return -SS_DATATYPE_INTEGER;
 			return SS_DATATYPE_BOOLEAN;
 		case NODETYPE_ADD:
 		case NODETYPE_SUBTRACT:
@@ -108,6 +125,7 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 		case NODETYPE_BITSHIFTLEFT:
 		case NODETYPE_BITSHIFTRIGHT:
 		case NODETYPE_BITROTATELEFT:
+			if( RType != SS_DATATYPE_INTEGER )	return -SS_DATATYPE_INTEGER;
 			return SS_DATATYPE_INTEGER;
 		}
 		break;
@@ -146,7 +164,7 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 		}
 		break;
 	}
-	return -1;
+	return 0;
 }
 
 int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *RetData,

@@ -246,6 +246,7 @@ void AST_FreeNode(tAST_Node *Node)
 	case NODETYPE_NEGATE:
 	case NODETYPE_POSTINC:
 	case NODETYPE_POSTDEC:
+	case NODETYPE_DELETE:
 		AST_FreeNode(Node->UniOp.Value);
 		break;
 	
@@ -271,13 +272,14 @@ void AST_FreeNode(tAST_Node *Node)
 	
 	// Node types with no children
 	case NODETYPE_NOP:	break;
-	case NODETYPE_NULL:	break;
 	case NODETYPE_VARIABLE:	break;
 	case NODETYPE_CONSTANT:	break;
 	case NODETYPE_BREAK:
 	case NODETYPE_CONTINUE:	break;
 	
 	case NODETYPE_STRING:
+		SpiderScript_DereferenceString(Node->ConstString);
+		break;
 	case NODETYPE_INTEGER:
 	case NODETYPE_REAL:
 		Node->ValueCache = NULL;
@@ -461,16 +463,6 @@ tAST_Node *AST_NewReal(tParser *Parser, double Value)
 {
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_REAL, 0);
 	ret->ConstReal = Value;
-	return ret;
-}
-
-/**
- * \brief Return a null value
- */
-tAST_Node *AST_NewNull(tParser *Parser)
-{
-	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_NULL, 0);
-	
 	return ret;
 }
 

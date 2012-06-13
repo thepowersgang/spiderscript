@@ -30,6 +30,7 @@ const struct {
 	{TOK_RWD_BREAK, "break"},
 	{TOK_RWD_CONTINUE, "continue"},
 	{TOK_RWD_NEW, "new"},
+	{TOK_RWD_DELETE, "delete"},
 	
 	{TOK_RWD_IF, "if"},
 	{TOK_RWD_ELSE, "else"},

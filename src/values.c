@@ -393,7 +393,7 @@ tSpiderString *SpiderScript_CastValueToString(int Type, const void *Source)
 	case SS_DATATYPE_INTEGER:
 		return SpiderScript_CreateString_Fmt("%"PRIi64, *(const tSpiderInteger*)Source);
 	case SS_DATATYPE_REAL:
-		return SpiderScript_CreateString_Fmt("%llf", *(const tSpiderReal*)Source);
+		return SpiderScript_CreateString_Fmt("%lf", *(const tSpiderReal*)Source);
 	case SS_DATATYPE_STRING:
 		SpiderScript_ReferenceString( (tSpiderString*)Source );
 		return (tSpiderString*)Source;

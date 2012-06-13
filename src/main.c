@@ -69,7 +69,10 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	free(data);
 
 	// Convert the script into (parsed) bytecode	
-	SpiderScript_BytecodeScript(ret);
+	if( SpiderScript_BytecodeScript(ret) != 0 ) {
+		SpiderScript_Free(ret);
+		return NULL;
+	}
 
 	#if 0	
 	// Write out bytecode

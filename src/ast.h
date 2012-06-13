@@ -29,17 +29,17 @@ enum eAST_NodeTypes
 	NODETYPE_STRING,	//!< String Constant
 	NODETYPE_INTEGER,	//!< Integer Constant
 	NODETYPE_REAL,	//!< Real Constant
-	NODETYPE_NULL,
 	
-	// 8
+	// 7
 	NODETYPE_DEFVAR,	//!< Define a variable (Variable)
 	NODETYPE_ELEMENT,	//!< Reference a class attribute
 	NODETYPE_CAST,	//!< Cast a value to another (Uniop)
 	
-	// 11
+	// 10
 	NODETYPE_RETURN,	//!< Return from a function (reserved word)
 	NODETYPE_BREAK, 	//!< Break out of a loop
 	NODETYPE_CONTINUE,	//!< Next loop iteration
+	NODETYPE_DELETE,  	//!< Sets an object pointer to NULL
 	NODETYPE_ASSIGN,	//!< Variable assignment operator
 	NODETYPE_POSTINC,	//!< Post-increment (i++) - Uniop
 	NODETYPE_POSTDEC,	//!< Post-decrement (i--) - Uniop

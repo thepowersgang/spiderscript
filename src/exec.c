@@ -192,17 +192,19 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object,
 {
 	tSpiderFunction	*fcn = NULL;
 	tScript_Function *sf = NULL;
-	int	newtypes[NArguments+1];
-	const void	*newargs [NArguments+1];
 	 int	i;
 	tScript_Class	*sc;
 	tSpiderClass *nc;
-	
-	// Create the "this" argument
-	newargs[0] = Object;
-	memcpy(&newargs[1], Arguments, NArguments*sizeof(void*));
-	newtypes[0] = Object->TypeCode;
-	memcpy(&newtypes[1], ArgTypes, NArguments*sizeof(void*));
+
+	if( NArguments < 1 ) {
+		AST_RuntimeError(NULL, "Method call with no `this` argument");
+		return -1;
+	}
+	if( ArgTypes[0] != Object->TypeCode ) {
+		AST_RuntimeError(NULL, "Method call with invalid `this` argument (0x%x != 0x%x)",
+			ArgTypes[0], Object->TypeCode);
+		return -1;
+	}
 
 	// Check for a chached name
 	if( FunctionIdent && *FunctionIdent ) {
@@ -231,19 +233,19 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object,
 				return -1;
 			}
 
-			if( NArguments+1 != sf->ArgumentCount ) {
+			if( NArguments != sf->ArgumentCount ) {
 				AST_RuntimeError(NULL, "%s->#%i requires %i arguments, %i given",
 					sc->Name, MethodID, sf->ArgumentCount, NArguments);
 				return -1;
 			}
 
 			// Type checking (eventually will not be needed)
-			for( i = 0; i < 1+NArguments; i ++ )
+			for( i = 1; i < NArguments; i ++ )
 			{
-				if( newtypes[i] != sf->Arguments[i].Type )
+				if( ArgTypes[i] != sf->Arguments[i].Type )
 				{
 					AST_RuntimeError(NULL, "Argument %i of %s->%s should be %i, got %i",
-						i+1, sc->Name, sf->Name, sf->Arguments[i].Type, newtypes[i]);
+						i+1, sc->Name, sf->Name, sf->Arguments[i].Type, ArgTypes[i]);
 					return -1;
 				}
 			}
@@ -264,19 +266,24 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object,
 					nc->Name, MethodID);
 				return -1;
 			}
-			
+
+			for( i = 0; fcn->ArgTypes[i] != 0 && fcn->ArgTypes[i] != -1; i ++ );
+			 int	minArgc = i;
+			 int	bVaraible = (fcn->ArgTypes[i] == -1);
+
+			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) ) {
+				AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i%s expected)",
+					1+NArguments, i, (bVaraible?"+":""));
+				return -1;
+			}
+
 			// Check the type of the arguments
-			for( i = 0; fcn->ArgTypes[i]; i ++ )
+			// - Start at 1 to skip the -2 for 'this class'
+			for( i = 1; i < minArgc; i ++ )
 			{
-				if( i >= NArguments ) {
-					for( ; fcn->ArgTypes[i]; i ++ )	;
-					AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i expected)",
-						NArguments, i);
-					return -1;
-				}
 				if( ArgTypes[i] != fcn->ArgTypes[i] )
 				{
-					AST_RuntimeError(NULL, "Argument type mismatch (%i, expected %i)",
+					AST_RuntimeError(NULL, "Argument type mismatch (0x%x, expected 0x%x)",
 						ArgTypes[i], fcn->ArgTypes[i]);
 					return -1;
 				}
@@ -295,13 +302,13 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object,
 		// Abuses alignment requirements on almost all platforms
 		if( FunctionIdent )
 			*FunctionIdent = (void*)( (intptr_t)sf | 1 );
-		return Bytecode_ExecuteFunction(Script, sf, RetData, NArguments+1, newtypes, newargs);
+		return Bytecode_ExecuteFunction(Script, sf, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else if( fcn )
 	{
 		if( FunctionIdent )
 			*FunctionIdent = fcn;
-		return fcn->Handler(Script, RetData, NArguments+1, newtypes, newargs);
+		return fcn->Handler(Script, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else {
 		AST_RuntimeError(NULL, "BUG - Method call 0x%x->#%i did not resolve",
@@ -323,16 +330,17 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 	void **FunctionIdent
 	)
 {
-	tSpiderClass	*class = NULL;
+	tSpiderClass	*nc = NULL;
 	tScript_Class	*sc = NULL;
 	tSpiderObject	*obj;
+	 int	rv;
 
 	// Check for the cache
 	if( FunctionIdent && *FunctionIdent ) {
 		if( (intptr_t)*FunctionIdent & 1 )
 			sc = (void*)( *(intptr_t*) FunctionIdent & ~1ULL );
 		else
-			class = *FunctionIdent;
+			nc = *FunctionIdent;
 	}
 
 	if( !RetData ) {
@@ -341,24 +349,26 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 	}
 
 	// Scan list, Last item should always be NULL, so abuse that to check without a prefix
-	if( !class && !sc )
+	if( !sc && !sc )
 	{
 		sc = SpiderScript_GetClass_Script(Script, Type);
-		class = SpiderScript_GetClass_Native(Script, Type);
+		nc = SpiderScript_GetClass_Native(Script, Type);
 	}
 	
 	// Execute!
-	if(class)
+	if( nc )
 	{
 		if( FunctionIdent )
-			*FunctionIdent = class;	
+			*FunctionIdent = nc;
 
 		// Call constructor
 		// TODO: Type Checking?
-		class->Constructor->Handler( Script, &obj, NArguments, ArgTypes, Arguments );
+		// TODO: Return?
+		rv = nc->Constructor->Handler( Script, &obj, NArguments, ArgTypes, Arguments );
+		if( rv < 0 )	return -1;
 
 		*RetData = obj;
-		return 0;
+		return Type;
 	}
 	else if( sc )
 	{
@@ -387,10 +397,11 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 			argtypes[0] = sc->TypeCode;
 			memcpy(args+1, Arguments, NArguments*sizeof(void*));
 			memcpy(argtypes+1, ArgTypes, NArguments*sizeof(int));
-			Bytecode_ExecuteFunction(Script, f, NULL, NArguments+1, argtypes, args);
+			rv = Bytecode_ExecuteFunction(Script, f, NULL, NArguments+1, argtypes, args);
+			if( rv < 0 )	return -1;
 		}
 	
-		return 0;
+		return Type;
 	}
 	else	// Not found?
 	{
