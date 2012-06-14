@@ -325,6 +325,7 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 		}
 		memcpy(RetData, &val.Boolean, SpiderScript_int_GetTypeSize(val.Type));
 	}
+	free(stack);
 
 	return Fcn->ReturnType;
 }
