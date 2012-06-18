@@ -65,25 +65,15 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 		free(ret);
 		return NULL;
 	}
-	
 	free(data);
+
+	// TODO: Create function/class arrays (instead of linked lists)
 
 	// Convert the script into (parsed) bytecode	
 	if( SpiderScript_BytecodeScript(ret) != 0 ) {
 		SpiderScript_Free(ret);
 		return NULL;
 	}
-
-	#if 0	
-	// Write out bytecode
-	{
-		char	cacheFilename[strlen(Filename)+6+1];
-		strcpy(cacheFilename, Filename);
-		strcat(cacheFilename, ".bc");
-	
-		SpiderScript_SaveBytecode(ret, cacheFilename);	
-	}
-	#endif
 	
 	return ret;
 }

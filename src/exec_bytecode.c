@@ -31,7 +31,7 @@ extern void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 typedef struct sBC_StackEnt	tBC_StackEnt;
 typedef struct sBC_Stack	tBC_Stack;
 
-#define ET_FUNCTION_START	-1
+#define ET_FUNCTION_START	-2
 
 struct sBC_StackEnt
 {
@@ -69,6 +69,11 @@ int Bytecode_int_StackPop(tBC_Stack *Stack, tBC_StackEnt *Dest)
 
 int Bytecode_int_StackPush(tBC_Stack *Stack, tBC_StackEnt *Src)
 {
+	if( Src->Type == -1 ) {
+		AST_RuntimeError(NULL, "Pushing type -1 to stack");
+		*(int*)0 = 0;
+		return 1;
+	}
 	if( Stack->EntryCount == Stack->EntrySpace )	return 1;
 	Stack->Entries[Stack->EntryCount] = *Src;
 	Stack->EntryCount ++;
@@ -638,8 +643,13 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			else {
 				DEBUG_F("ELEMENT %s ", OP_STRING(op));
 				
-				val2.Type = AST_ExecuteNode_Element(Script, &val2.Boolean, val1.Object, OP_STRING(op), 0, NULL);
-	
+				type = AST_ExecuteNode_Element(Script, &val2.Boolean, val1.Object, OP_STRING(op), 0, NULL);
+				if( type == -1 ) {
+					AST_RuntimeError(NULL, "Error getting element %s of %p",
+						OP_STRING(op), val1.Object);
+					nextop = NULL;
+					break;
+				}
 				PUT_STACKVAL(val2);
 				DEBUG_F("[Got "); PRINT_STACKVAL(val2); DEBUG_F("]\n");
 			}
@@ -769,6 +779,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				break;
 			default:
 				AST_RuntimeError(NULL, "No _ExecuteNode_UniOp for type 0x%x", val1.Type);
+				nextop = NULL;
 				break;
 			}
 			PUT_STACKVAL(val1);
@@ -859,21 +870,29 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			switch( val1.Type )
 			{
 			case SS_DATATYPE_INTEGER:
-				val1.Type = AST_ExecuteNode_BinOp_Integer(Script,
+				type = AST_ExecuteNode_BinOp_Integer(Script,
 					&val1.Boolean, ast_op, val1.Integer, val2.Type, ptr);
 				break;
 			case SS_DATATYPE_REAL:
-				val1.Type = AST_ExecuteNode_BinOp_Real(Script,
+				type = AST_ExecuteNode_BinOp_Real(Script,
 					&val1.Boolean, ast_op, val1.Real, val2.Type, ptr);
 				break;
 			case SS_DATATYPE_STRING:
-				val1.Type = AST_ExecuteNode_BinOp_String(Script,
+				type = AST_ExecuteNode_BinOp_String(Script,
 					&val1.Boolean, ast_op, val1.String, val2.Type, ptr);
 				break;
 			default:
 				AST_RuntimeError(NULL, "No _ExecuteNode_BinOp for type 0x%x", val1.Type);
+				type = -1;
 				break;
 			}
+			if( type == -1 ) {
+				AST_RuntimeError(NULL, "_ExecuteNode_BinOp for type 0x%x returned -1",
+					val1.Type);
+				nextop = NULL;
+				break;
+			}
+			val1.Type = type;
 			DEBUG_F(" = ("); PRINT_STACKVAL(val1); DEBUG_F(")\n");
 			PUT_STACKVAL(val1);
 			break;
@@ -951,7 +970,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	
 	// - Restore stack
 	DEBUG_F("Restoring stack...\n");
-	if( Stack->Entries[Stack->EntryCount - 1].Type == ET_FUNCTION_START )
+	if( Stack->EntryCount == 0 )
+		;
+	else if( Stack->Entries[Stack->EntryCount - 1].Type == ET_FUNCTION_START )
 		Stack->EntryCount --;
 	else
 	{

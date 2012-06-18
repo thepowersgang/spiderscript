@@ -168,7 +168,14 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 			*FunctionIdent = fcn;
 
 		// Execute!
-		return fcn->Handler( Script, RetData, NArguments, ArgTypes, Arguments );
+		int rv = fcn->Handler( Script, RetData, NArguments, ArgTypes, Arguments );
+		if( rv < 0 )	return rv;
+		if( rv != fcn->ReturnType ) {
+			fprintf(stderr, "BUG - Function %s didn't return correct type (0x%x instead of 0x%x)\n",
+				fcn->Name, rv, fcn->ReturnType);
+			return -1;
+		}
+		return rv;
 	}
 	else
 	{
