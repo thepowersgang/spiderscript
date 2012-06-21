@@ -9,6 +9,8 @@
 #include <spiderscript.h>
 
 #define SS_FCN(name)	int name(tSpiderScript*Script,void*RetData,int NArgs,const int*ArgTypes,const void*const Args[])
+#define SS_FCN_DEF_(ident,prev,rv,name,args...)	tSpiderFunction gExports_##ident = {.Next=prev,.Name=name,.Handler=Exports_##ident,.ReturnType=rv,.ArgTypes={args}}
+#define SS_FCN_DEF(ident,prev,rv,name,args...)	SS_FCN_DEF_(ident,&gExports_##prev,rv,name,args)
 #define SS_GETARG(_t, _i)	(*(const _t*)Args[_i])
 
 // === PROTOTYPES ===
@@ -18,35 +20,9 @@ SS_FCN(Exports_Lang_Strings_Split);
 SS_FCN(Exports_Lang_Struct);
 
 // === GLOBALS ===
-tSpiderFunction	gExports_Lang_Strings_Split = {
-	.Name = "Lang@Strings@Split",
-	.Handler = Exports_Lang_Strings_Split,
-	.ReturnType = SS_MAKEARRAY(SS_DATATYPE_STRING),
-	.ArgTypes = {SS_DATATYPE_STRING, SS_DATATYPE_STRING, 0}
-};
-
-tSpiderFunction	gExports_Lang_Struct = {
-	.Next = &gExports_Lang_Strings_Split,
-	.Name = "Lang@Struct",
-	.Handler = Exports_Lang_Struct,
-	.ReturnType = SS_DATATYPE_STRING,
-	.ArgTypes = {SS_DATATYPE_STRING, -1}
-};
-// -- Global Functions
-tSpiderFunction	gExports_array = {
-	.Next = &gExports_Lang_Struct,
-	.Name = "array",
-	.Handler = Exports_array,
-	.ReturnType = SS_DATATYPE_NOVALUE,
-	.ArgTypes = {SS_DATATYPE_INTEGER, -1}
-};
-tSpiderFunction	gExports_sizeof = {
-	.Next = &gExports_array,
-	.Name = "sizeof",
-	.Handler = Exports_sizeof,
-	.ReturnType = SS_DATATYPE_INTEGER,
-	.ArgTypes = {-1}
-};
+SS_FCN_DEF_(Lang_Strings_Split, NULL, SS_MAKEARRAY(SS_DATATYPE_STRING), "Lang@Strings@Split", SS_DATATYPE_STRING, SS_DATATYPE_STRING, 0);
+SS_FCN_DEF (Lang_Struct, Lang_Strings_Split, SS_DATATYPE_STRING, "Lang@Struct", SS_DATATYPE_STRING, -1);
+SS_FCN_DEF (sizeof, Lang_Struct, SS_DATATYPE_INTEGER, "sizeof", -1);
 tSpiderFunction	*gpExports_First = &gExports_sizeof;
 
 // === CODE ===
