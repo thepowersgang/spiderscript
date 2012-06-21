@@ -56,6 +56,8 @@ enum eTokens
 	TOK_IDENT,
 	
 	// Reserved Words
+	// - Meta-ops
+	TOK_RWD_INCLUDE,
 	// - Definitions
 	TOK_RWD_FUNCTION,
 	TOK_RWD_CLASS,
@@ -122,7 +124,9 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_REAL",
 	"TOK_VARIABLE",
 	"TOK_IDENT",
-	
+
+	"TOK_RWD_INCLUDE",
+		
 	"TOK_RWD_FUNCTION",
 	"TOK_RWD_CLASS",
 	"TOK_RWD_NAMESPACE",

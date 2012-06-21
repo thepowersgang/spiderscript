@@ -22,6 +22,9 @@ const struct {
 	const  int	Value;
 	const char	*Name;
 } csaReservedWords[] = {
+	{TOK_RWD_INCLUDE, "include"},
+//	{TOK_RWD_INCLUDE, "include_once"},
+	
 	{TOK_RWD_FUNCTION, "function"},
 	{TOK_RWD_CLASS, "class"},
 	{TOK_RWD_NAMESPACE, "namespace"},
