@@ -1,0 +1,90 @@
+/*
+ * Acess2 - SpiderScript
+ * - Script Exports (Lang. Namespace)
+ */
+#define _GNU_SOURCE	// HACK!
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <spiderscript.h>
+
+@FUNCTION Integer sizeof( * Value )
+@{
+	if( SS_GETARRAYDEPTH( @TYPEOF(Value) ) )
+	{
+		@RETURN @ARRAY(Value)->Length;
+	}
+
+	if( SS_ISTYPEOBJECT( @TYPEOF(Value) ) )
+	{
+		@RETURN 0;
+	}	
+
+	switch( @TYPEOF(Value) )
+	{
+	case SS_DATATYPE_STRING:
+		return @STRING(Value)->Length;
+	default:
+		@RETURN 0;
+	}
+@}
+
+@NAMESPACE Lang
+@{
+
+@CLASS StringMap
+@{
+
+	@FUNCTION String set(String Key)
+	@{
+		@RETURN NULL;
+	@}
+
+	@FUNCTION String get(String Key)
+	@{
+		@RETURN NULL;
+	@}
+
+@}
+
+@NAMESPACE Strings
+@{
+
+@FUNCTION String[] Split(String Haystack, String Needle)
+@{
+	 int	haystack_len, needle_len;
+	const void	*haystack, *needle, *end;
+	 int	ofs, slen;
+	tSpiderString	**strings = NULL;
+	 int	nSubStrs = 0;
+	
+	// Split the string
+	haystack_len = @Haystack->Length;
+	haystack     = @Haystack->Data;
+	needle_len = @Needle->Length;
+	needle     = @Needle->Data;
+	ofs = 0;
+	do {
+		end = memmem(haystack + ofs, haystack_len - ofs, needle, needle_len);
+		if( end )
+			slen = end - (haystack + ofs);
+		else
+			slen = haystack_len - ofs;
+		
+		strings = realloc(strings, (nSubStrs+1)*sizeof(tSpiderString*));
+		strings[nSubStrs] = SpiderScript_CreateString(slen, haystack + ofs);
+		nSubStrs ++;
+
+		ofs += slen + needle_len;
+	} while(end);
+
+	// Create output array
+	tSpiderArray *ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, nSubStrs);
+	memcpy(ret->Strings, strings, nSubStrs*sizeof(tSpiderString*));
+	free(strings);
+
+	@RETURN ret;
+@}
+
+@} // NAMESPACE Strings	
+@} // NAMESPACE Lang

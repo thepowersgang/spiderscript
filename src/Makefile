@@ -9,7 +9,8 @@ LDFLAGS  += -g -Wl,--no-undefined
 
 OBJDIR = obj/
 
-OBJ  = main.o lex.o parse.o ast.o exports.o values.o
+OBJ  = main.o lex.o parse.o ast.o values.o
+OBJ += exports.gen.o
 OBJ += ast_to_bytecode.o bytecode_gen.o bytecode_makefile.o
 OBJ += exec.o exec_bytecode.o exec_ast.o types.o
 BIN = ../libspiderscript.so
@@ -27,10 +28,13 @@ OBJ := $(addprefix $(OBJDIR),$(OBJ))
 all: $(BIN)
 
 clean:
-	$(RM) $(OBJ) $(BIN) $(OBJ:%=%.dep)
+	$(RM) $(OBJ) $(BIN) $(OBJ:%=%.dep) $(OBJ:obj/%.gen.o=%.gen.c)
 
 $(BIN): $(OBJ)
 	$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
+
+%.gen.c: %.ssf ../tools/gen_scriptfcns.pl
+	perl ../tools/gen_scriptfcns.pl $< $@
 
 $(OBJ): $(OBJDIR)%.o: %.c
 	@mkdir -p $(dir $@)

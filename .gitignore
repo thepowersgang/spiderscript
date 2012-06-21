@@ -4,5 +4,6 @@
 .*
 *.swp
 *~
+*.gen.c
 src/obj/
 gitstats/
