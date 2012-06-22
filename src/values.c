@@ -126,12 +126,25 @@ void SpiderScript_DereferenceObject(tSpiderObject *Object)
 			for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next )
 				n_att ++;
 		}
+		
+		int at_types[n_att];
+		if( nc ) {
+			for( int i = 0; i < n_att; i ++ )
+				at_types[i] = nc->AttributeDefs[i].Type;
+		}
+		else if( sc ) {
+			n_att = 0;
+			for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next ) {
+				at_types[n_att] = at->Type;
+				n_att ++;
+			}
+		}
 	
 		// Clean up attributes
 		for( int i = 0; i < n_att; i ++ )
 		{
 			void	*ptr = Object->Attributes[i];
-			 int	type = nc->AttributeDefs[i].Type;
+			 int	type = at_types[i];
 			
 			if( !ptr )
 				continue ;
@@ -378,7 +391,7 @@ tSpiderString *SpiderScript_CreateString_Fmt(const char *Format, ...)
 	ret->Length = len;
 	
 	va_start(args, Format);
-	len = vsnprintf(ret->Data, len+1, Format, args);
+	vsnprintf(ret->Data, len+1, Format, args);
 	va_end(args);
 	
 	return ret;

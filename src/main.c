@@ -99,7 +99,7 @@ tSpiderScript *SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Fi
 void SpiderScript_Free(tSpiderScript *Script)
 {
 	tScript_Function *fcn;
-	tScript_Class	*sc = Script->FirstClass;
+	tScript_Class	*sc;
 	void	*n;
 	
 	// Free functions

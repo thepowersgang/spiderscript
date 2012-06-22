@@ -20,7 +20,7 @@
 # define DEBUG_F(v...)	printf(v)
 # define DEBUGS1(f,a...)	printf("%s:%i - "f"\n", __func__, __LINE__,## a)
 #else
-# define DEBUG_F(v...)
+# define DEBUG_F(v...)	
 # define DEBUGS1(f,a...)	do{}while(0)
 #endif
 
@@ -376,7 +376,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	}
 	else if( op->Operation == BC_OP_CALLMETHOD )
 	{
-		if( !SS_ISTYPEOBJECT(arg_types[0]) ) {
+		if( arg_count <= 0 || !SS_ISTYPEOBJECT(arg_types[0]) ) {
 			AST_RuntimeError(NULL, "OP_CALLMETHOD on non object");
 			rv = -1;
 		}
@@ -389,7 +389,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 				rv = SpiderScript_int_ExecuteMethod(Script, obj, id,
 					&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
 				if(rv < 0)
-					AST_RuntimeError(NULL, "Calling method 0x%x of 0x%x failed", id, val1.Type);
+					AST_RuntimeError(NULL, "Calling method 0x%x of 0x%x failed", id, arg_types[0]);
 				
 				// TODO: Should a dereference be done?
 			}
@@ -778,7 +778,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				val1.Real = AST_ExecuteNode_UniOp_Real(Script, ast_op, val1.Real);
 				break;
 			default:
-				AST_RuntimeError(NULL, "No _ExecuteNode_UniOp for type 0x%x", val1.Type);
+				AST_RuntimeError(NULL, "No _ExecuteNode_UniOp[%s] for type 0x%x", opstr, val1.Type);
 				nextop = NULL;
 				break;
 			}
@@ -787,14 +787,13 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 
 		// Binary Operations
 		case BC_OP_LOGICAND:
-			if(!ast_op)	ast_op = NODETYPE_LOGICALAND,	opstr = "LOGICAND";
+			DEBUG_F("LOGICAND\n");	if(0)
 		case BC_OP_LOGICOR:
-			if(!ast_op)	ast_op = NODETYPE_LOGICALOR,	opstr = "LOGICOR";
+			DEBUG_F("LOGICOR\n");	if(0)
 		case BC_OP_LOGICXOR:
-			if(!ast_op)	ast_op = NODETYPE_LOGICALXOR,	opstr = "LOGICXOR";
+			DEBUG_F("LOGICXOR\n");
 	
 			STATE_HDR();
-			DEBUG_F("%s\n", opstr);
 
 			GET_STACKVAL(val1);
 			GET_STACKVAL(val2);
@@ -814,8 +813,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			Bytecode_int_DerefStackValue(&val1);
 			Bytecode_int_DerefStackValue(&val2);
 
-			val1.Type = SS_DATATYPE_INTEGER;
-			val1.Integer = i;
+			val1.Type = SS_DATATYPE_BOOLEAN;
+			val1.Boolean = i;
 			Bytecode_int_StackPush(Stack, &val1);
 			break;
 
@@ -866,7 +865,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			DEBUG_F(" ("); PRINT_STACKVAL(val1); DEBUG_F(")");
 			DEBUG_F(" ("); PRINT_STACKVAL(val2); DEBUG_F(")\n");
 
-			type = Bytecode_int_GetSpiderValue(&val2, &ptr);
+			Bytecode_int_GetSpiderValue(&val2, &ptr);
 			switch( val1.Type )
 			{
 			case SS_DATATYPE_INTEGER:
@@ -882,13 +881,13 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 					&val1.Boolean, ast_op, val1.String, val2.Type, ptr);
 				break;
 			default:
-				AST_RuntimeError(NULL, "No _ExecuteNode_BinOp for type 0x%x", val1.Type);
+				AST_RuntimeError(NULL, "No _ExecuteNode_BinOp[%s] for type 0x%x", opstr, val1.Type);
 				type = -1;
 				break;
 			}
 			if( type == -1 ) {
-				AST_RuntimeError(NULL, "_ExecuteNode_BinOp for type 0x%x returned -1",
-					val1.Type);
+				AST_RuntimeError(NULL, "_ExecuteNode_BinOp[%s] for type 0x%x returned -1",
+					opstr, val1.Type);
 				nextop = NULL;
 				break;
 			}

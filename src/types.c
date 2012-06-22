@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h>
 
 #define SS_DATATYPE_FLAG_MASK	0x3000
 #define SS_DATATYPE_FLAG_INT	0x0000
@@ -49,17 +50,9 @@ const char *SpiderScript_GetTypeName(tSpiderScript *Script, int Type)
 int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, const char *Template, int Type)
 {
 	 int	len = 0;
-	
-	void addch(char ch) {
-		if( len < MaxLen )
-			Data[len] = ch;
-		len ++;
-	}
-	void adds(const char *s) {
-		while(*s)
-			addch(*s++);
-	}
-	
+
+	#define addch(ch) do{if(len <MaxLen)Data[len] = ch;len++;}while(0)
+	#define adds(s)	do{const char *_=s;while(*_){addch(*_);_++;}}while(0)
 	for( ; *Template; Template ++)
 	{
 		if( *Template != '%' ) {
@@ -85,6 +78,8 @@ int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, c
 	}
 	if( len < MaxLen )
 		Data[len] = '\0';
+	#undef addch
+	#undef adds
 	return len;
 }
 

@@ -14,36 +14,143 @@
 #define MAGIC_STR	"SSBC\r\n\xBC\x55"
 #define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
 
+#define _ASSERT(l,rel,r,rv) do{if(!(l rel r)){\
+	fprintf(stderr,"%s:%i: ASSERT %s [%li] %s %s [%li] failed\n", __FILE__, __LINE__, #l, (long)(l), #rel, #r, (long)(r));\
+	return rv;}}while(0)
+
+
+// === TYPES ===
+typedef struct
+{
+	uint32_t	Length;
+	uint32_t	Offset;
+} t_lenofs;
+typedef struct
+{
+	FILE	*FP;
+	t_lenofs	*Strings;
+	 int	NStr;
+	size_t	FileSize;
+} t_loadstate;
+
 // === IMPORTS ===
 
 // === PROTOTYPES ===
-extern tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, size_t (*GetString)(char *Dest, int ID));
+extern tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State);
 
 // === GLOBALS ===
 
 // === CODE ===
+static inline uint8_t _get8(t_loadstate *State)
+{
+	uint8_t	rv;
+	fread(&rv, 1, 1, State->FP);
+	return rv;
+}
+static inline uint16_t _get16(t_loadstate *State)
+{
+	return _get8(State) | ((uint16_t)_get8(State)<<8);
+}	
+static inline uint32_t _get32(t_loadstate *State)
+{
+	return _get16(State) | ((uint32_t)_get16(State)<<16);
+}
+size_t _get_str(t_loadstate *State, char *Dest, int StringID)
+{
+	_ASSERT(StringID, <, State->NStr, -1);
+	if( Dest )
+	{
+		off_t saved_pos = ftell(State->FP);
+		fseek(State->FP, State->Strings[StringID].Offset, SEEK_SET);
+		fread(Dest, State->Strings[StringID].Length, 1, State->FP);
+		Dest[ State->Strings[StringID].Length ] = '\0';
+		fseek(State->FP, saved_pos, SEEK_SET);
+//		printf("String '%s' read\n", Dest);
+	}
+	return State->Strings[StringID].Length;
+}
+
+tScript_Function *_get_fcn(t_loadstate *State)
+{
+	tScript_Function *ret;
+	
+	// Load main function header
+	 int	namestr  = _get32(State);
+	off_t	code_ofs = _get32(State);
+	size_t	code_len = _get32(State);
+	 int	ret_type = _get32(State);
+	 int	n_args   = _get8(State);
+	_get8(State); _get8(State); _get8(State);
+
+	_ASSERT(code_ofs, <, State->FileSize, NULL);
+	_ASSERT(code_ofs+code_len, <, State->FileSize, NULL);
+
+	struct {
+		uint32_t	Name;
+		uint32_t	Type;
+	} args[n_args];
+
+	// Get size of function metadata in memory (and load arguments)
+	 int	datasize = 0;
+	datasize += sizeof(tScript_Function);
+	datasize += n_args * sizeof(ret->Arguments[0]);
+	datasize += _get_str(State, NULL, namestr) + 1;
+	for( int i = 0; i < n_args; i ++ )
+	{
+		args[i].Name = _get32(State);
+		args[i].Type = _get32(State);
+		datasize += _get_str(State, NULL, args[i].Name) + 1;
+	}
+
+	// Create and populate metadata structure
+	ret = malloc( datasize );
+	ret->Next = NULL;
+	ret->Name = (void*)&ret->Arguments[n_args];
+	_get_str(State, ret->Name, namestr);
+	ret->ArgumentCount = n_args;
+	ret->ReturnType = ret_type;
+	ret->ASTFcn = NULL;
+	char *nameptr = ret->Name + _get_str(State, NULL, namestr) + 1;
+	for( int i = 0; i < n_args; i ++ )
+	{
+		ret->Arguments[i].Name = nameptr;
+		int len = _get_str(State, nameptr, args[i].Name);
+		ret->Arguments[i].Type = args[i].Type;
+		nameptr += len + 1;
+	}
+	
+	// Load code
+	off_t old_pos = ftell(State->FP);
+	void *code = malloc(code_len);
+	fseek(State->FP, code_ofs, SEEK_SET);
+	fread(code, code_len, 1, State->FP);
+	fseek(State->FP, old_pos, SEEK_SET);
+
+	#if 0
+	for( int i = 0; i < code_len; i ++ )
+	{
+		uint8_t	*buf = code;
+		printf("%02x ", buf[i]);
+		if( (i & 15) == 15 )	printf("\n");
+		else if( (i & 7) == 7 )	printf(" ");
+	}
+	printf("\n");
+	#endif
+
+	// TODO: Parse back into bytecode
+	ret->BCFcn = Bytecode_DeserialiseFunction(code, code_len, State);
+
+	free(code);
+
+	return ret;
+}
+
+
 int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 {
+	t_loadstate	state, *State;
 	FILE	*fp;
-
-	uint8_t _get8(void)
-	{
-		uint8_t	rv;
-		fread(&rv, 1, 1, fp);
-		return rv;
-	}
-	uint16_t _get16(void)
-	{
-		return _get8() | ((uint16_t)_get8()<<8);
-	}	
-	uint32_t _get32(void)
-	{
-		return _get16() | ((uint32_t)_get16()<<16);
-	}
-
-	#define _ASSERT(l,rel,r,rv) do{if(!(l rel r)){\
-		fprintf(stderr,"%s:%i: ASSERT %s [%li] %s %s [%li] failed\n", __FILE__, __LINE__, #l, (long)(l), #rel, #r, (long)(r));\
-		return rv;}}while(0)
+	State = &state;
 
 	fp = fopen(SourceFile, "rb");
 	if(!fp)	return -1;
@@ -52,10 +159,13 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	off_t file_size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 
-	printf("file_size = %i, min = %lu\n", (int)file_size, MAGIC_STR_LEN + 4*4);
-	_ASSERT(file_size, >, MAGIC_STR_LEN + 4*4, 1);
+	State->FP = fp;
+	State->Strings = NULL;
+	State->NStr = 0;
+	State->FileSize = file_size;
 
 	// Check magic
+	_ASSERT(file_size, >, MAGIC_STR_LEN + 4*4, 1);
 	{
 		char magic[MAGIC_STR_LEN];
 		fread(magic, MAGIC_STR_LEN, 1, fp);
@@ -65,127 +175,35 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	
 	
 	// Get counts
-	 int	n_fcn   = _get32();
-	 int	n_class = _get32();
-	 int	n_str   = _get32();
-	off_t	ofs_str = _get32();
+	 int	n_fcn   = _get32(State);
+	 int	n_class = _get32(State);
+	 int	n_str   = _get32(State);
+	off_t	ofs_str = _get32(State);
 	// TODO: Validation	
 
 	printf("n_fcn = %i, n_class = %i, n_str = %i\n", n_fcn, n_class, n_str);
 
 	// Load string table
 	_ASSERT(ofs_str + n_str*(4+4), <=, file_size, 1);
-	struct {
-		uint32_t	Length;
-		uint32_t	Offset;
-	} strings[n_str];
+	t_lenofs strings[n_str];
 	fseek(fp, ofs_str, SEEK_SET);
 	for( int i = 0; i < n_str; i ++ )
 	{
-		strings[i].Length = _get32();
-		strings[i].Offset = _get32();
+		strings[i].Length = _get32(State);
+		strings[i].Offset = _get32(State);
 		_ASSERT(strings[i].Offset, <, file_size, 1);
 		_ASSERT(strings[i].Offset + strings[i].Length, <=, file_size, 1);
 	}
 	fseek(fp, MAGIC_STR_LEN+4*4, SEEK_SET);	
+	State->Strings = strings;
+	State->NStr = n_str;
 
-	size_t _get_str(char *Dest, int StringID)
-	{
-		_ASSERT(StringID, <, n_str, -1);
-		if( Dest )
-		{
-			off_t saved_pos = ftell(fp);
-			fseek(fp, strings[StringID].Offset, SEEK_SET);
-			fread(Dest, strings[StringID].Length, 1, fp);
-			Dest[ strings[StringID].Length ] = '\0';
-			fseek(fp, saved_pos, SEEK_SET);
-//			printf("String '%s' read\n", Dest);
-		}
-		return strings[StringID].Length;
-	}
-	
-	tScript_Function *_get_fcn(void)
-	{
-		tScript_Function *ret;
-		
-		// Load main function header
-		 int	namestr  = _get32();
-		off_t	code_ofs = _get32();
-		size_t	code_len = _get32();
-		 int	ret_type = _get32();
-		 int	n_args   = _get8();
-		_get8(); _get8(); _get8();
-
-		_ASSERT(namestr, <, n_str, NULL);
-		_ASSERT(code_ofs, <, file_size, NULL);
-		_ASSERT(code_ofs+code_len, <, file_size, NULL);
-
-		struct {
-			uint32_t	Name;
-			uint32_t	Type;
-		} args[n_args];
-
-		// Get size of function metadata in memory (and load arguments)
-		 int	datasize = 0;
-		datasize += sizeof(tScript_Function);
-		datasize += n_args * sizeof(ret->Arguments[0]);
-		datasize += _get_str(NULL, namestr) + 1;
-		for( int i = 0; i < n_args; i ++ )
-		{
-			args[i].Name = _get32();
-			args[i].Type = _get32();
-			_ASSERT(args[i].Name, <, n_str, NULL);
-			datasize += _get_str(NULL, args[i].Name) + 1;
-		}
-
-		// Create and populate metadata structure
-		ret = malloc( datasize );
-		ret->Next = NULL;
-		ret->Name = (void*)&ret->Arguments[n_args];
-		_get_str(ret->Name, namestr);
-		ret->ArgumentCount = n_args;
-		ret->ReturnType = ret_type;
-		ret->ASTFcn = NULL;
-		char *nameptr = ret->Name + _get_str(NULL, namestr) + 1;
-		for( int i = 0; i < n_args; i ++ )
-		{
-			ret->Arguments[i].Name = nameptr;
-			_get_str(nameptr, args[i].Name);
-			ret->Arguments[i].Type = args[i].Type;
-			nameptr += _get_str(NULL, args[i].Name) + 1;
-		}
-		
-		// Load code
-		off_t old_pos = ftell(fp);
-		void *code = malloc(code_len);
-		fseek(fp, code_ofs, SEEK_SET);
-		fread(code, code_len, 1, fp);
-		fseek(fp, old_pos, SEEK_SET);
-
-		#if 0
-		for( int i = 0; i < code_len; i ++ )
-		{
-			uint8_t	*buf = code;
-			printf("%02x ", buf[i]);
-			if( (i & 15) == 15 )	printf("\n");
-			else if( (i & 7) == 7 )	printf(" ");
-		}
-		printf("\n");
-		#endif
-
-		// TODO: Parse back into bytecode
-		ret->BCFcn = Bytecode_DeserialiseFunction(code, code_len, _get_str);
-
-		free(code);
-
-		return ret;
-	}
 	
 	// Parse functions
 	for( int i = 0; i < n_fcn; i ++ )
 	{
 		tScript_Function *fcn;
-		fcn = _get_fcn();
+		fcn = _get_fcn(State);
 
 		printf("Loaded function '%s'\n", fcn->Name);
 	
@@ -199,17 +217,15 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	for( int i = 0; i < n_class; i ++ )
 	{
 		tScript_Class	*sc;
-		int namestr = _get32();
-		int n_attrib = _get16();
-		int n_method = _get16();
+		int namestr = _get32(State);
+		int n_attrib = _get16(State);
+		int n_method = _get16(State);
 
-		_ASSERT(namestr, <, n_str, 1);
-
-		sc = malloc( sizeof(tScript_Class) + strings[namestr].Length + 1 );
+		sc = malloc( sizeof(tScript_Class) + _get_str(State, NULL, namestr) + 1 );
 		if(!sc)	return -1;
 
 		sc->Next = NULL;
-		_get_str(sc->Name, namestr);
+		_get_str(State, sc->Name, namestr);
 		sc->FirstFunction = NULL;
 		sc->FirstProperty = NULL;
 		sc->nProperties = n_attrib;
@@ -227,13 +243,13 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		for( int j = 0; j < n_attrib; j ++ )
 		{
 			tScript_Class_Var *at;
-			int name = _get32();
-			int type = _get32();
+			int name = _get32(State);
+			int type = _get32(State);
 		
-			at = malloc( sizeof(*at) + strings[name].Length + 1 );
+			at = malloc( sizeof(*at) + _get_str(State, NULL, name) + 1 );
 			at->Next = NULL;
 			at->Type = type;
-			_get_str(at->Name, name);
+			_get_str(State, at->Name, name);
 
 			if( sc->FirstProperty )
 				sc->LastProperty->Next = at;
@@ -247,7 +263,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		{
 			tScript_Function *fcn;
 			
-			fcn = _get_fcn();
+			fcn = _get_fcn(State);
 			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
 			if( sc->FirstFunction )
 				sc->LastFunction->Next = fcn;
@@ -257,8 +273,6 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		}
 	}
 
-	#undef _ASSERT
-	
 	return 0;
 }
 
@@ -613,6 +627,13 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 		case BC_OP_LOADSTR:
 			_put_string(op->Content.StringInt.String, op->Content.StringInt.Integer);
 			break;
+		// Function calls are specail
+		case BC_OP_CALLFUNCTION:
+		case BC_OP_CREATEOBJ:
+		case BC_OP_CALLMETHOD:
+			_put_index(op->Content.Function.ID);
+			_put_index(op->Content.Function.ArgCount);
+			break;
 		// Everthing else just gets handled nicely
 		default:
 			if( Bytecode_int_OpUsesString(op->Operation) )
@@ -649,93 +670,98 @@ char *Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStr
 	return code;
 }
 
-tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, size_t (*GetString)(char *Dest, int ID))
+
+typedef struct
+{
+	const void	*Data;
+	 int	Ofs;
+	size_t	Length;
+} t_bi;
+
+static inline uint8_t buf_get8(t_bi *Bi)
+{
+	if( Bi->Ofs == Bi->Length )	return 0;
+	const uint8_t	*buf = Bi->Data;
+	uint8_t rv = buf[Bi->Ofs++];
+	return rv;
+}
+
+static inline uint32_t buf_get32(t_bi *Bi)
+{
+	uint32_t rv = buf_get8(Bi);
+	rv |= (uint32_t)buf_get8(Bi) << 8;
+	rv |= (uint32_t)buf_get8(Bi) << 16;
+	rv |= (uint32_t)buf_get8(Bi) << 24;
+	return rv;
+}
+static inline uint32_t buf_get_index(t_bi *Bi)
+{
+	uint8_t	b = buf_get8(Bi);
+	uint32_t rv = 0;
+	if( b < 0x80 ) {
+		rv |= (uint32_t)(b & 0x7F) << 8;
+		rv |= buf_get8(Bi);
+	}
+	else if( b < 0xC0 ) {
+		rv |= (uint32_t)(b & 0x3F) << 16;
+		rv |= (uint32_t)buf_get8(Bi) << 8;
+		rv |= (uint32_t)buf_get8(Bi) << 0;
+	}
+	else {
+//			rv |= (uint32_t)(b & 0x3F) << 32;
+		rv |= (uint32_t)buf_get8(Bi) << 24;
+		rv |= (uint32_t)buf_get8(Bi) << 16;
+		rv |= (uint32_t)buf_get8(Bi) << 8;
+		rv |= (uint32_t)buf_get8(Bi) << 0;
+	}
+	return rv;
+}	
+
+static inline uint64_t buf_get_qword(t_bi *Bi)
+{
+	uint8_t	b = buf_get8(Bi);
+	uint64_t rv = 0;
+	if( b < 0x80 ) {	// 7 bits into 1 byte
+		rv = b;
+	}
+	else if( b < 0xC0 ) {	// 14 bits packed into 2 bytes
+		rv |= (uint32_t)(b & 0x3F) << 8;
+		rv |= (uint32_t)buf_get8(Bi) << 0;
+	}
+	else if( b < 0xD0 ) {	// 37 bits into 5 bytes
+		rv |= (uint64_t)(b & 0x1F) << 32;
+		rv |= buf_get32(Bi);
+	}
+	else {
+		rv |= buf_get32(Bi);
+		rv |= (uint64_t)buf_get32(Bi) << 32;
+	}
+	return rv;
+}
+
+double buf_get_double(t_bi *Bi)
+{
+	// TODO: Make machine agnostic
+	double rv = *(const double*)( (const char*)Bi->Data + Bi->Ofs);
+	Bi->Ofs += sizeof(double);
+	return rv;
+}
+
+
+tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State)
 {
 	size_t ofs = 0;
 	tBC_Function	*ret;
 	tBC_Op	*op;
 	 int	sidx;
 	size_t	slen;
-
-	uint8_t _get8()
-	{
-		const uint8_t	*buf = Data;
-		uint8_t rv = buf[ofs++];
-//		printf("Byte %02x\n", rv);
-		return rv;
-	}
-
-	uint16_t _get16()
-	{
-		uint16_t rv = _get8();
-		rv |= (uint16_t)_get8() << 8;
-		return rv;
-	}
-	
-	uint32_t _get32()
-	{
-		uint32_t rv = _get8();
-		rv |= (uint32_t)_get8() << 8;
-		rv |= (uint32_t)_get8() << 16;
-		rv |= (uint32_t)_get8() << 24;
-		return rv;
-	}
-
-	uint32_t _get_index()
-	{
-		uint8_t	b = _get8();
-		uint32_t rv = 0;
-		if( b < 0x80 ) {
-			rv |= (uint32_t)(b & 0x7F) << 8;
-			rv |= _get8();
-		}
-		else if( b < 0xC0 ) {
-			rv |= (uint32_t)(b & 0x3F) << 16;
-			rv |= (uint32_t)_get8() << 8;
-			rv |= (uint32_t)_get8() << 0;
-		}
-		else {
-//			rv |= (uint32_t)(b & 0x3F) << 32;
-			rv |= (uint32_t)_get8() << 24;
-			rv |= (uint32_t)_get8() << 16;
-			rv |= (uint32_t)_get8() << 8;
-			rv |= (uint32_t)_get8() << 0;
-		}
-		return rv;
-	}	
-
-	uint64_t _get_qword()
-	{
-		uint8_t	b = _get8();
-		uint64_t rv = 0;
-		if( b < 0x80 ) {	// 7 bits into 1 byte
-			rv = b;
-		}
-		else if( b < 0xC0 ) {	// 14 bits packed into 2 bytes
-			rv |= (uint32_t)(b & 0x3F) << 8;
-			rv |= (uint32_t)_get8() << 0;
-		}
-		else if( b < 0xD0 ) {	// 37 bits into 5 bytes
-			rv |= (uint64_t)(b & 0x1F) << 32;
-			rv |= _get32();
-		}
-		else {
-			rv |= _get32();
-			rv |= (uint64_t)_get32() << 32;
-		}
-		return rv;
-	}
-
-	double _get_double()
-	{
-		// TODO: Make machine agnostic
-		double rv = *(const double*)( (const char*)Data + ofs);
-		ofs += sizeof(double);
-		return rv;
-	}
+	t_bi	bi, *Bi = &bi;
+	bi.Data = Data;
+	bi.Ofs = 0;
+	bi.Length = Length;
 
 	ret = malloc( sizeof(tBC_Function) );
-	ret->LabelCount = _get_index();
+	ret->LabelCount = buf_get_index(Bi);
 	ret->Labels = malloc( sizeof(ret->Labels[0]) * ret->LabelCount );
 	ret->Operations = NULL;
 	ret->OperationsEnd = NULL;
@@ -745,33 +771,41 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, size
 	for( int i = 0; i < ret->LabelCount; i ++ )
 	{
 		// HACK - Save integer label offsets until second pass
-		ret->Labels[i] = (void*) (intptr_t) _get32();
+		ret->Labels[i] = (void*) (intptr_t) buf_get32(Bi);
 	}
 
 	while( ofs < Length )
 	{
-		 int	ot = _get8();
+		 int	ot = buf_get8(Bi);
 		switch( ot )
 		{
 		// Special case for inline values
 		case BC_OP_LOADINT:
 			op = malloc(sizeof(tBC_Op));
-			op->Content.Integer = _get_qword();
+			op->Content.Integer = buf_get_qword(Bi);
 //			printf("LOADINT 0x%lx\n", op->Content.Integer);
 			break;
 		case BC_OP_LOADREAL:
 			op = malloc(sizeof(tBC_Op));
-			op->Content.Real = _get_double();
+			op->Content.Real = buf_get_double(Bi);
 //			printf("LOADREAL %lf\n", op->Content.Real);
 			break;
 		case BC_OP_LOADSTR:
-			sidx = _get_index();
-			slen = GetString(NULL, sidx);
+			sidx = buf_get_index(Bi);
+			slen = _get_str(State, NULL, sidx);
 			// TODO: Error check length
 			op = malloc(sizeof(tBC_Op) + slen);
 			op->Content.StringInt.Integer = slen;
-			GetString(op->Content.StringInt.String, sidx);
+			_get_str(State, op->Content.StringInt.String, sidx);
 //			printf("LOADSTR %i bytes\n", op->Content.StringInt.Integer);
+			break;
+		// Function calls are specail
+		case BC_OP_CALLFUNCTION:
+		case BC_OP_CREATEOBJ:
+		case BC_OP_CALLMETHOD:
+			op = malloc( sizeof(tBC_Op) );
+			op->Content.Function.ID = buf_get_index(Bi);
+			op->Content.Function.ArgCount = buf_get_index(Bi);
 			break;
 		// Everthing else just gets handled nicely
 		case BC_OP_JUMP:
@@ -779,10 +813,10 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, size
 		case BC_OP_JUMPIFNOT:
 		default:
 			if( Bytecode_int_OpUsesString(ot) ) {
-				sidx = _get_index();
-				slen = GetString(NULL, sidx);
+				sidx = buf_get_index(Bi);
+				slen = _get_str(State, NULL, sidx);
 				op = malloc(sizeof(tBC_Op) + slen + 1);
-				GetString(op->Content.StringInt.String, sidx);
+				_get_str(State, op->Content.StringInt.String, sidx);
 				op->Content.StringInt.String[slen] = 0;
 			}
 			else {
@@ -790,7 +824,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, size
 				op = malloc(sizeof(tBC_Op));
 			}
 			if( Bytecode_int_OpUsesInteger(ot) ) {
-				op->Content.StringInt.Integer = _get_index();
+				op->Content.StringInt.Integer = buf_get_index(Bi);
 			}
 //			if( slen )
 //				printf("%i '%s' %i\n",ot,op->Content.StringInt.String,op->Content.StringInt.Integer);
