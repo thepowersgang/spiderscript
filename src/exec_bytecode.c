@@ -386,7 +386,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 			
 			DEBUG_F("- Object 0x%x %p\n", arg_types[0], obj);
 			if( obj ) {
-				rv = SpiderScript_int_ExecuteMethod(Script, obj, id,
+				rv = SpiderScript_int_ExecuteMethod(Script, id,
 					&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
 				if(rv < 0)
 					AST_RuntimeError(NULL, "Calling method 0x%x of 0x%x failed", id, arg_types[0]);

@@ -219,6 +219,31 @@ tSpiderArray *SpiderScript_CreateArray(int InnerType, int ItemCount)
 	return ret;
 }
 
+const void *SpiderScript_GetArrayPtr(const tSpiderArray *Array, int Item)
+{
+	if( Item < 0 || Item >= Array->Length )
+		return NULL;
+	
+	if( SS_GETARRAYDEPTH(Array->Type) ) {
+		return Array->Arrays[Item];
+	}
+	if( SS_ISTYPEOBJECT(Array->Type) ) {
+		return Array->Objects[Item];
+	}
+	switch(Array->Type)
+	{
+	case SS_DATATYPE_STRING:
+		return Array->Strings[Item];
+	case SS_DATATYPE_BOOLEAN:
+		return &Array->Bools[Item];
+	case SS_DATATYPE_INTEGER:
+		return &Array->Integers[Item];
+	case SS_DATATYPE_REAL:
+		return &Array->Reals[Item];
+	}
+	return NULL;
+}
+
 void SpiderScript_ReferenceArray(const tSpiderArray *_Array)
 {
 	tSpiderArray	*Array = (void*)_Array;

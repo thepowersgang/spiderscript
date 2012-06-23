@@ -234,8 +234,7 @@ extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Funct
 /**
  * \brief Execute an object method
  */
-extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script,
-	tSpiderObject *Object, const char *MethodName,
+extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *MethodName,
 	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
@@ -272,6 +271,7 @@ extern void	SpiderScript_ReferenceObject(const tSpiderObject *Object);
 extern void	SpiderScript_DereferenceObject(const tSpiderObject *Object);
 
 extern tSpiderArray	*SpiderScript_CreateArray(int InnerType, int ItemCount);
+extern const void	*SpiderScript_GetArrayPtr(const tSpiderArray *Array, int Item);
 extern void	SpiderScript_ReferenceArray(const tSpiderArray *Array);
 extern void	SpiderScript_DereferenceArray(const tSpiderArray *Array);
 

@@ -91,7 +91,7 @@ extern int	SpiderScript_int_ConstructObject(tSpiderScript *Script, int TypeCode,
 	tSpiderObject **RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
 	void **Ident
 	);
-extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object, int MethodID,
+extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	void *RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
 	void **Ident
 	);

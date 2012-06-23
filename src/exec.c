@@ -109,6 +109,55 @@ int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 	return SpiderScript_int_ExecuteFunction(Script, id, RetData, NArguments, ArgTypes, Arguments, Ident);
 }
 
+int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
+	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
+	)
+{
+	void *ident = NULL;
+	const tSpiderObject	*Object;
+
+	if( NArguments < 1 || !SS_ISTYPEOBJECT(ArgTypes[0]) || !Arguments[0] ) {
+		AST_RuntimeError(NULL, "Method call with invalid `this` argument");
+		return -1;
+	}
+	Object = Arguments[0];
+
+	if( !Ident || !*Ident )
+	{
+		tScript_Class	*sc;
+		tSpiderClass	*nc;
+		if( (sc = SpiderScript_GetClass_Script(Script, Object->TypeCode)) )
+		{
+			tScript_Function	*sf;
+			for( sf = sc->FirstFunction; sf; sf = sf->Next )
+			{
+				if( strcmp(sf->Name, Function) == 0 )
+					break ;
+			}
+			if( !sf )	return -1;
+			ident = (void*)( (intptr_t)sf | 1 );
+		}
+		else if( (nc = SpiderScript_GetClass_Native(Script, Object->TypeCode)) )
+		{
+			tSpiderFunction	*fcn;
+			for( fcn = nc->Methods; fcn; fcn = fcn->Next )
+			{
+				if( strcmp(fcn->Name, Function) == 0 )
+					break ;
+			}
+			if( !fcn )	return -1;
+			ident = fcn;
+		}
+		if( Ident )
+			*Ident = ident;
+	}
+	else
+		ident = *Ident;
+	
+	return SpiderScript_int_ExecuteMethod(Script, -1, RetData, NArguments, ArgTypes, Arguments, &ident);
+}
+
 /**
  * \brief Execute a script function
  * \param Script	Script context to execute in
@@ -190,12 +239,11 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 /**
  * \brief Execute an object method function
  * \param Script	Script context to execute in
- * \param Object	Object in which to find the method
  * \param MethodName	Name of method to call
  * \param NArguments	Number of arguments to pass
- * \param Arguments	Arguments passed
+ * \param Arguments	Arguments passed (with `this`
  */
-int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object, int MethodID,
+int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent
 	)
@@ -205,16 +253,22 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, tSpiderObject *Object,
 	 int	i;
 	tScript_Class	*sc;
 	tSpiderClass *nc;
+	tSpiderObject	*Object;
 
 	if( NArguments < 1 ) {
 		AST_RuntimeError(NULL, "Method call with no `this` argument");
 		return -1;
 	}
-	if( ArgTypes[0] != Object->TypeCode ) {
-		AST_RuntimeError(NULL, "Method call with invalid `this` argument (0x%x != 0x%x)",
-			ArgTypes[0], Object->TypeCode);
+	if( !SS_ISTYPEOBJECT(ArgTypes[0]) ) {
+		AST_RuntimeError(NULL, "Method call with invalid `this` argument (0x%x)",
+			ArgTypes[0]);
 		return -1;
 	}
+	if( !Arguments[0] ) {
+		AST_RuntimeError(NULL, "Method call with invalid `this` argument (NULL)");
+		return -1;
+	}
+	Object = (void*)Arguments[0];
 
 	// Check for a chached name
 	if( FunctionIdent && *FunctionIdent ) {
