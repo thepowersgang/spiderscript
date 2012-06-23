@@ -241,12 +241,15 @@ extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *MethodN
 /**
  * \brief Creates an object instance
  */
-extern int	SpiderScript_CreateObject(tSpiderScript *Script,
-	const char *ClassName,
+extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
 	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 
+extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, int TypeCode,
+	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
+	);
 /**
  * \brief Convert a script to bytecode and save to a file
  */

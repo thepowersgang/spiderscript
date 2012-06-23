@@ -2,7 +2,6 @@
  * Acess2 - SpiderScript
  * - Script Exports (Lang. Namespace)
  */
-#define _GNU_SOURCE	// HACK!
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -172,6 +171,20 @@
 
 @NAMESPACE Strings
 @{
+
+// Because memmem is a GNU extension, I'll just impliment it myself
+const void *memmem(const void *haystack, size_t haystacklen, const void *needle, size_t needlelen)
+{
+	 int	ofs;
+	if( haystacklen < needlelen )
+		return NULL;
+	for( ofs = 0; ofs < haystacklen - needlelen; ofs ++ )
+	{
+		if( memcmp(haystack + ofs, needle, needlelen) == 0 )
+			return haystack + ofs;
+	}
+	return NULL;
+}
 
 @FUNCTION String[] Split(String Haystack, String Needle)
 @{

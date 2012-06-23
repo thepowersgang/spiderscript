@@ -15,6 +15,9 @@ OBJ += ast_to_bytecode.o bytecode_gen.o bytecode_makefile.o
 OBJ += exec.o exec_bytecode.o exec_ast.o types.o
 BIN = ../libspiderscript.so
 
+EXPORT_FILES := $(filter %.gen.o,$(OBJ))
+EXPORT_FILES := $(EXPORT_FILES:%.gen.o=%.ssf)
+
 LD = $(CC)
 
 CPPFLAGS+= -DBUILD -I .
@@ -33,8 +36,11 @@ clean:
 $(BIN): $(OBJ)
 	$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
 
-%.gen.c: %.ssf ../tools/gen_scriptfcns.pl
-	perl ../tools/gen_scriptfcns.pl $< $@
+export_types.gen.h: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
+	perl ../tools/gen_scriptfcns.pl -makeheader-lang $@ $(EXPORT_FILES)
+
+%.gen.c: %.ssf export_types.gen.h ../tools/gen_scriptfcns.pl
+	perl ../tools/gen_scriptfcns.pl -H export_types.gen.h $< $@
 
 $(OBJ): $(OBJDIR)%.o: %.c
 	@mkdir -p $(dir $@)

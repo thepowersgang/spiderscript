@@ -848,9 +848,10 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 	tScript_Class	*sc;
 	 int	type;
 	 int	ret;
-			
+	void	*unused;
+	
 	// Look up object
-	type = SpiderScript_ResolveObject(Block->Script, Namespaces, Name);
+	type = SpiderScript_ResolveObject(Block->Script, Namespaces, Name, &unused);
 	if( type == -1 )
 	{
 		AST_RuntimeError(Node, "Undefined reference to class %s", Name);

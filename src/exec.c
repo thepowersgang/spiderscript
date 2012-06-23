@@ -75,22 +75,21 @@ int SpiderScript_ResolveFunction(tSpiderScript *Script, const char *DefaultNames
 	return -1;
 }
 
-int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespaces[], const char *Name)
+int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespaces[], const char *Name, void **Ident)
 {
 	int i, id;
-	void *unused;
 	
 	for( i = 0; i == 0 || (DefaultNamespaces && DefaultNamespaces[i-1]); i ++ )
 	{
 		const char *ns = DefaultNamespaces ? DefaultNamespaces[i] : NULL;
 		
-		id = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, Name, &unused);
+		id = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, Name, Ident);
 		if( id != -1 )
 			return id | 0x2000;
-		id = SpiderScript_int_GetNativeClass(Script, gpExports_FirstClass, ns, Name, &unused);
+		id = SpiderScript_int_GetNativeClass(Script, gpExports_FirstClass, ns, Name, Ident);
 		if( id != -1 )
 			return id | 0x3000;
-		id = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, Name, &unused);
+		id = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, Name, Ident);
 		if( id != -1 )
 			return id | 0x1000;
 	}
@@ -98,6 +97,9 @@ int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespa
 	return -1;
 }
 
+// --------------------------------------------------------------------
+// External API Functions
+// --------------------------------------------------------------------
 int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
@@ -158,6 +160,38 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 	return SpiderScript_int_ExecuteMethod(Script, -1, RetData, NArguments, ArgTypes, Arguments, &ident);
 }
 
+
+int SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
+	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
+	)
+{
+	void *ident = NULL;
+	 int	type;
+
+	// Commented out because _ConstructObject needs the type code
+//	if( !Ident || !*Ident )
+//	{
+		type = SpiderScript_ResolveObject(Script, NULL, ClassName, &ident);
+		if( Ident )
+			*Ident = ident;
+//	}
+//	else
+//		ident = *Ident;
+	return SpiderScript_int_ConstructObject(Script, type, RetData, NArguments, ArgTypes, Arguments, &ident);
+}
+
+int SpiderScript_CreateObject_Type(tSpiderScript *Script, int TypeCode,
+	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	void **Ident
+	)
+{
+	return SpiderScript_int_ConstructObject(Script, TypeCode, RetData, NArguments, ArgTypes, Arguments, Ident);
+}
+
+// --------------------------------------------------------------------
+// Internal Handlers
+// --------------------------------------------------------------------
 /**
  * \brief Execute a script function
  * \param Script	Script context to execute in
@@ -412,7 +446,7 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 		return -1;
 	}
 
-	// Scan list, Last item should always be NULL, so abuse that to check without a prefix
+	// Find class
 	if( !sc && !sc )
 	{
 		sc = SpiderScript_GetClass_Script(Script, Type);

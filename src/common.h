@@ -80,7 +80,7 @@ extern tSpiderClass	*gpExports_FirstClass;
 extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	void *RetValue, int NArgs, const int *ArgTypes, const void * const Args[]);
 
-extern int	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name);
+extern int	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **IDent);
 extern int	SpiderScript_ResolveFunction(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **Ident);
 
 extern int	SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
