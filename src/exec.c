@@ -87,6 +87,9 @@ int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespa
 		id = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, Name, &unused);
 		if( id != -1 )
 			return id | 0x2000;
+		id = SpiderScript_int_GetNativeClass(Script, gpExports_FirstClass, ns, Name, &unused);
+		if( id != -1 )
+			return id | 0x3000;
 		id = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, Name, &unused);
 		if( id != -1 )
 			return id | 0x1000;
@@ -368,6 +371,11 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 		if( FunctionIdent )
 			*FunctionIdent = nc;
 
+		if( !nc->Constructor ) {
+			// Uh, oops?
+			return -1;
+		}
+
 		// Call constructor
 		// TODO: Type Checking?
 		// TODO: Return?
@@ -384,7 +392,7 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 		
 		// Call constructor
 		tScript_Function	*f;
-			
+		
 		obj = SpiderScript_AllocateScriptObject(Script, sc);
 
 		// Call constructor?

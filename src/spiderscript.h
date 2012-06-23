@@ -268,16 +268,16 @@ extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
 extern void	SpiderScript_Free(tSpiderScript *Script);
 
 extern tSpiderObject	*SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *Class, int ExtraBytes);
-extern void	SpiderScript_ReferenceObject(tSpiderObject *Object);
-extern void	SpiderScript_DereferenceObject(tSpiderObject *Object);
+extern void	SpiderScript_ReferenceObject(const tSpiderObject *Object);
+extern void	SpiderScript_DereferenceObject(const tSpiderObject *Object);
 
 extern tSpiderArray	*SpiderScript_CreateArray(int InnerType, int ItemCount);
-extern void	SpiderScript_ReferenceArray(tSpiderArray *Array);
-extern void	SpiderScript_DereferenceArray(tSpiderArray *Array);
+extern void	SpiderScript_ReferenceArray(const tSpiderArray *Array);
+extern void	SpiderScript_DereferenceArray(const tSpiderArray *Array);
 
 extern tSpiderString	*SpiderScript_CreateString(int Length, const char *Data);
-extern void	SpiderScript_ReferenceString(tSpiderString *String);
-extern void	SpiderScript_DereferenceString(tSpiderString *String);
+extern void	SpiderScript_ReferenceString(const tSpiderString *String);
+extern void	SpiderScript_DereferenceString(const tSpiderString *String);
 
 extern tSpiderString	*SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2);
 extern int        	SpiderScript_StringCompare(const tSpiderString *Str1, const tSpiderString *Str2);

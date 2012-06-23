@@ -901,9 +901,16 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 		tSpiderFunction *nf = nc->Constructor;
 		 int	minArgc = 0;
 		 int	bVariable = 0;
-		
-		for( minArgc = 0; nf->ArgTypes[minArgc] && nf->ArgTypes[minArgc] != -1; minArgc ++ )
-			;
+
+		if( !nf ) {
+			minArgc = 0;
+			bVariable = 0;
+		}
+		else {
+			for( minArgc = 0; nf->ArgTypes[minArgc] && nf->ArgTypes[minArgc] != -1; minArgc ++ )
+				;
+			bVariable = (nf->ArgTypes[minArgc] == -1);
+		}
 		// Argument count check
 		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
 			AST_RuntimeError(Node, "Constructor %s takes %i arguments, passed %i",

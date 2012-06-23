@@ -16,6 +16,7 @@
 #define SS_DATATYPE_FLAG_INT	0x0000
 #define SS_DATATYPE_FLAG_NCLASS	0x1000
 #define SS_DATATYPE_FLAG_SCLASS	0x2000
+#define SS_DATATYPE_FLAG_BCLASS	0x3000	// Builtin class
 
 // === GLOBALS ===
 const char	*casSpiderScript_InternalTypeNames[] = {
@@ -121,6 +122,15 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 	// #2 - Classes (Native)
 	{
 		 int	i = 0;
+		for( tSpiderClass *class = gpExports_FirstClass; class; class = class->Next, i++ )
+		{
+			if( strncmp(Name, class->Name, NameLen) != 0 )
+				continue ;
+			if( class->Name[NameLen] != '\0' )
+				continue ;
+			return SS_MAKEARRAYN(SS_DATATYPE_FLAG_BCLASS | i, depth);
+		}
+		i = 0;
 		for( tSpiderClass *class = Script->Variant->Classes; class; class = class->Next, i++ )
 		{
 			if( strncmp(Name, class->Name, NameLen) != 0 )
@@ -150,13 +160,21 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 
 tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type)
 {
+	tSpiderClass *ret;
 	if( SS_GETARRAYDEPTH(Type) )
 		return NULL;
-	if( (Type & SS_DATATYPE_FLAG_MASK) != SS_DATATYPE_FLAG_NCLASS )
+	switch( (Type & SS_DATATYPE_FLAG_MASK) )
+	{
+	case SS_DATATYPE_FLAG_NCLASS:
+		ret = Script->Variant->Classes;
+		break;
+	case SS_DATATYPE_FLAG_BCLASS:
+		ret = gpExports_FirstClass;
+		break;
+	default:
 		return NULL;
-	
+	}
 	// O(n) ... not a good idea, should speed this up
-	tSpiderClass *ret = Script->Variant->Classes;
 	for( int i = (Type & 0xFFF); ret && i --; ret = ret->Next )
 		;
 	return ret;

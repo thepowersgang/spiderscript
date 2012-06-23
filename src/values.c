@@ -101,14 +101,16 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 	return ret;
 }
 
-void SpiderScript_ReferenceObject(tSpiderObject *Object)
+void SpiderScript_ReferenceObject(const tSpiderObject *_Object)
 {
+	tSpiderObject *Object = (void*)_Object;
 	if( !Object )	return;
 	Object->ReferenceCount ++;
 }
 
-void SpiderScript_DereferenceObject(tSpiderObject *Object)
+void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 {
+	tSpiderObject *Object = (void*)_Object;
 	if( !Object )	return;
 	Object->ReferenceCount --;
 	if( Object->ReferenceCount == 0 )
@@ -180,14 +182,16 @@ tSpiderString *SpiderScript_CreateString(int Length, const char *Data)
 	return ret;
 }
 
-void SpiderScript_ReferenceString(tSpiderString *String)
+void SpiderScript_ReferenceString(const tSpiderString *_String)
 {
+	tSpiderString	*String = (void*)_String;
 	if( !String )	return ;
 	String->RefCount ++;
 }
 
-void SpiderScript_DereferenceString(tSpiderString *String)
+void SpiderScript_DereferenceString(const tSpiderString *_String)
 {
+	tSpiderString	*String = (void*)_String;
 	if( !String )	return ;
 	
 	String->RefCount --;
@@ -215,14 +219,16 @@ tSpiderArray *SpiderScript_CreateArray(int InnerType, int ItemCount)
 	return ret;
 }
 
-void SpiderScript_ReferenceArray(tSpiderArray *Array)
+void SpiderScript_ReferenceArray(const tSpiderArray *_Array)
 {
+	tSpiderArray	*Array = (void*)_Array;
 	if( !Array )	return ;
 	Array->RefCount ++;
 }
 
-void SpiderScript_DereferenceArray(tSpiderArray *Array)
+void SpiderScript_DereferenceArray(const tSpiderArray *_Array)
 {
+	tSpiderArray	*Array = (void*)_Array;
 	if( !Array )	return;
 	
 	Array->RefCount --;
