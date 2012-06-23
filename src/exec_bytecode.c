@@ -261,11 +261,14 @@ void Bytecode_int_PrintStackValue(tBC_StackEnt *Ent)
 		printf("%lf", Ent->Real);
 		break;
 	case SS_DATATYPE_STRING:
-		printf("String (%u bytes)", (unsigned int)Ent->String->Length);
+		if( Ent->String )
+			printf("String (%u bytes)", (unsigned int)Ent->String->Length);
+		else
+			printf("String (null)");
 		break;
 	default:
 		if( SS_GETARRAYDEPTH(Ent->Type) )
-			printf("Array %p", Ent->Array);
+			printf("Array 0x%x %p", SS_DOWNARRAY(Ent->Type), Ent->Array);
 		else if( SS_ISTYPEOBJECT(Ent->Type) )
 			printf("Object 0x%x %p", Ent->Type, Ent->Object);
 		else
@@ -430,7 +433,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 {
 	 int	ast_op, i;
 	tBC_Op	*op;
-	tBC_StackEnt	val1, val2;
+	tBC_StackEnt	val1, val2, rval;
 	 int	local_var_count = Fcn->BCFcn->MaxVariableCount;
 	tBC_StackEnt	*local_vars;
 	 int	type;
@@ -495,6 +498,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			PRINT_STACKVAL(val1); DEBUG_F("\n");
 			if( Bytecode_int_IsStackEntTrue(&val1) )
 				nextop = jmp_target;
+			Bytecode_int_DerefStackValue(&val1);
 			break;
 		case BC_OP_JUMPIFNOT:
 			STATE_HDR();
@@ -504,6 +508,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			PRINT_STACKVAL(val1); DEBUG_F("\n");
 			if( !Bytecode_int_IsStackEntTrue(&val1) )
 				nextop = jmp_target;
+			Bytecode_int_DerefStackValue(&val1);
 			break;
 		
 		// Define variables
@@ -609,6 +614,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				type = Bytecode_int_GetSpiderValue(&val2, &ptr);
 			
 				AST_ExecuteNode_Index(Script, NULL, array, val1.Integer, type, ptr);
+			
+				SpiderScript_DereferenceArray(array);
+				Bytecode_int_DerefStackValue( &val2 );
 			}
 			else {
 				tSpiderArray	*array = val2.Array;
@@ -617,6 +625,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				
 				PUT_STACKVAL(val2);
 				DEBUG_F("[Got "); PRINT_STACKVAL(val2); DEBUG_F("]\n");
+				
+				SpiderScript_DereferenceArray(array);
 			}
 			break;
 		
@@ -711,6 +721,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				type = Bytecode_int_GetSpiderValue(&val1, &ptr);
 				switch(val2.Type)
 				{
+				case SS_DATATYPE_BOOLEAN:
+					val2.Boolean = SpiderScript_CastValueToBool(type, ptr);
+					break;
 				case SS_DATATYPE_INTEGER:
 					val2.Integer = SpiderScript_CastValueToInteger(type, ptr);
 					break;
@@ -725,6 +738,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 					nextop = NULL;
 					break;
 				}
+				Bytecode_int_DerefStackValue(&val1);
 			}
 			PUT_STACKVAL(val2);
 			break;
@@ -870,15 +884,15 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			{
 			case SS_DATATYPE_INTEGER:
 				type = AST_ExecuteNode_BinOp_Integer(Script,
-					&val1.Boolean, ast_op, val1.Integer, val2.Type, ptr);
+					&rval.Boolean, ast_op, val1.Integer, val2.Type, ptr);
 				break;
 			case SS_DATATYPE_REAL:
 				type = AST_ExecuteNode_BinOp_Real(Script,
-					&val1.Boolean, ast_op, val1.Real, val2.Type, ptr);
+					&rval.Boolean, ast_op, val1.Real, val2.Type, ptr);
 				break;
 			case SS_DATATYPE_STRING:
 				type = AST_ExecuteNode_BinOp_String(Script,
-					&val1.Boolean, ast_op, val1.String, val2.Type, ptr);
+					&rval.Boolean, ast_op, val1.String, val2.Type, ptr);
 				break;
 			default:
 				AST_RuntimeError(NULL, "No _ExecuteNode_BinOp[%s] for type 0x%x", opstr, val1.Type);
@@ -891,9 +905,11 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				nextop = NULL;
 				break;
 			}
-			val1.Type = type;
-			DEBUG_F(" = ("); PRINT_STACKVAL(val1); DEBUG_F(")\n");
-			PUT_STACKVAL(val1);
+			Bytecode_int_DerefStackValue(&val1);
+			Bytecode_int_DerefStackValue(&val2);
+			rval.Type = type;
+			DEBUG_F(" = ("); PRINT_STACKVAL(rval); DEBUG_F(")\n");
+			PUT_STACKVAL(rval);
 			break;
 
 		// Functions etc

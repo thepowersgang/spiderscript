@@ -700,7 +700,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		type = _StackPop(Block, Node->UniOp.Value, SS_DATATYPE_UNDEF, NULL);
 		if(type < 0)	return -1;
 
-		if( SS_GETARRAYDEPTH(type) != 0 ) {
+		if( SS_GETARRAYDEPTH(type) != 0) {
 			AST_RuntimeError(Node, "Unary operation on array is invalid");
 			return -1;
 		}
@@ -716,6 +716,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				AST_RuntimeError(Node, "BUG - Node %i unhandled in UniOp on Object", Node->Type);
 				return -1;
 			}
+			// TODO: Somehow handle if the object doesn't expose an "operator !" and use the UniOp instead
 			ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
 			if(ret < 0)	return ret;
 		}
@@ -1209,7 +1210,7 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, int DestType, int SourceType)
 {
 	 int	ret;
-	if( SS_GETARRAYDEPTH(SourceType) ) {
+	if( SS_GETARRAYDEPTH(SourceType) && DestType != SS_DATATYPE_BOOLEAN ) {
 		AST_RuntimeError(Node, "Invalid cast from array (0x%x)", SourceType);
 		return 1;
 	}

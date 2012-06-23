@@ -30,9 +30,19 @@ int AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type)
 {
 	switch(Type)
 	{
+	case SS_DATATYPE_BOOLEAN:
+		switch(Op)
+		{
+		case NODETYPE_LOGICALNOT:
+			return SS_DATATYPE_BOOLEAN;
+		default:
+			return 0;
+		}
 	case SS_DATATYPE_INTEGER:
 		switch(Op)
 		{
+		case NODETYPE_LOGICALNOT:
+			return SS_DATATYPE_BOOLEAN;
 		case NODETYPE_NEGATE:
 		case NODETYPE_BWNOT:
 			return SS_DATATYPE_INTEGER;
@@ -42,6 +52,8 @@ int AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type)
 	case SS_DATATYPE_REAL:
 		switch(Op)
 		{
+		case NODETYPE_LOGICALNOT:
+			return SS_DATATYPE_BOOLEAN;
 		case NODETYPE_NEGATE:
 			return SS_DATATYPE_REAL;
 		default:
@@ -506,9 +518,21 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 	}
 	else
 	{
-		if( size == 0 )
-			size = sizeof(void*);
-		memcpy(RetData, Array->Bools + size*Index, size);
+		if( SS_GETARRAYDEPTH(Array->Type) ) {
+			*(tSpiderArray**)RetData = Array->Arrays[Index];
+			SpiderScript_ReferenceArray( Array->Arrays[Index] );
+		}
+		else if( SS_ISTYPEOBJECT(Array->Type) ) {
+			*(tSpiderObject**)RetData = Array->Objects[Index];
+			SpiderScript_ReferenceObject( Array->Objects[Index] );
+		}
+		else if( Array->Type == SS_DATATYPE_STRING ) {
+			*(tSpiderString**)RetData = Array->Strings[Index];
+			SpiderScript_ReferenceString( Array->Strings[Index] );
+		}
+		else {
+			memcpy(RetData, Array->Bools + size*Index, size);
+		}
 		return Array->Type;
 	}
 }

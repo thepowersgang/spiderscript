@@ -128,6 +128,10 @@ void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 			for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next )
 				n_att ++;
 		}
+		else {
+			AST_RuntimeError(NULL, "Unknown object type 0x%x", Object->TypeCode);
+			return ;
+		}
 		
 		int at_types[n_att];
 		if( nc ) {
@@ -332,9 +336,9 @@ tSpiderBool SpiderScript_CastValueToBool(int Type, const void *Source)
 		return 0;
 	
 	if( SS_GETARRAYDEPTH(Type) )
-		return ((const tSpiderArray*)Source)->Length > 0;
+		return Source && ((const tSpiderArray*)Source)->Length > 0;
 	else if( SS_ISTYPEOBJECT(Type) )
-		return 0;	// TODO: Objects
+		return !!Source;	// TODO: Objects
 	
 	switch( Type )
 	{
