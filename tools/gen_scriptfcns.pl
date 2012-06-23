@@ -68,10 +68,14 @@ my $gLastFunction = "NULL";
 my $gLastClass = "NULL";
 
 my $gCurClass = "";
-my $gClassLastFunction = "NULL";
+my $gCurClass_V = "";
+my $gClassLastFunction;
+my $gClassConstructor;
+my $gClassDestructor;
 my %gClassProperties;	# Name->TypeCode
 
 my $bInFunction = 0;
+my @gFcnArgs;	# Names
 my %gFcnArgs_C;	# Name->Cast
 my %gFcnArgs_V;	# Name->Value
 my %gFcnArgs_I;	# Name->Index
@@ -108,6 +112,7 @@ while(<INFILE>)
 		next;
 	}
 }
+@namespace_stack = ();
 close INFILE;
 foreach my $name (keys %gClassIndicies) {
 	print OUTFILE "#define $name (0x1000|".($classcount-1-$gClassIndicies{$name}).")\n";
@@ -119,11 +124,15 @@ my $has_been_meta = 1;
 while(<INFILE>)
 {
 	$line ++;
-	
+
+	my $indent = "";	
 	my $orig_line = $_;
 	
 	s#//.*$##;	# Kill comments
-	s/^\s+//;	# Trim off blanks
+	while(s/^(\s)//)	# Trim off blanks
+	{
+		$indent .= $1;
+	}
 	s/\s+$//;	# Trim off blanks
 
 	if( /^$/ )
@@ -138,21 +147,106 @@ while(<INFILE>)
 		$has_been_meta = 1;
 		/^\@NAMESPACE ($gIdentRegex)$/ or die "Syntax error on line $line when parsing \@NAMESPACE";
 		push @namespace_stack, $1;
+#		print "Namespace level is ".join('@', @namespace_stack)."\n";
 		next;
 	}
 	elsif( /^\@CLASS / )
 	{
 		$has_been_meta = 1;
-		/^\@CLASS ($gIdentRegex)$/ or die "Syntax error on line $line when parsing \@CLASS";
-		
+		/^\@CLASS ($gIdentRegex)$/ or die "Syntax error on line $line when parsing \@CLASS";		
+
 		# TODO: Classes	
 		if( $gCurClass ne "" ) {
 			die "Defining a class within a class at line $line";
 		}
-		$gCurClass = $1;
+		$gCurClass = join('@', @namespace_stack)."@".$1;
+		$gCurClass_V = "TYPE_".$gCurClass;
+		$gCurClass_V =~ s/@/_z_/g;
+		my $classsym = "gExports_class_".$gCurClass;
+		$classsym =~ s/@/_/g;
+		print OUTFILE $indent,"extern tSpiderClass $classsym;\n";
+		
 		$gClassLastFunction = "NULL";
+		$gClassConstructor = "NULL";
+		$gClassDestructor = "NULL";
+#		print $gCurClass, " - ", $gCurClass_V, "\n";
 	
 		next;
+	}
+	elsif( /^\@CONSTRUCTOR/ )
+	{
+		$has_been_meta = 1;
+		if( $gCurClass eq "" ) {
+			die "Constructor not in class";
+		}
+		
+		/^\@CONSTRUCTOR \s*\(([^\)]*)\)$/
+			or die "Syntax error on line $line when parsing \@CONSTRUCTOR\n";
+		
+		my $argspecs = $1;
+		$argspecs =~ s/^\s+//;
+		$argspecs =~ s/\s+$//;
+		
+		my $symbol = $gCurClass."\@__construct";
+		$symbol =~ s/@/_/g;
+
+		# Parse parameters
+		my @args = split(/\s*,\s*/, $argspecs);
+		my $argc = 0;
+		foreach my $arg (@args) {
+			my $argname;
+			my $typesym;
+			my $code;
+			my $cast;
+			($typesym, $argname) = split(/\s+/, $arg, 2);
+			($code, $cast) = gettype($typesym);
+			$gFcnArgs_C{$argname} = $cast;
+			$gFcnArgs_V{$argname} = $code;
+			$gFcnArgs_I{$argname} = $argc;
+			$argc++;
+		}
+
+		$bInFunction = 1;
+		
+		$gFcnRetType_V = $gCurClass_V;
+		$gFcnRetType_C = "tSpiderObject*";
+		$gClassConstructor = "&gExports_$symbol";		
+
+		print OUTFILE $indent,"__SFCN_PROTO(Export_fcn_$symbol);\n";
+		print OUTFILE $indent,"__SFCN_DEF($symbol, NULL, $gFcnRetType_V, \"__construct\"";
+		foreach my $argcode (values %gFcnArgs_V) {
+			print OUTFILE ", $argcode";
+		}
+		print OUTFILE ");\n";
+		print OUTFILE $indent,"__SFCN_PROTO(Export_fcn_$symbol)\n";
+		print OUTFILE $indent,"{\n";
+	
+
+		next ;
+	}
+	elsif( /^\@DESTRUCTOR/ )
+	{
+		$has_been_meta = 1;
+		if( $gCurClass eq "" ) {
+			die "Constructor not in class";
+		}
+		
+		# No Arguments
+		
+		my $symbol = $gCurClass."\@__destruct";
+		$symbol =~ s/@/_/g;
+
+		$bInFunction = 1;
+
+		$gFcnRetType_V = -1;
+		$gFcnRetType_C = "void";
+
+		$gClassDestructor = "Export_fcn_$symbol";	
+
+		print OUTFILE $indent,"void Export_fcn_$symbol(tSpiderObject *this)\n";
+		print OUTFILE $indent,"{\n";
+		
+		next ;
 	}
 	elsif( /^\@FUNCTION / )
 	{
@@ -194,6 +288,21 @@ while(<INFILE>)
 		# Parse parameters
 		my @args = split(/\s*,\s*/, $argspecs);
 		my $argc = 0;
+
+		@gFcnArgs = ();
+		%gFcnArgs_C = ();
+		%gFcnArgs_V = ();
+		%gFcnArgs_I = ();
+
+		if( $gCurClass ne "" )
+		{
+			push @gFcnArgs, "this";
+			$gFcnArgs_C{"this"} = "const tSpiderObject*";
+			$gFcnArgs_V{"this"} = $gCurClass_V;
+			$gFcnArgs_I{"this"} = $argc;
+			$argc ++;
+		}
+
 		foreach my $arg (@args) {
 			my $argname;
 			my $typesym;
@@ -201,6 +310,7 @@ while(<INFILE>)
 			my $cast;
 			($typesym, $argname) = split(/\s+/, $arg, 2);
 			($code, $cast) = gettype($typesym);
+			push @gFcnArgs, $argname;
 			$gFcnArgs_C{$argname} = $cast;
 			$gFcnArgs_V{$argname} = $code;
 			$gFcnArgs_I{$argname} = $argc;
@@ -209,20 +319,31 @@ while(<INFILE>)
 	
 		($gFcnRetType_V,$gFcnRetType_C) = gettype($rettype);
 		
-		print OUTFILE "__SFCN_PROTO(Export_fcn_$symbol);\n";
-		print OUTFILE "__SFCN_DEF($symbol, ";
+		print OUTFILE $indent,"__SFCN_PROTO(Export_fcn_$symbol);\n";
+		print OUTFILE $indent,"__SFCN_DEF($symbol, ";
 		if( $gCurClass eq "" ) {
 			print OUTFILE $gLastFunction;
 		} else {
 			print OUTFILE $gClassLastFunction;
 		}
 		print OUTFILE ", $gFcnRetType_V, \"$fcnpath\"";
-		foreach my $argcode (values %gFcnArgs_V) {
-			print OUTFILE ", $argcode";
+		foreach my $arg (@gFcnArgs) {
+			print OUTFILE ", $gFcnArgs_V{$arg}";
 		}
 		print OUTFILE ");\n";
-		print OUTFILE "__SFCN_PROTO(Export_fcn_$symbol)\n";
-		print OUTFILE "{\n";
+		print OUTFILE $indent,"__SFCN_PROTO(Export_fcn_$symbol)\n";
+		print OUTFILE $indent,"{\n";
+		
+		# TODO: Do argument validation
+		foreach my $arg (keys %gFcnArgs_C) {
+			$gFcnArgs_V{$arg} eq "-1" and next;
+			my $cast = $gFcnArgs_C{$arg};
+			if( $cast =~ /\*$/ ) {
+				print OUTFILE $indent,"\t$cast $arg = Args[$gFcnArgs_I{$arg}];\n";
+			} else {
+				print OUTFILE $indent,"\t$cast $arg = *(const $cast*)Args[$gFcnArgs_I{$arg}];\n";
+			}
+		}
 
 		if( $gCurClass eq "" )
 		{
@@ -246,20 +367,23 @@ while(<INFILE>)
 		$has_been_meta = 1;
 		if( $bInFunction )
 		{
-			print OUTFILE "}\n";
+			if( $gFcnRetType_V eq "0" )
+			{
+				print OUTFILE $indent,"\treturn $gFcnRetType_V;\n";
+			}
+			print OUTFILE $indent,"}\n";
 			$bInFunction = 0;
 		}
 		elsif( $gCurClass ne "" )
 		{
-			my $classpath = "gExports_class_";
-			foreach my $ns (@namespace_stack) { $classpath .= $ns."@"; }
-			$classpath .= $gCurClass;
-			my $classsym = $classpath;
+			my $classpath = $gCurClass;
+			my $classsym = "gExports_class_".$gCurClass;
 			$classsym =~ s/@/_/g;
-			print OUTFILE "tSpiderClass $classsym = {";
+			print OUTFILE $indent,"tSpiderClass $classsym = {";
 			print OUTFILE ".Next=$gLastClass,";
 			print OUTFILE ".Name=\"$gCurClass\",";
-			# TODO: Constructor/Destructor
+			print OUTFILE ".Constructor=$gClassConstructor,";
+			print OUTFILE ".Destructor=$gClassDestructor,";
 			print OUTFILE ".Methods=$gClassLastFunction,";
 			print OUTFILE ".NAttributes=".scalar(%gClassProperties).",";
 			print OUTFILE ".AttributeDefs={";
@@ -268,12 +392,14 @@ while(<INFILE>)
 			}
 			print OUTFILE "{NULL,0,0,0}}";
 			print OUTFILE "};\n";
+			$gLastClass = "&$classsym";
 			$gCurClass = "";
 			# Write out class definition
 		}
-		elsif( $namespace_stack[0] ne "" )
+		elsif( defined $namespace_stack[0] )
 		{
-			pop @namespace_stack;
+			my $closed = pop @namespace_stack;
+#			print "Closed namespace $closed\n";
 		}
 		else
 		{
@@ -326,27 +452,40 @@ while(<INFILE>)
 	
 	sub getvalue
 	{
-		if( ! exists $gFcnArgs_V{$_[0]} ) {
-			die "Argument $_[0] does not exist";
+		my $arg = $_[0];
+		if( ! exists $gFcnArgs_V{$arg} ) {
+			die "Argument $arg does not exist";
 		}
 		
-		if( $gFcnArgs_V{$_[0]} eq "-1" ) {
-			die "Can't directly access loosely typed argument $_[0]";
+		if( $gFcnArgs_V{$arg} eq "-1" ) {
+			die "Can't directly access loosely typed argument $arg";
 		}
 		else {
-			return "(*(($gFcnArgs_C{$_[0]}*)Args[$gFcnArgs_I{$_[0]}]))";
+#			if( $gFcnArgs_C{$arg} =~ /\*$/ ) {
+#				return "(($gFcnArgs_C{$arg})Args[$gFcnArgs_I{$arg}])";
+#			}
+#			else {
+#				return "(*(($gFcnArgs_C{$arg}*)Args[$gFcnArgs_I{$arg}]))";
+#			}
+			return $arg;
 		}
 	}
 
 	if( $has_been_meta )
 	{
 		print OUTFILE "#line $line \"$infile\"\n";
-	}	
+	}
 
+	if( $bInFunction && $gCurClass ne "" )
+	{
+		my $classsym = "gExports_class_".$gCurClass;
+		$classsym =~ s/@/_/g;
+		s/\@CLASSPTR\b/&$classsym/g;
+	}
 	if( $bInFunction )
 	{
 		s/\@TYPEOF\(\s*($gIdentRegex)\s*\)/macro_TYPEOF($1)/ge;
-		s/\@RETURN ([^;]+);/macro_RETURN($1)/ge;
+		s/\@RETURN\b([^;]*);/macro_RETURN($1)/ge;
 		s/\@BOOLEAN\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderBool")/ge;
 		s/\@INTEGER\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderInteger")/ge;
 		s/\@REAL\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderReal")/ge;
