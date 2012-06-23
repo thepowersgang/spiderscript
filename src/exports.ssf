@@ -44,6 +44,7 @@
 	#define N_STRINGMAP_BUCKETS	256
 	typedef struct
 	{
+		 int	nItems;
 		t_StringMap_Entry	*Buckets[N_STRINGMAP_BUCKETS];
 	} t_StringMap_Info;
 	@CONSTRUCTOR ()
@@ -53,6 +54,7 @@
 		this = SpiderScript_AllocateObject(Script, @CLASSPTR, sizeof(t_StringMap_Info));		
 
 		t_StringMap_Info *info = this->OpaqueData;
+		info->nItems = 0;
 		memset(info->Buckets, 0, sizeof(info->Buckets));
 		
 		@RETURN this;
@@ -116,6 +118,7 @@
 			e->Next = *bucket;
 			*bucket = e;
 		}
+		info->nItems ++;
 	@}
 
 	@FUNCTION String get(String Key)
@@ -147,6 +150,24 @@
 		@RETURN NULL;
 	@}
 
+	@FUNCTION String[] keys()
+	@{
+		t_StringMap_Info *info = this->OpaqueData;
+		tSpiderArray	*ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, info->nItems);
+		 int	j = 0;		
+
+		for( int i = 0; i < N_STRINGMAP_BUCKETS; i ++ )
+		{
+			t_StringMap_Entry	*e;
+			
+			for( e = info->Buckets[i]; e; e = e->Next ) {
+				SpiderScript_ReferenceString(e->Key);
+				ret->Strings[j++] = (void*)e->Key;
+			}
+		}
+		
+		@RETURN ret;
+	@}
 @}
 
 @NAMESPACE Strings
