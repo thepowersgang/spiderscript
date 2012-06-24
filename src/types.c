@@ -89,7 +89,6 @@ char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, i
 	int len = SpiderScript_FormatTypeStrV(Script, NULL, 0, Template, Type1);
 	char *ret = malloc(len+1);
 	SpiderScript_FormatTypeStrV(Script, ret, len+1, Template, Type1);
-	snprintf(ret, len+1, Template, Type1);
 	return ret;
 }
 

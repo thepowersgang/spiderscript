@@ -28,6 +28,13 @@
 	}
 @}
 
+@FUNCTION Boolean isnull( * Value )
+@{
+	if( !Value )
+		@RETURN 1;
+	@RETURN 0;
+@}
+
 @NAMESPACE Lang
 @{
 

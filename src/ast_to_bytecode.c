@@ -978,7 +978,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 				}
 			}
 			if( !nf ) {
-				AST_RuntimeError(Node, "Class %s does not have a method %s", nc->Name, Name);
+				AST_RuntimeError(Node, "Class %s does not have a method '%s'", nc->Name, Name);
 				return -1;
 			}
 		}
@@ -992,7 +992,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 				}
 			}
 			if( !sf ) {
-				AST_RuntimeError(Node, "Class %s does not have a method %s", sc->Name, Name);
+				AST_RuntimeError(Node, "Class %s does not have a method '%s'", sc->Name, Name);
 				return -1;
 			}
 		}
