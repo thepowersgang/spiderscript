@@ -242,14 +242,19 @@ int GetToken(tParser *File)
 	
 	// Equals
 	case '=':
-		// Comparison Equals
-		if( *File->CurPos == '=' ) {
-			File->CurPos ++;
+		if( *File->CurPos != '=' ) {
+			// Assignment Equals
+			ret = TOK_ASSIGN;
+			break;
+		}
+		File->CurPos ++;
+		if( *File->CurPos != '=' ) {
+			// Comparison Equals
 			ret = TOK_EQUALS;
 			break;
 		}
-		// Assignment Equals
-		ret = TOK_ASSIGN;
+		File->CurPos ++;
+		ret = TOK_REFEQUALS;
 		break;
 	
 	// Less-Than
@@ -276,12 +281,17 @@ int GetToken(tParser *File)
 	
 	// Logical NOT
 	case '!':
-		if( *File->CurPos == '=' ) {
-			File->CurPos ++;
+		if( *File->CurPos != '=' ) {
+			ret = TOK_LOGICNOT;
+			break;
+		}
+		File->CurPos ++;
+		if( *File->CurPos != '=' ) {
 			ret = TOK_NOTEQUALS;
 			break;
 		}
-		ret = TOK_LOGICNOT;
+		File->CurPos ++;
+		ret = TOK_REFNOTEQUALS;
 		break;
 	// Bitwise NOT
 	case '~':

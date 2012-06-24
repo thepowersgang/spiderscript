@@ -26,16 +26,18 @@ enum eAST_NodeTypes
 	// 2
 	NODETYPE_VARIABLE,	//!< Variable
 	NODETYPE_CONSTANT,	//!< Runtime Constant
+	NODETYPE_NULL,  	//!< NULL Reference
+	NODETYPE_BOOLEAN,	//!< Boolean constant
 	NODETYPE_STRING,	//!< String Constant
 	NODETYPE_INTEGER,	//!< Integer Constant
 	NODETYPE_REAL,	//!< Real Constant
 	
-	// 7
+	// 9
 	NODETYPE_DEFVAR,	//!< Define a variable (Variable)
 	NODETYPE_ELEMENT,	//!< Reference a class attribute
 	NODETYPE_CAST,	//!< Cast a value to another (Uniop)
 	
-	// 10
+	// 12
 	NODETYPE_RETURN,	//!< Return from a function (reserved word)
 	NODETYPE_BREAK, 	//!< Break out of a loop
 	NODETYPE_CONTINUE,	//!< Next loop iteration
@@ -48,20 +50,22 @@ enum eAST_NodeTypes
 	NODETYPE_CREATEOBJECT,	//!< Create an object
 	NODETYPE_CREATEARRAY,	//!< Create an empty array
 	
-	// 21
+	// 23
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_LOOP,	//!< Looping Construct
 	
-	// 23
+	// 25
 	NODETYPE_INDEX,	//!< Index into an array
 	
-	// 24
+	// 26
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
 	NODETYPE_LOGICALXOR,	//!< Logical XOR operator
 	
-	// 28
+	// 30
+	NODETYPE_REFEQUALS,	//!< References are equal
+	NODETYPE_REFNOTEQUALS,	//!< References differ
 	NODETYPE_EQUALS,	//!< Comparison Equals
 	NODETYPE_NOTEQUALS,	//!< Comparison Not Equals
 	NODETYPE_LESSTHAN,	//!< Comparison Less Than
@@ -69,18 +73,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
-	// 33
+	// 37
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
-	// 37
+	// 41
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
-	// 40
+	// 43
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract
@@ -171,6 +175,7 @@ struct sAST_Node
 		}	Cast;
 		
 		// Used for NODETYPE_REAL, NODETYPE_INTEGER and NODETYPE_STRING
+		tSpiderBool	ConstBoolean;
 		tSpiderInteger	ConstInt;
 		tSpiderReal	ConstReal;
 		tSpiderString	*ConstString;
@@ -199,7 +204,8 @@ extern tAST_Node	*AST_NewNop(tParser *Parser);
 extern tAST_Node	*AST_NewString(tParser *Parser, const char *String, int Length);
 extern tAST_Node	*AST_NewInteger(tParser *Parser, int64_t Value);
 extern tAST_Node	*AST_NewReal(tParser *Parser, double Value);
-extern tAST_Node	*AST_NewNull(tParser *Parser);
+extern tAST_Node	*AST_NewNullReference(tParser *Parser);
+extern tAST_Node	*AST_NewBoolean(tParser *Parser, int Value);
 
 extern tAST_Node	*AST_NewVariable(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewDefineVar(tParser *Parser, int Type, const char *Name);

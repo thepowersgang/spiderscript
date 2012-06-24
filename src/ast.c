@@ -266,6 +266,7 @@ void AST_FreeNode(tAST_Node *Node)
 	case NODETYPE_EQUALS:	case NODETYPE_NOTEQUALS:
 	case NODETYPE_LESSTHAN:	case NODETYPE_LESSTHANEQUAL:
 	case NODETYPE_GREATERTHAN:	case NODETYPE_GREATERTHANEQUAL:
+	case NODETYPE_REFEQUALS:	case NODETYPE_REFNOTEQUALS:
 		AST_FreeNode( Node->BinOp.Left );
 		AST_FreeNode( Node->BinOp.Right );
 		break;
@@ -282,6 +283,8 @@ void AST_FreeNode(tAST_Node *Node)
 		break;
 	case NODETYPE_INTEGER:
 	case NODETYPE_REAL:
+	case NODETYPE_NULL:
+	case NODETYPE_BOOLEAN:
 		Node->ValueCache = NULL;
 		break;
 	}
@@ -464,6 +467,18 @@ tAST_Node *AST_NewReal(tParser *Parser, double Value)
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_REAL, 0);
 	ret->ConstReal = Value;
 	return ret;
+}
+
+tAST_Node *AST_NewBoolean(tParser *Parser, int Value)
+{
+	tAST_Node *ret = AST_int_AllocateNode(Parser, NODETYPE_BOOLEAN, 0);
+	ret->ConstBoolean = !!Value;
+	return ret;
+}
+
+tAST_Node *AST_NewNullReference(tParser *Parser)
+{
+	return AST_int_AllocateNode(Parser, NODETYPE_NULL, 0);
 }
 
 /**

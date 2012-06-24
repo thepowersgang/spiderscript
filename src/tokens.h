@@ -87,6 +87,7 @@ enum eTokens
 	TOK_ELEMENT,
 	
 	// Comparisons
+	TOK_REFEQUALS, TOK_REFNOTEQUALS,
 	TOK_EQUALS, TOK_NOTEQUALS,
 	TOK_LT,	TOK_LTE,
 	TOK_GT,	TOK_GTE,
@@ -126,7 +127,7 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_IDENT",
 
 	"TOK_RWD_INCLUDE",
-		
+	
 	"TOK_RWD_FUNCTION",
 	"TOK_RWD_CLASS",
 	"TOK_RWD_NAMESPACE",
@@ -153,6 +154,7 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_SCOPE",
 	"TOK_ELEMENT",
 	
+	"TOK_REFEQUALS", "TOK_REFNOTEQUALS",
 	"TOK_EQUALS",	"TOK_NOTEQUALS",
 	"TOK_LT",	"TOK_LTE",
 	"TOK_GT",	"TOK_GTE",

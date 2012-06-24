@@ -735,6 +735,53 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		CHECK_IF_NEEDED(1);
 		break;
 
+	// Reference Stuff
+	case NODETYPE_REFEQUALS:	if(!op)	op = 1;
+	case NODETYPE_REFNOTEQUALS:	if(!op)	op = 2;
+		op --;
+		// Left (because it's the output type)
+		ret = AST_ConvertNode(Block, Node->BinOp.Left, 1);
+		if(ret)	return ret;
+		ret = _StackPop(Block, Node->BinOp.Left, SS_DATATYPE_UNDEF, NULL);
+		if(ret < 0)	return -1;
+		type = ret;	// Save
+
+		if( SS_GETARRAYDEPTH(type) )
+			;	// Array - can be ref-compared
+		else if(SS_ISTYPEOBJECT(type))
+			;	// Object - OK too
+		else if( type == SS_DATATYPE_STRING )
+			;	// Strings - yup
+		else {
+			// Value type - nope.avi
+			AST_RuntimeError(Node, "Can't use reference comparisons on value types");
+			return -1;
+		}
+
+		if( Node->BinOp.Right->Type != NODETYPE_NULL )
+		{
+			// Right
+			ret = AST_ConvertNode(Block, Node->BinOp.Right, 1);
+			if(ret)	return ret;
+			ret = _StackPop(Block, Node->BinOp.Right, type, NULL);
+			if(ret < 0)	return -1;
+			
+		}
+		else
+		{
+			Bytecode_AppendConstNull(Block->Handle, type);
+		}
+		if( op == 0 )
+			Bytecode_AppendBinOp(Block->Handle, BC_OP_REFEQUALS);
+		else
+			Bytecode_AppendBinOp(Block->Handle, BC_OP_REFNOTEQUALS);
+		
+		ret = _StackPush(Block, Node, SS_DATATYPE_BOOLEAN, NULL);
+		if(ret < 0)	return -1;
+		
+		CHECK_IF_NEEDED(1);
+		break;
+
 	// Logic
 	case NODETYPE_LOGICALAND:	if(!op)	op = BC_OP_LOGICAND;
 	case NODETYPE_LOGICALOR:	if(!op)	op = BC_OP_LOGICOR;

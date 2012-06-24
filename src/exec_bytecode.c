@@ -133,17 +133,13 @@ int Bytecode_int_GetSpiderValue(tBC_StackEnt *Ent, void **Dest)
 		*Dest = &Ent->Boolean;
 		break;
 	case SS_DATATYPE_STRING:
-		// TODO: Do I need to do _Reference here?
-//		SpiderScript_ReferenceString(Ent->String);
 		*Dest = Ent->String;
 		break;
 	default:
 		if( SS_GETARRAYDEPTH(Ent->Type) ) {
-//			SpiderScript_ReferenceArray(Ent->Array);
 			*Dest = Ent->Array;
 		}
 		else if( SS_ISTYPEOBJECT(Ent->Type) ) {
-//			SpiderScript_ReferenceObject(Ent->Object);
 			*Dest = Ent->Object;
 		}
 		else {
@@ -437,7 +433,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	 int	local_var_count = Fcn->BCFcn->MaxVariableCount;
 	tBC_StackEnt	*local_vars;
 	 int	type;
-	void	*ptr;
+	void	*ptr, *ptr2;
 
 	if( ArgCount > Fcn->ArgumentCount )	return -1;
 	DEBUG_F("Fcn->ArgumentCount = %i\n", Fcn->ArgumentCount);
@@ -690,7 +686,13 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		case BC_OP_LOADNULL:
 			STATE_HDR();
 			DEBUG_F("LOADNULL 0x%x\n", OP_INDX(op));
-			if( !SS_ISTYPEOBJECT( OP_INDX(op) ) ) {
+			if( SS_GETARRAYDEPTH( OP_INDX(op) ) )
+				;
+			else if( SS_ISTYPEOBJECT( OP_INDX(op) ) )
+				;
+			else if( OP_INDX(op) == SS_DATATYPE_STRING )
+				;
+			else {
 				AST_RuntimeError(NULL, "LOADNULL with non-object 0x%x", OP_INDX(op));
 				nextop = NULL;
 				break;
@@ -796,6 +798,39 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 				nextop = NULL;
 				break;
 			}
+			PUT_STACKVAL(val1);
+			break;
+
+		// Reference comparisons
+		case BC_OP_REFEQUALS:
+		case BC_OP_REFNOTEQUALS:
+			STATE_HDR();
+			DEBUG_F("%s", (op->Operation == BC_OP_REFEQUALS) ? "REFEQUALS" : "REFNOTEQUALS");
+			GET_STACKVAL(val1);
+			GET_STACKVAL(val2);
+			DEBUG_F(" ("); PRINT_STACKVAL(val1); DEBUG_F(")");
+			DEBUG_F(" ("); PRINT_STACKVAL(val2); DEBUG_F(")");
+
+			if( val1.Type != val2.Type ) {
+				AST_RuntimeError(NULL, "Type mismatch in REF(NOT)EQUALS (0x%x != 0x%x)",
+					val1.Type, val2.Type);
+				nextop = NULL;
+				break;
+			}
+
+			Bytecode_int_GetSpiderValue(&val1, &ptr);
+			Bytecode_int_GetSpiderValue(&val2, &ptr2);
+
+			Bytecode_int_DerefStackValue(&val1);
+			Bytecode_int_DerefStackValue(&val2);
+
+			val1.Type = SS_DATATYPE_BOOLEAN;
+			if( op->Operation == BC_OP_REFEQUALS )
+				val1.Boolean = (ptr == ptr2);
+			else
+				val1.Boolean = (ptr != ptr2);
+			DEBUG_F(" = ("); PRINT_STACKVAL(val1); DEBUG_F(")\n");
+
 			PUT_STACKVAL(val1);
 			break;
 

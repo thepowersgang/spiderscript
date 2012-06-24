@@ -742,9 +742,17 @@ tAST_Node *Parse_DoExpr2(tParser *Parser)
 
 	while( cont )
 	{
+//		if( cont )
+//			SyntaxError(Parser, 0, "Chaining comparisons doesn't do what you think it does");
 		// Check token
 		switch(GetToken(Parser))
 		{
+		case TOK_REFEQUALS:
+			ret = AST_NewBinOp(Parser, NODETYPE_REFEQUALS, ret, _next(Parser));
+			break;
+		case TOK_REFNOTEQUALS:
+			ret = AST_NewBinOp(Parser, NODETYPE_REFNOTEQUALS, ret, _next(Parser));
+			break;
 		case TOK_EQUALS:
 			ret = AST_NewBinOp(Parser, NODETYPE_EQUALS, ret, _next(Parser));
 			break;
@@ -997,11 +1005,20 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 		return Parse_GetString(Parser);
 	case TOK_INTEGER:
 		return Parse_GetNumeric(Parser);
-	
 	case TOK_REAL:
 		GetToken(Parser);
 		return AST_NewReal( Parser, atof(Parser->TokenStr) );
-	
+
+	case TOK_RWD_TRUE:
+		GetToken(Parser);
+		return AST_NewBoolean( Parser, 1 );
+	case TOK_RWD_FALSE:
+		GetToken(Parser);
+		return AST_NewBoolean( Parser, 0 );
+	case TOK_RWD_NULL:
+		GetToken(Parser);
+		return AST_NewNullReference( Parser );
+
 	case TOK_IDENT:
 		return Parse_GetIdent(Parser, GETIDENTMODE_VALUE, NULL);
 	case TOK_VARIABLE:
