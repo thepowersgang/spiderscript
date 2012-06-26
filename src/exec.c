@@ -2,8 +2,8 @@
 * SpiderScript Library
 * by John Hodge (thePowersGang)
 * 
-* bytecode_makefile.c
-* - Generate a bytecode file
+* exec.c
+* - Execution handlers
 */
 #include <stdlib.h>
 #include "common.h"
@@ -120,7 +120,9 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 	const tSpiderObject	*Object;
 
 	if( NArguments < 1 || !SS_ISTYPEOBJECT(ArgTypes[0]) || !Arguments[0] ) {
-		AST_RuntimeError(NULL, "Method call with invalid `this` argument");
+		// NOTE: It's a bug, because this is an external API function
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			strdup("Method call with invalid `this` argument"));
 		return -1;
 	}
 	Object = Arguments[0];
@@ -290,16 +292,20 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	tSpiderObject	*Object;
 
 	if( NArguments < 1 ) {
-		AST_RuntimeError(NULL, "Method call with no `this` argument");
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+			strdup("Method call with no `this` argument"));
 		return -1;
 	}
 	if( !SS_ISTYPEOBJECT(ArgTypes[0]) ) {
-		AST_RuntimeError(NULL, "Method call with invalid `this` argument (0x%x)",
-			ArgTypes[0]);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
+			mkstr("Method call with invalid `this` argument (0x%x)", ArgTypes[0])
+			);
 		return -1;
 	}
 	if( !Arguments[0] ) {
-		AST_RuntimeError(NULL, "Method call with invalid `this` argument (NULL)");
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF,
+			strdup("Method call with invalid `this` argument (NULL)")
+			);
 		return -1;
 	}
 	Object = (void*)Arguments[0];
@@ -326,14 +332,17 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			}
 			if( !sf )
 			{
-				AST_RuntimeError(NULL, "Class '%s' does not have a method id %i",
-						sc->Name, MethodID);
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
+					mkstr("Class '%s' does not have a method id %i", sc->Name, MethodID)
+					);
 				return -1;
 			}
 
 			if( NArguments != sf->ArgumentCount ) {
-				AST_RuntimeError(NULL, "%s->#%i requires %i arguments, %i given",
-					sc->Name, MethodID, sf->ArgumentCount, NArguments);
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+					mkstr("%s->#%i requires %i arguments, %i given",
+						sc->Name, MethodID, sf->ArgumentCount, NArguments)
+					);
 				return -1;
 			}
 
@@ -342,8 +351,10 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			{
 				if( ArgTypes[i] != sf->Arguments[i].Type )
 				{
-					AST_RuntimeError(NULL, "Argument %i of %s->%s should be %i, got %i",
-						i+1, sc->Name, sf->Name, sf->Arguments[i].Type, ArgTypes[i]);
+					SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+						mkstr("Argument %i of %s->%s should be %i, got %i",
+							i+1, sc->Name, sf->Name, sf->Arguments[i].Type, ArgTypes[i])
+						);
 					return -1;
 				}
 			}
@@ -360,8 +371,9 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			// Error
 			if( !fcn )
 			{
-				AST_RuntimeError(NULL, "Class '%s' does not have a method #%i",
-					nc->Name, MethodID);
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
+					mkstr("Class '%s' does not have a method #%i", nc->Name, MethodID)
+					);
 				return -1;
 			}
 
@@ -370,8 +382,10 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			 int	bVaraible = (fcn->ArgTypes[i] == -1);
 
 			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) ) {
-				AST_RuntimeError(NULL, "Argument count mismatch (%i passed, %i%s expected)",
-					1+NArguments, i, (bVaraible?"+":""));
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+					mkstr("Argument count mismatch (%i passed, %i%s expected)",
+						1+NArguments, i, (bVaraible?"+":""))
+					);
 				return -1;
 			}
 
@@ -381,15 +395,19 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			{
 				if( ArgTypes[i] != fcn->ArgTypes[i] )
 				{
-					AST_RuntimeError(NULL, "Argument type mismatch (0x%x, expected 0x%x)",
-						ArgTypes[i], fcn->ArgTypes[i]);
+					SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+						mkstr("Argument type mismatch (0x%x, expected 0x%x)",
+							ArgTypes[i], fcn->ArgTypes[i])
+						);
 					return -1;
 				}
 			}
 		}
 		else
 		{
-			AST_RuntimeError(NULL, "Method call on non-object");
+			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
+				strdup("Method call on non-object")
+				);
 			return -1;
 		}
 	}
@@ -409,8 +427,9 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 		return fcn->Handler(Script, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else {
-		AST_RuntimeError(NULL, "BUG - Method call 0x%x->#%i did not resolve",
-			Object->TypeCode, MethodID);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("BUG - Method call 0x%x->#%i did not resolve",Object->TypeCode, MethodID)
+			);
 		return -1;
 	}
 		
@@ -442,7 +461,9 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 	}
 
 	if( !RetData ) {
-		AST_RuntimeError(NULL, "Object being discarded, not creating");
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			strdup("Object being discarded, not creating")
+			);
 		return -1;
 	}
 
@@ -508,7 +529,9 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 	}
 	else	// Not found?
 	{
-		fprintf(stderr, "Undefined reference to class 0x%x\n", Type);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
+			mkstr("Undefined reference to class 0x%x\n", Type)
+			);
 		return -1;
 	}
 }

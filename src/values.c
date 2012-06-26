@@ -13,9 +13,6 @@
 #include <stdarg.h>
 #include <inttypes.h>
 
-// === IMPORTS ===
-extern void	AST_RuntimeError(void *Node, const char *Format, ...);
-
 // === PROTOTYPES ===
 
 // === CODE ===
@@ -129,7 +126,7 @@ void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 				n_att ++;
 		}
 		else {
-			AST_RuntimeError(NULL, "Unknown object type 0x%x", Object->TypeCode);
+//			assert(nc || sc);
 			return ;
 		}
 		

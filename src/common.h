@@ -24,7 +24,8 @@ struct sSpiderScript
 	tScript_Class	*FirstClass;
 	tScript_Class	*LastClass;
 	
-//	char	*CurNamespace;	//!< Current namespace prefix (NULL = Root) - No trailing .
+	 int	CurException;
+	char	*CurExceptionString;
 };
 
 struct sScript_Arg
@@ -71,6 +72,8 @@ struct sScript_Class
 
 	char	Name[];
 };
+
+extern char	*mkstr(const char *Format, ...);
 
 extern int	SpiderScript_BytecodeScript(tSpiderScript *Script);
 extern tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type);

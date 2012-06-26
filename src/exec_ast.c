@@ -18,9 +18,6 @@
  int	SpiderScript_int_GetTypeSize(int Type);
 
 // === PROTOTYPES ===
-// - Errors
-void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
-void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 
 // === GLOBALS ===
  int	giNextBlockIdent = 1;
@@ -71,7 +68,9 @@ tSpiderInteger AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpi
 	case NODETYPE_NEGATE:	return -Value;
 	case NODETYPE_BWNOT:	return ~Value;
 	default:
-		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Integer unknown op %i", Op);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("Exec,UniOP,Integer unknown op %i", Op)
+			);
 		return 0;
 	}
 	
@@ -83,7 +82,9 @@ tSpiderReal AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSp
 	{
 	case NODETYPE_NEGATE:	return -Value;
 	default:
-		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,UniOP,Real unknown op %i", Operation);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("Exec,UniOP,Real unknown op %i", Operation)
+			);
 		return 0;
 	}
 }
@@ -213,7 +214,9 @@ int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *RetData,
 		*ret_i = (Left << right) | (Left >> (64-right));
 		return SS_DATATYPE_INTEGER;
 	default:
-		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("Exec,BinOp,Integer unknown op %i", Op)
+			);
 		return -1;
 	}
 }
@@ -244,7 +247,9 @@ int AST_ExecuteNode_BinOp_Real(tSpiderScript *Script, void *RetData,
 	case NODETYPE_MULTIPLY:	*ret_r = Left * right;	return SS_DATATYPE_REAL;
 	case NODETYPE_DIVIDE:	*ret_r = Left / right;	return SS_DATATYPE_REAL;
 	default:
-		AST_RuntimeError(NULL, "SpiderScript internal error: Exec,BinOP,Integer unknown op %i", Op);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("Exec,BinOp,Real unknown op %i", Op)
+			);
 		return -1;
 	}
 }
@@ -282,189 +287,17 @@ int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, void *RetData,
 		if( RightType != SS_DATATYPE_STRING )	return -1;
 		*ret_s = SpiderScript_StringConcat(Left, right_s);
 		return SS_DATATYPE_STRING;
+
+	// TODO: Modulo = python-esque printf?
+	// TODO: Multiply = repeat?	
+
 	default:
-		AST_RuntimeError(NULL, "Unknown operation on string (%i)", Op);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("Exec,BinOp,String unknown op %i", Op)
+			);
 		return -1;
 	}
 }
-
-#if 0
-tSpiderValue *AST_ExecuteNode_BinOp(tSpiderScript *Script, tAST_Node *Node, int Operation, tSpiderValue *Left, tSpiderValue *Right)
-{
-	tSpiderValue	*preCastValue = Right;
-	tSpiderValue	*ret;
-	
-	// Convert types
-	if( Left && Right && Left->Type != Right->Type )
-	{
-		#if 0
-		// Object types
-		// - Operator overload functions
-		if( Left->Type == SS_DATATYPE_OBJECT )
-		{
-			const char	*fcnname;
-			switch(Operation)
-			{
-			case NODETYPE_ADD:	fcnname = "+";	break;
-			case NODETYPE_SUBTRACT:	fcnname = "-";	break;
-			case NODETYPE_MULTIPLY:	fcnname = "*";	break;
-			case NODETYPE_DIVIDE:	fcnname = "/";	break;
-			case NODETYPE_MODULO:	fcnname = "%";	break;
-			case NODETYPE_BWAND:	fcnname = "&";	break;
-			case NODETYPE_BWOR: 	fcnname = "|";	break;
-			case NODETYPE_BWXOR:	fcnname = "^";	break;
-			case NODETYPE_BITSHIFTLEFT:	fcnname = "<<";	break;
-			case NODETYPE_BITSHIFTRIGHT:fcnname = ">>";	break;
-			case NODETYPE_BITROTATELEFT:fcnname = "<<<";	break;
-			default:	fcnname = NULL;	break;
-			}
-			
-			if( fcnname )
-			{
-				ret = Object_ExecuteMethod(Left->Object, fcnname, Right);
-				if( ret != ERRPTR )
-					return ret;
-				// Fall through and try casting (which will usually fail)
-			}
-		}
-		#endif
-		
-		// If implicit casts are allowed, convert Right to Left's type
-		if(Script->Variant->bImplicitCasts)
-		{
-			Right = SpiderScript_CastValueTo(Left->Type, Right);
-			if(Right == ERRPTR)
-				return ERRPTR;
-		}
-		// If statically typed, this should never happen, but catch it anyway
-		else {
-			AST_RuntimeError(Node, "Implicit cast not allowed (from %i to %i)", Right->Type, Left->Type);
-			return ERRPTR;
-		}
-	}
-	
-	// NULL Check
-	if( Left == NULL || Right == NULL ) {
-		if(Right && Right != preCastValue)	free(Right);
-		return NULL;
-	}
-
-	// Catch comparisons
-	switch(Operation)
-	{
-	case NODETYPE_EQUALS:
-	case NODETYPE_NOTEQUALS:
-	case NODETYPE_LESSTHAN:
-	case NODETYPE_GREATERTHAN:
-	case NODETYPE_LESSTHANEQUAL:
-	case NODETYPE_GREATERTHANEQUAL: {
-		 int	cmp;
-		ret = NULL;
-		// Do operation
-		switch(Left->Type)
-		{
-		// - String Compare (does a strcmp, well memcmp)
-		case SS_DATATYPE_STRING:
-			// Call memcmp to do most of the work
-			cmp = memcmp(
-				Left->String.Data, Right->String.Data,
-				(Left->String.Length < Right->String.Length) ? Left->String.Length : Right->String.Length
-				);
-			// Handle reaching the end of the string
-			if( cmp == 0 ) {
-				if( Left->String.Length == Right->String.Length )
-					cmp = 0;
-				else if( Left->String.Length < Right->String.Length )
-					cmp = 1;
-				else
-					cmp = -1;
-			}
-			break;
-		
-		// - Integer Comparisons
-		case SS_DATATYPE_INTEGER:
-			if( Left->Integer == Right->Integer )
-				cmp = 0;
-			else if( Left->Integer < Right->Integer )
-				cmp = -1;
-			else
-				cmp = 1;
-			break;
-		// - Real Number Comparisons
-		case SS_DATATYPE_REAL:
-			cmp = (Left->Real - Right->Real) / Right->Real * 10000;	// < 0.1% difference is equality
-			break;
-		default:
-			AST_RuntimeError(Node, "TODO - Comparison of type %i", Left->Type);
-			ret = ERRPTR;
-			break;
-		}
-		
-		// Error check
-		if( ret != ERRPTR )
-		{
-			if(Left->ReferenceCount == 1 && Left->Type != SS_DATATYPE_STRING)
-				SpiderScript_ReferenceValue(ret = Left);
-			else
-				ret = SpiderScript_CreateInteger(0);
-			
-			// Create return
-			switch(Operation)
-			{
-			case NODETYPE_EQUALS:	ret->Integer = (cmp == 0);	break;
-			case NODETYPE_NOTEQUALS:	ret->Integer = (cmp != 0);	break;
-			case NODETYPE_LESSTHAN:	ret->Integer = (cmp < 0);	break;
-			case NODETYPE_GREATERTHAN:	ret->Integer = (cmp > 0);	break;
-			case NODETYPE_LESSTHANEQUAL:	ret->Integer = (cmp <= 0);	break;
-			case NODETYPE_GREATERTHANEQUAL:	ret->Integer = (cmp >= 0);	break;
-			default:
-				AST_RuntimeError(Node, "Exec,CmpOp unknown op %i", Operation);
-				SpiderScript_DereferenceValue(ret);
-				ret = ERRPTR;
-				break;
-			}
-		}
-		if(Right && Right != preCastValue)	free(Right);
-		return ret;
-		}
-
-	// Fall through and sort by type instead
-	default:
-		break;
-	}
-	
-	// Do operation
-	switch(Left->Type)
-	{
-	// String Concatenation
-	case SS_DATATYPE_STRING:
-		switch(Operation)
-		{
-		case NODETYPE_ADD:	// Concatenate
-			ret = SpiderScript_StringConcat(Left, Right);
-			break;
-		// TODO: Support python style 'i = %i' % i ?
-		// Might do it via a function call
-		// Implement it via % with an array, but getting past the cast will be fun
-//		case NODETYPE_MODULUS:
-//			break;
-		// TODO: Support string repititions
-//		case NODETYPE_MULTIPLY:
-//			break;
-		}
-		break;
-	
-	default:
-		AST_RuntimeError(Node, "BUG - Invalid operation (%i) on type (%i)", Operation, Left->Type);
-		ret = ERRPTR;
-		break;
-	}
-	
-	if(Right && Right != preCastValue)	free(Right);
-	
-	return ret;
-}
-#endif
 
 int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 	tSpiderArray *Array, int Index, int NewType, void *NewData)
@@ -473,19 +306,20 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 
 	// Quick sanity check
 	if( !Array ) {
-		AST_RuntimeError(NULL, "Indexing NULL, not a good idea");
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, strdup("Indexed a NULL array"));
 		return -1;
 	}
 
 	// Array?
 	if( Index < 0 || Index >= Array->Length ) {
-		AST_RuntimeError(NULL, "Array index out of bounds %i not in (0, %i]",
-			Index, Array->Length);
+		// TODO: Include extra information
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_INDEX_OOB, strdup("Index out of bounds"));
 		return -1;
 	}
 
-	size = SpiderScript_int_GetTypeSize(Array->Type);	
+	size = SpiderScript_int_GetTypeSize(Array->Type);
 	if( size == -1 ) {
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG, strdup("Array type unhandled"));
 		return -1;
 	}
 
@@ -493,7 +327,8 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 	{
 		if( NewType != Array->Type ) {
 			// TODO: Implicit casting?
-			AST_RuntimeError(NULL, "Type mismatch assiging to array element");
+			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
+				strdup("Type mismatch assiging to array element"));
 			return -1;
 		}
 		if( SS_GETARRAYDEPTH(NewType) ) {
@@ -540,10 +375,11 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 /**
  * \brief Get/Set the value of an element/attribute of a class
  * \param Script	Executing script
- * \param Node	Current execution node (only used for AST_RuntimeError)
+ * \param RetData	Location to store element value (if requested)
  * \param Object	Object value
  * \param ElementName	Name of the attribute to be accessed
- * \param SaveValue	Value to set the element to (if ERRPTR, element value is returned)
+ * \param NewType	Type of data to save (used for validation)
+ * \param NewData	Pointer to data to store in element
  */
 int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 	tSpiderObject *Object, const char *ElementName, int NewType, void *NewData)
@@ -552,7 +388,8 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 	const char	*className;
 
 	if( !Object ) {
-		AST_RuntimeError(NULL, "Tried to access an element of NULL");
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF,
+			strdup("Tried to access an element of NULL"));
 		return -1;
 	}
 	
@@ -569,7 +406,9 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 				break ;
 		}
 		if( i == nc->NAttributes ) {
-			AST_RuntimeError(NULL, "No attribute %s of %s", ElementName, nc->Name);
+			SpiderScript_ThrowException(Script, SS_EXCEPTION_BADELEMENT,
+				mkstr("No attribute %s of %s", ElementName, nc->Name)
+				);
 			return -1;
 		}
 		type = nc->AttributeDefs[i].Type;
@@ -583,28 +422,37 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 				break;
 		}
 		if( !at ) {
-			AST_RuntimeError(NULL, "No attribute %s of %s", ElementName, sc->Name);
+			SpiderScript_ThrowException(Script, SS_EXCEPTION_BADELEMENT,
+				mkstr("No attribute %s of %s", ElementName, nc->Name)
+				);
 			return -1;
 		}
 		type = at->Type;
 		className = sc->Name;
 	}
 	else {
-		AST_RuntimeError(NULL, "Unable to get element of type %i", Object->TypeCode);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
+			mkstr("Unable to get element of type 0x%x", Object->TypeCode)
+			);
 		return -1;
 	}
 	
 	int size = SpiderScript_int_GetTypeSize(type);
 	if( size == -1 ) {
-		AST_RuntimeError(NULL, "Type of element %s of %s is invalid (%i)", ElementName, className, type);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
+			mkstr("Type of element %s of %s is invalid (%i)",
+				ElementName, className, type)
+			);
 		return -1;
 	}
 	
 	if( NewData )
 	{
 		if( type != NewType ) {
-			AST_RuntimeError(NULL, "Assignment of element '%s' of '%s' mismatch (%i should be %i)",
-				ElementName, className, NewType, type);
+			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
+				mkstr("Assignment of element '%s' of '%s' mismatch (%i should be %i)",
+					ElementName, className, NewType, type)
+				);
 			return -1;
 		}
 		if( SS_GETARRAYDEPTH(NewType) ) {

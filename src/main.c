@@ -9,6 +9,7 @@
 #include "common.h"
 #include "ast.h"
 #include "bytecode_gen.h"
+#include <stdarg.h>
 
 // === IMPORTS ===
 extern  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
@@ -134,3 +135,17 @@ void SpiderScript_Free(tSpiderScript *Script)
 
 	free(Script);
 }
+
+char *mkstr(const char *format, ...)
+{
+	va_list	args;
+	va_start(args, format);
+	int len = vsnprintf(NULL, 0, format, args);
+	va_end(args);
+	char *ret = malloc(len + 1);
+	va_start(args, format);
+	vsnprintf(ret, len+1, format, args);
+	va_end(args);
+	return ret;
+}
+
