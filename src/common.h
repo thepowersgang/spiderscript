@@ -78,8 +78,12 @@ extern char	*mkstr(const char *Format, ...);
 extern int	SpiderScript_BytecodeScript(tSpiderScript *Script);
 extern tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type);
 extern tScript_Class *SpiderScript_GetClass_Script(tSpiderScript *Script, int Type);
-extern tSpiderFunction	*gpExports_First;
-extern tSpiderClass	*gpExports_FirstClass;
+
+extern tSpiderFunction	*gapExportedFunctions[];
+extern int	giNumExportedFunctions;
+extern tSpiderClass	*gapExportedClasses[];
+extern int	giNumExportedClasses;
+
 extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	void *RetValue, int NArgs, const int *ArgTypes, const void * const Args[]);
 

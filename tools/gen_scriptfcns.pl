@@ -3,52 +3,164 @@ use strict;
 use warnings;
 
 my $gIdentRegex = qr/[A-Za-z_]([A-Za-z_]+)/;
+my $cRegexNamespace = qr/^\@NAMESPACE ([A-Za-z]+)$/;
+my $cRegexClass     = qr/^\@CLASS ($gIdentRegex)$/;
+my $cRegexArgList   = qr/\(([^\)]*)\)/;
+my $cRegexFunction  = qr/^\@FUNCTION ([^\s]+)\s+([A-Za-z_0-9]+)\s*$cRegexArgList$/;
+my $cRegexConstructor = qr/^\@CONSTRUCTOR \s*$cRegexArgList$/;
 
-if( $ARGV[0] eq "-makeheader" or $ARGV[0] eq "-makeheader-lang" )
+sub make_path
 {
-	open(OUTFILE, ">", $ARGV[1]) or die "Couldn't open ", $ARGV[1], " for writing";
+	my @namespace_stack = @{$_[0]};
+	my $name = $_[1];
+	my $rv = "";
+	foreach my $ns (@namespace_stack) {
+		$rv .= $ns."@";
+	}
+	$rv .= $name;
+	return $rv;
+}
 
-	my %gClassIndicies;
-	my $classcount = 0;
+sub make_sym
+{
+	my $ret = $_[0];
+	$ret =~ s/@/_/g;
+	return $ret;
+}
 
-	for my $i (2 .. scalar @ARGV-1)
+sub scan_file
+{
+	my @namespace_stack;
+	my $infile = $_[0];
+	my $line = 0;
+	my @classnames;
+	my @funcnames;
+	my $bInClass = 0;
+	my $bInFunction = 0;
+	
+	# Quick intial pass to turn classes into numbers
+	open(INFILE, "<", $infile) or die "Couldn't open ", $infile, " for reading";
+	while(<INFILE>)
 	{
-		my @namespace_stack;
-		my $infile = $ARGV[$i];
-		my $line = 0;
-		
-		# Quick intial pass to turn classes into numbers
-		open(INFILE, "<", $infile) or die "Couldn't open ", $infile, " for reading";
-		while(<INFILE>)
+		$line ++;
+		s#//.*$##;	# Kill comments
+		s/^\s+//g;
+		s/\s+$//g;
+		if( /^[^\@]/ || /^$/ )
 		{
-			$line ++;
-			s#//.*$##;	# Kill comments
-			s/^\s+//g;
-			s/\s+$//g;
-			if( /^\@NAMESPACE / )
-			{
-				/^\@NAMESPACE ([A-Za-z]+)$/ or die "Syntax error on line $line when parsing \@NAMESPACE";
-				push @namespace_stack, $1;
-				next;
+			# ignore!
+		}
+		elsif( /^\@NAMESPACE / )
+		{
+			/$cRegexNamespace/ or die "Syntax error on line $line after \@NAMESPACE";
+			push @namespace_stack, $1;
+			next;
+		}
+		elsif( /^\@CLASS / )
+		{
+			/$cRegexClass/ or die "Syntax error on line $line after \@CLASS";
+			my $name = make_path(\@namespace_stack, $1);
+			push @classnames, $name;
+			$bInClass = 1;
+			next;
+		}
+		elsif( /^\@CONSTRUCTOR/ )
+		{
+			/$cRegexConstructor/ or die "Syntax error on line $line after \@CONSTRUCTOR";
+			$bInFunction = 1;
+			next;
+		}
+		elsif( /^\@DESTRUCTOR/ )
+		{
+			/^\@DESTRUCTOR$/ or die "Syntax error on line $line after \@DESTRUCTOR";
+			$bInFunction = 1;
+			next;
+		}
+		elsif( /^\@FUNCTION / )
+		{
+			/$cRegexFunction/ or die "Syntax error on line $line after \@FUNCTION";
+
+			if( !$bInClass ) {
+				my $name = make_path(\@namespace_stack, $2);
+				push @funcnames, $name;
+			}		
+
+			$bInFunction = 1;
+			next;
+		}
+		elsif( /^\@{/ )
+		{
+		}
+		elsif( /^\@}/ )
+		{
+			if( $bInFunction ) {
+				$bInFunction = 0;
 			}
-			elsif( /^\@CLASS / )
-			{
-				/^\@CLASS ($gIdentRegex)$/ or die "Syntax error on line $line when parsing \@CLASS";
-				my $name = "TYPE_";
-				foreach my $ns (@namespace_stack) {
-					$name .= $ns."_z_";
-				}
-				$name .= $1;
-				$gClassIndicies{$name} = $classcount;
-				$classcount ++;
-				next;
+			elsif( $bInClass ) {
+				$bInClass = 0;
+			}
+			else {
+				pop @namespace_stack;
 			}
 		}
-		close INFILE;
+		elsif( /^\@RETURN/ )
+		{
+			# Ignored
+		}
+		else
+		{
+			die "Huh? - ", $_, "\n";
+		}
+	}
+	close INFILE;
+
+	return (\@classnames, \@funcnames);
+}
+
+my @infiles;
+my $gOutFilePath;
+my $gHeaderFile = "types.gen.h";
+my $gMode = "convert";
+
+for( my $i = 0; $i < (scalar @ARGV); $i ++ )
+{
+	my $arg = $ARGV[$i];
+
+	if( $arg =~ /^\-[a-zA-Z]/ ) {
+		($arg eq "-H") and $gHeaderFile = $ARGV[++$i];
+		next ;
+	}
+	
+	if( $arg =~ /^\-\-/ ) {
+		($arg eq "--mkhdr")      and $gMode = "mkhdr";
+		($arg eq "--mkhdr-lang") and $gMode = "mkhdr-lang";
+		($arg eq "--mkidx")      and $gMode = "mkidx";
+		next;
 	}
 
+	if( !defined $gOutFilePath ) {
+		$gOutFilePath = $arg;
+	}
+	else {
+		push @infiles, $arg;
+	}
+}
+
+
+if( $gMode =~ /^mkhdr/ )
+{
+	my @gClasses;
+
+	for my $i (0 .. scalar @infiles-1)
+	{
+		my @refl = scan_file $infiles[$i];
+		push @gClasses, @{$refl[0]};
+	}
+
+	open(OUTFILE, ">", $gOutFilePath) or die "Couldn't open ", $gOutFilePath, " for writing";
+
 	my $flag = "0x1000";
-	if( $ARGV[0] eq "-makeheader-lang" ) {
+	if( $gMode =~ /lang$/ ) {
 		$flag = "0x3000";
 	}
 	else {
@@ -57,44 +169,63 @@ if( $ARGV[0] eq "-makeheader" or $ARGV[0] eq "-makeheader-lang" )
 		print OUTFILE "#include \"".dirname(__FILE__)."/../src/export_types.gen.h\"\n";
 	}
 
-	foreach my $name (keys %gClassIndicies) {
-		print OUTFILE "#define $name ($flag|".($classcount-1-$gClassIndicies{$name}).")\n";
+	my $classcount = scalar @gClasses;
+	for my $index (0 .. $classcount-1) {
+		my $name = "TYPE_".$gClasses[$index];
+		$name =~ s/@/_z_/g;
+		print OUTFILE "#define $name ($flag|".$index.")\n";
 	}
+	close(OUTFILE);
 	exit ;
 }
 
-my $infile;
-my $outfile;
-my $gSymbolPrefix = "Exports";
-my $gHeaderFile = "types.gen.h";
-
-for( my $i = 0; $i < (scalar @ARGV); $i ++ )
+if( $gMode eq "mkidx" )
 {
-	my $arg = $ARGV[$i];
+	my @gClasses;
+	my @gFunctions;
 
-	if( $arg =~ /^\-[a-zA-Z]/ ) {
-		($arg eq "-p") and $gSymbolPrefix = $ARGV[++$i];
-		($arg eq "-H") and $gHeaderFile = $ARGV[++$i];
-		next ;
+	for my $i (0 .. scalar @infiles-1)
+	{
+		my @refl = scan_file $infiles[$i];
+		push @gClasses,   @{$refl[0]};
+		push @gFunctions, @{$refl[1]};
 	}
 	
-	if( $arg =~ /^\-\-/ ) {
-		next;
+	open(OUTFILE, ">", $gOutFilePath) or die "Couldn't open ", $gOutFilePath, " for writing";
+	
+	print OUTFILE "#include <spiderscript.h>\n";
+	print OUTFILE "#include \"$gHeaderFile\"\n";
+	
+	for my $index (0 .. scalar @gClasses-1) {
+		print OUTFILE "extern tSpiderClass gExports_class_".make_sym($gClasses[$index]).";\n";
 	}
-
-	if( !defined $infile ) {
-		$infile = $ARGV[$i];
+	for my $index (0 .. scalar @gFunctions-1) {
+		print OUTFILE "extern tSpiderFunction gExports_fcn_".make_sym($gFunctions[$index]).";\n";
 	}
-	elsif( !defined $outfile ) {
-		$outfile = $ARGV[$i];
+	print OUTFILE "int giNumExportedClasses = ",scalar @gClasses,";\n";
+	print OUTFILE "int giNumExportedFunctions = ",scalar @gFunctions,";\n";
+	
+	print OUTFILE "tSpiderClass *gapExportedClasses[] = {\n";
+	my $classcount = scalar @gClasses;
+	for my $index (0 .. $classcount-1) {
+		print OUTFILE "\t&gExports_class_".make_sym($gClasses[$index]).",\n";
 	}
-	else {
-		die "Unknown / unexpected $arg\n";
+	print OUTFILE "\tNULL\n";
+	print OUTFILE "};\n";
+	
+	print OUTFILE "tSpiderFunction *gapExportedFunctions[] = {\n";
+	for my $index (0 .. scalar @gFunctions - 1) {
+		print OUTFILE "\t&gExports_fcn_".make_sym($gFunctions[$index]).",\n";
 	}
+	print OUTFILE "\tNULL\n";
+	print OUTFILE "};\n";
+	
+	print OUTFILE "\n";
+	close(OUTFILE);
+	exit ;
 }
 
 my $line = 0;
-
 my @namespace_stack = ();
 
 sub gettype
@@ -175,17 +306,18 @@ sub function_header
 	my $symbol = $_[0];
 	my $prev = $_[1];
 	my $fcnname = $_[2];
-	print OUTFILE $indent,"__SFCN_PROTO(".$gSymbolPrefix."_fcn_$symbol);\n";
+	print OUTFILE $indent,"__SFCN_PROTO(Exports_fcn_$symbol);\n";
 	print OUTFILE $indent,"__SFCN_DEF($symbol, $prev, $gFcnRetType_V, \"$fcnname\"";
 	foreach my $arg (@gFcnArgs) {
 		print OUTFILE ", $gFcnArgs_V{$arg}";
 	}
 	print OUTFILE ");\n";
-	print OUTFILE $indent,"__SFCN_PROTO(".$gSymbolPrefix."_fcn_$symbol)\n";
+	print OUTFILE $indent,"__SFCN_PROTO(Exports_fcn_$symbol)\n";
 	print OUTFILE $indent,"{\n";
 	
 	# TODO: Do argument validation
-	foreach my $arg (keys %gFcnArgs_C) {
+	foreach my $arg (keys %gFcnArgs_C)
+	{
 #		$gFcnArgs_V{$arg} eq "-1" and next;
 		my $cast = $gFcnArgs_C{$arg};
 		if( $cast =~ /\*$/ ) {
@@ -196,16 +328,21 @@ sub function_header
 	}
 }
 
+if( scalar @infiles != 1 ) {
+	die "Only one input file allowed for code transformation";
+}
+my $infile = $infiles[0];
+open(INFILE, "<", $infile) or die "Couldn't open ", $infile, " for reading";
+
 # Open output and append header
-open(OUTFILE, ">", $outfile) or die "Couldn't open ", $outfile, " for writing";
+open(OUTFILE, ">", $gOutFilePath) or die "Couldn't open ", $gOutFilePath, " for writing";
 print OUTFILE "#define __SFCN_PROTO(n) int n(tSpiderScript*Script,void*RetData,int NArgs,const int*ArgTypes,const void*const Args[])\n";
-print OUTFILE "#define __SFCN_DEF(i,p,r,n,a...)	tSpiderFunction g",$gSymbolPrefix,"_##i = {.Next=p,.Name=n,.Handler=".$gSymbolPrefix."_fcn_##i,.ReturnType=r,.ArgTypes={a}}\n";
+print OUTFILE "#define __SFCN_DEF(i,p,r,n,a...)	tSpiderFunction gExports_fcn_##i = {.Next=p,.Name=n,.Handler=Exports_fcn_##i,.ReturnType=r,.ArgTypes={a}}\n";
 print OUTFILE "#include <spiderscript.h>\n";
 print OUTFILE "#include <$gHeaderFile>\n";
 
-open(INFILE, "<", $infile) or die "Couldn't open ", $infile, " for reading";
-
 my $has_been_meta = 1;
+my $expecting_open_brace = 0;
 while(<INFILE>)
 {
 	$line ++;
@@ -226,28 +363,42 @@ while(<INFILE>)
 		next ;
 	}
 
+	if( /^\@{/ )
+	{
+		$has_been_meta = 1;
+		if( !$expecting_open_brace ) {
+			die "Unepxected \@{";
+		}
+		$expecting_open_brace = 0;
+		next;
+	}
+	
+	if( $expecting_open_brace ) {
+		die "Expected \@{ before content";
+	}
 	
 	if( /^\@NAMESPACE / )
 	{
 		$has_been_meta = 1;
-		/^\@NAMESPACE ($gIdentRegex)$/ or die "Syntax error on line $line when parsing \@NAMESPACE";
+		/$cRegexNamespace/ or die "Syntax error on line $line when parsing \@NAMESPACE";
 		push @namespace_stack, $1;
 #		print "Namespace level is ".join('@', @namespace_stack)."\n";
+		$expecting_open_brace = 1;
 		next;
 	}
 	elsif( /^\@CLASS / )
 	{
 		$has_been_meta = 1;
-		/^\@CLASS ($gIdentRegex)$/ or die "Syntax error on line $line when parsing \@CLASS";		
+		/$cRegexClass/ or die "Syntax error on line $line when parsing \@CLASS";		
 
 		# TODO: Classes	
 		if( $gCurClass ne "" ) {
 			die "Defining a class within a class at line $line";
 		}
-		$gCurClass = join('@', @namespace_stack)."@".$1;
+		$gCurClass = make_path(\@namespace_stack, $1);
 		$gCurClass_V = "TYPE_".$gCurClass;
 		$gCurClass_V =~ s/@/_z_/g;
-		my $classsym = "g".$gSymbolPrefix."_class_".$gCurClass;
+		my $classsym = "gExports_class_".$gCurClass;
 		$classsym =~ s/@/_/g;
 		print OUTFILE $indent,"extern tSpiderClass $classsym;\n";
 		
@@ -256,6 +407,7 @@ while(<INFILE>)
 		$gClassDestructor = "NULL";
 #		print $gCurClass, " - ", $gCurClass_V, "\n";
 	
+		$expecting_open_brace = 1;
 		next;
 	}
 	elsif( /^\@CONSTRUCTOR/ )
@@ -265,7 +417,7 @@ while(<INFILE>)
 			die "Constructor not in class";
 		}
 		
-		/^\@CONSTRUCTOR \s*\(([^\)]*)\)$/
+		/$cRegexConstructor/
 			or die "Syntax error on line $line when parsing \@CONSTRUCTOR\n";
 		
 		my $argspecs = $1;
@@ -302,10 +454,11 @@ while(<INFILE>)
 		
 		$gFcnRetType_V = $gCurClass_V;
 		$gFcnRetType_C = "tSpiderObject*";
-		$gClassConstructor = "&g".$gSymbolPrefix."_$symbol";		
+		$gClassConstructor = "&gExports_fcn_$symbol";		
 
 		function_header($symbol, "NULL", "__construct");
 
+		$expecting_open_brace = 1;
 		next ;
 	}
 	elsif( /^\@DESTRUCTOR/ )
@@ -325,18 +478,18 @@ while(<INFILE>)
 		$gFcnRetType_V = -1;
 		$gFcnRetType_C = "void";
 
-		$gClassDestructor = $gSymbolPrefix."_fcn_$symbol";	
+		$gClassDestructor = "&Exports_fcn_$symbol";	
 
-		print OUTFILE $indent,"void ".$gSymbolPrefix."_fcn_$symbol(tSpiderObject *this)\n";
+		print OUTFILE $indent,"void Exports_fcn_$symbol(tSpiderObject *this)\n";
 		print OUTFILE $indent,"{\n";
 		
+		$expecting_open_brace = 1;
 		next ;
 	}
 	elsif( /^\@FUNCTION / )
 	{
 		$has_been_meta = 1;
-		/^\@FUNCTION ([^\s]+)\s+([A-Za-z_0-9]+)\s*\(([^\)]*)\)$/
-			or die "Syntax error on line $line when parsing \@FUNCTION\n";
+		/$cRegexFunction/ or die "Syntax error on line $line when parsing \@FUNCTION\n";
 		
 		my $rettype = $1;
 		my $fcnname = $2;
@@ -348,19 +501,18 @@ while(<INFILE>)
 		$bInFunction = 1;
 
 		# Create the path and symbol name of the function
-		my $fcnpath = "";
-		foreach my $ns (@namespace_stack) {
-			$fcnpath .= $ns."@";
-		}
+		my $fcnpath;
 		if($gCurClass ne "") {
-			$fcnpath .= $gCurClass."__";
+			$fcnpath = $gCurClass."__".$fcnname;
 		}
-		$fcnpath .= $fcnname;
+		else {
+			$fcnpath = make_path(\@namespace_stack, $fcnname);
+		}
 		
 		# Mangle the path into a symbol name
 		my $symbol = $fcnpath;
 		$symbol =~ s/@/_/g;
-		my $def_symbol = "g".$gSymbolPrefix."_".$symbol;
+		my $def_symbol = "gExports_fcn_".$symbol;
 
 		# If it's a class method, the name should be the actual name, not the path
 		if($gCurClass ne "") {
@@ -418,12 +570,7 @@ while(<INFILE>)
 			$gClassLastFunction = "&".$def_symbol;
 		}
 
-		next;
-	}
-	elsif( /^\@{/ )
-	{
-		$has_been_meta = 1;
-		# TODO: Ensure that namespaces/classes start with one of these
+		$expecting_open_brace = 1;
 		next;
 	}
 	elsif( /^\@}/ )
@@ -441,7 +588,7 @@ while(<INFILE>)
 		elsif( $gCurClass ne "" )
 		{
 			my $classpath = $gCurClass;
-			my $classsym = "g".$gSymbolPrefix."_class_".$gCurClass;
+			my $classsym = "gExports_class_".$gCurClass;
 			$classsym =~ s/@/_/g;
 			print OUTFILE $indent,"tSpiderClass $classsym = {";
 			print OUTFILE ".Next=$gLastClass,";
@@ -490,11 +637,19 @@ while(<INFILE>)
 	
 	sub macro_CAST
 	{
-		if( ! exists $gFcnArgs_V{$_[0]} ) {
-			die "Argument $_[0] does not exist";
+		my $var = $_[0];
+		my $dest = $_[1];
+		if( ! exists $gFcnArgs_V{$var} ) {
+			die "Argument $var does not exist";
 		}
-		if( $gFcnArgs_V{$_[0]} eq "-1" ) {
-			return "(*($_[1]*)$_[0])";
+		if( $gFcnArgs_V{$var} eq "-1" )
+		{
+			if( $dest =~ /\*$/ ) {
+				return "(($dest)$var)";
+			}
+			else {
+				return "(*($dest*)$var)";
+			}
 		}
 		else {
 			die "Can't cast strictly typed argument $_[0]";
@@ -525,12 +680,6 @@ while(<INFILE>)
 			die "Can't directly access loosely typed argument $arg";
 		}
 		else {
-#			if( $gFcnArgs_C{$arg} =~ /\*$/ ) {
-#				return "(($gFcnArgs_C{$arg})Args[$gFcnArgs_I{$arg}])";
-#			}
-#			else {
-#				return "(*(($gFcnArgs_C{$arg}*)Args[$gFcnArgs_I{$arg}]))";
-#			}
 			return $arg;
 		}
 	}
@@ -542,7 +691,7 @@ while(<INFILE>)
 
 	if( $bInFunction && $gCurClass ne "" )
 	{
-		my $classsym = "g".$gSymbolPrefix."_class_".$gCurClass;
+		my $classsym = "gExports_class_".$gCurClass;
 		$classsym =~ s/@/_/g;
 		s/\@CLASSPTR\b/&$classsym/g;
 	}
@@ -563,7 +712,4 @@ while(<INFILE>)
 	
 	$has_been_meta = 0;
 }
-
-print OUTFILE "tSpiderFunction *gp",$gSymbolPrefix,"_First = $gLastFunction;\n";
-print OUTFILE "tSpiderClass *gp",$gSymbolPrefix,"_FirstClass = $gLastClass;\n";
 

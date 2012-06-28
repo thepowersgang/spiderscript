@@ -21,16 +21,7 @@ void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, .
 void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 
 // === CODE ===
-/**
- * \brief Defines the group of functions to look up classes / functions
- */
-#define DEF_GETFCNCLASS(_type, _name) \
-int _name(tSpiderScript *Script, _type *First, const char *BasePath, const char *Path, void **Ident) { \
-	_type	*e; \
-	 int	baseLen = (BasePath ? strlen(BasePath) : 0); \
-	 int	i = 0; \
-	for( e = First; e; e = e->Next, i ++ ) \
-	{ \
+#define DO_CHECK()	do {\
 		 int	ofs = baseLen ? baseLen + 1 : 0; \
 		if( baseLen ) { \
 			if( strncmp(e->Name, BasePath, baseLen) != 0 )	continue ; \
@@ -40,12 +31,29 @@ int _name(tSpiderScript *Script, _type *First, const char *BasePath, const char 
 			if(Ident)	*Ident = e; \
 			return i; \
 		} \
-	} \
+	}while(0)
+/**
+ * \brief Defines the group of functions to look up classes / functions
+ */
+#define DEF_GETFCNCLASS(_type, _name) \
+int _name(tSpiderScript *Script, _type *First, const char *BasePath, const char *Path, void **Ident) { \
+	_type	*e; \
+	 int	baseLen = (BasePath ? strlen(BasePath) : 0); \
+	 int	i = 0; \
+	for( e = First; e; e = e->Next, i ++ ) DO_CHECK(); \
+	return -1; \
+}
+#define DEF_GETFCNCLASSA(_type, _name) \
+int _name(tSpiderScript *Script, _type **List, const char *BasePath, const char *Path, void **Ident) { \
+	_type	*e; \
+	 int	baseLen = (BasePath ? strlen(BasePath) : 0); \
+	 int	i = 0; \
+	for( i = 0; (e = List[i]); i ++ ) DO_CHECK(); \
 	return -1; \
 }
 
-DEF_GETFCNCLASS(tSpiderFunction, SpiderScript_int_GetNativeFunction)
-DEF_GETFCNCLASS(tSpiderClass, SpiderScript_int_GetNativeClass)
+DEF_GETFCNCLASSA(tSpiderFunction, SpiderScript_int_GetNativeFunction)
+DEF_GETFCNCLASSA(tSpiderClass, SpiderScript_int_GetNativeClass)
 DEF_GETFCNCLASS(tScript_Function, SpiderScript_int_GetScriptFunction)
 DEF_GETFCNCLASS(tScript_Class, SpiderScript_int_GetScriptClass)
 
@@ -63,7 +71,7 @@ int SpiderScript_ResolveFunction(tSpiderScript *Script, const char *DefaultNames
 		if( id != -1 )
 			return id | (0 << 16);
 		
-		id = SpiderScript_int_GetNativeFunction(Script, gpExports_First, ns, Function, Ident);
+		id = SpiderScript_int_GetNativeFunction(Script, gapExportedFunctions, ns, Function, Ident);
 		if( id != -1 )
 			return id | (1 << 16);
 
@@ -86,7 +94,7 @@ int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespa
 		id = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, Name, Ident);
 		if( id != -1 )
 			return id | 0x2000;
-		id = SpiderScript_int_GetNativeClass(Script, gpExports_FirstClass, ns, Name, Ident);
+		id = SpiderScript_int_GetNativeClass(Script, gapExportedClasses, ns, Name, Ident);
 		if( id != -1 )
 			return id | 0x3000;
 		id = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, Name, Ident);
@@ -168,18 +176,13 @@ int SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
 	void **Ident
 	)
 {
-	void *ident = NULL;
+	void	*ident = NULL;
 	 int	type;
 
-	// Commented out because _ConstructObject needs the type code
-//	if( !Ident || !*Ident )
-//	{
-		type = SpiderScript_ResolveObject(Script, NULL, ClassName, &ident);
-		if( Ident )
-			*Ident = ident;
-//	}
-//	else
-//		ident = *Ident;
+	// Can't do caching speedup because the type code is needed
+	type = SpiderScript_ResolveObject(Script, NULL, ClassName, &ident);
+	if( Ident )
+		*Ident = ident;
 	return SpiderScript_int_ConstructObject(Script, type, RetData, NArguments, ArgTypes, Arguments, &ident);
 }
 
@@ -230,12 +233,12 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 				;
 			break;
 		case 1:	// Exports
-			for( fcn = gpExports_First; fcn && i --; fcn = fcn->Next )
-				;
+			if( i < giNumExportedFunctions )
+				fcn = gapExportedFunctions[i];
 			break;
 		case 2:	// Variant
-			for( fcn = Script->Variant->Functions; fcn && i--; fcn = fcn->Next )
-				;
+			if( i < Script->Variant->nFunctions )
+				fcn = Script->Variant->Functions[i];
 			break;
 		}
 	}

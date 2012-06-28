@@ -4,6 +4,8 @@
 #ifndef _SPIDERSCRIPT_H_
 #define _SPIDERSCRIPT_H_
 
+#define EXPORT	__attribute__((__visibility__("default")))
+
 #include <stdint.h>
 #include <stddef.h>
 #include <setjmp.h>	// Used for exception handling
@@ -43,9 +45,9 @@ enum eSpiderScript_InternalTypes
 	NUM_SS_DATATYPES
 };
 
-extern const char *SpiderScript_GetTypeName(tSpiderScript *Script, int Type);
-extern int	SpiderScript_GetTypeCode(tSpiderScript *Script, const char *Name);
-extern int	SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Length);
+EXPORT extern const char *SpiderScript_GetTypeName(tSpiderScript *Script, int Type);
+EXPORT extern int	SpiderScript_GetTypeCode(tSpiderScript *Script, const char *Name);
+EXPORT extern int	SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Length);
 
 #define SS_MAKEARRAYN(_type, _lvl)	((_type) + 0x10000*(_lvl))
 #define SS_MAKEARRAY(_type)	((_type) + 0x10000)
@@ -83,8 +85,10 @@ struct sSpiderVariant
 	
 	 int	bImplicitCasts;	//!< Allow implicit casts (casts to lefthand side)
 	
-	tSpiderFunction	*Functions;	//!< Functions (Flat list)
-	tSpiderClass	*Classes;	//!< Classes (Flat list)
+	 int	nFunctions;
+	tSpiderFunction	**Functions;	//!< Functions (Pointer to array)
+	 int	nClasses;
+	tSpiderClass	**Classes;	//!< Classes (Pointer to array)
 	
 	 int	(*GetConstant)(void **Dest, int Index);
 	 int	NConstants;	//!< Number of constants
@@ -226,49 +230,49 @@ struct sSpiderFunction
  * \param Filename	File to parse
  * \return Script suitable for execution
  */
-extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
+EXPORT extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
 
-extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
+EXPORT extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
  * \brief Execute an object method
  */
-extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *MethodName,
+EXPORT extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *MethodName,
 	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
  * \brief Creates an object instance
  */
-extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
+EXPORT extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
 	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 
-extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, int TypeCode,
+EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, int TypeCode,
 	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
  * \brief Convert a script to bytecode and save to a file
  */
-extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
+EXPORT extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
 /**
  * \brief Load a script from bytecode
  */
-extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
+EXPORT extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
 /**
  * \brief Save the AST of a script to a file
  */
-extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
+EXPORT extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
 
 /**
  * \brief Free a script
  * \param Script	Script structure to free
  */
-extern void	SpiderScript_Free(tSpiderScript *Script);
+EXPORT extern void	SpiderScript_Free(tSpiderScript *Script);
 
 /**
  * \name Exception Handling
@@ -287,10 +291,10 @@ enum eSpiderScript_Exceptions
 	SS_EXCEPTION_NAMEERROR	// Invalid name/ID
 };
 
-extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message);
-extern int	SpiderScript_GetException(tSpiderScript *Script, const char **Message);
-extern void	SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved);
-extern void	SpiderScript_ClearException(tSpiderScript *Script);
+EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message);
+EXPORT extern int	SpiderScript_GetException(tSpiderScript *Script, const char **Message);
+EXPORT extern void	SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved);
+EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
 /**
  * \}
  */
@@ -299,9 +303,9 @@ extern void	SpiderScript_ClearException(tSpiderScript *Script);
  * \name Object Manipulation
  * \{
  */
-extern tSpiderObject	*SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *Class, int ExtraBytes);
-extern void	SpiderScript_ReferenceObject(const tSpiderObject *Object);
-extern void	SpiderScript_DereferenceObject(const tSpiderObject *Object);
+EXPORT extern tSpiderObject	*SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *Class, int ExtraBytes);
+EXPORT extern void	SpiderScript_ReferenceObject(const tSpiderObject *Object);
+EXPORT extern void	SpiderScript_DereferenceObject(const tSpiderObject *Object);
 /**
  * \}
  */
@@ -310,10 +314,10 @@ extern void	SpiderScript_DereferenceObject(const tSpiderObject *Object);
  * \name Array Manipulation
  * \{
  */
-extern tSpiderArray	*SpiderScript_CreateArray(int InnerType, int ItemCount);
-extern const void	*SpiderScript_GetArrayPtr(const tSpiderArray *Array, int Item);
-extern void	SpiderScript_ReferenceArray(const tSpiderArray *Array);
-extern void	SpiderScript_DereferenceArray(const tSpiderArray *Array);
+EXPORT extern tSpiderArray	*SpiderScript_CreateArray(int InnerType, int ItemCount);
+EXPORT extern const void	*SpiderScript_GetArrayPtr(const tSpiderArray *Array, int Item);
+EXPORT extern void	SpiderScript_ReferenceArray(const tSpiderArray *Array);
+EXPORT extern void	SpiderScript_DereferenceArray(const tSpiderArray *Array);
 /**
  * \}
  */
@@ -322,13 +326,13 @@ extern void	SpiderScript_DereferenceArray(const tSpiderArray *Array);
  * \name String Manipulation
  * \{
  */
-extern tSpiderString	*SpiderScript_CreateString(int Length, const char *Data);
-extern void	SpiderScript_ReferenceString(const tSpiderString *String);
-extern void	SpiderScript_DereferenceString(const tSpiderString *String);
+EXPORT extern tSpiderString	*SpiderScript_CreateString(int Length, const char *Data);
+EXPORT extern void	SpiderScript_ReferenceString(const tSpiderString *String);
+EXPORT extern void	SpiderScript_DereferenceString(const tSpiderString *String);
 
-extern tSpiderString	*SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2);
-extern int        	SpiderScript_StringCompare(const tSpiderString *Str1, const tSpiderString *Str2);
-extern tSpiderString	*SpiderScript_CastValueToString(int SourceType, const void *Source);
+EXPORT extern tSpiderString	*SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2);
+EXPORT extern int        	SpiderScript_StringCompare(const tSpiderString *Str1, const tSpiderString *Str2);
+EXPORT extern tSpiderString	*SpiderScript_CastValueToString(int SourceType, const void *Source);
 /**
  * \}
  */
@@ -337,9 +341,9 @@ extern tSpiderString	*SpiderScript_CastValueToString(int SourceType, const void 
  * \name Scalar Casts
  * \{
  */
-extern tSpiderBool	SpiderScript_CastValueToBool(int SourceType, const void *Source);
-extern tSpiderInteger	SpiderScript_CastValueToInteger(int SourceType, const void *Source);
-extern tSpiderReal	SpiderScript_CastValueToReal(int SourceType, const void *Source);
+EXPORT extern tSpiderBool	SpiderScript_CastValueToBool(int SourceType, const void *Source);
+EXPORT extern tSpiderInteger	SpiderScript_CastValueToInteger(int SourceType, const void *Source);
+EXPORT extern tSpiderReal	SpiderScript_CastValueToReal(int SourceType, const void *Source);
 /**
  * \}
  */
