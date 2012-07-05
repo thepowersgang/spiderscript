@@ -63,7 +63,7 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	
 	if( Parse_Buffer(ret, data, Filename) ) {
 		free(data);
-		free(ret);
+		SpiderScript_Free( ret );
 		return NULL;
 	}
 	free(data);

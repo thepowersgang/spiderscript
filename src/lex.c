@@ -11,6 +11,9 @@
 
 #define ARRAY_SIZE(x)	((sizeof(x))/(sizeof((x)[0])))
 
+// === IMPORTS ===
+extern void	SyntaxError_(tParser *Parser, int Line, const char *Message, ...);
+
 // === PROTOTYPES ===
  int	is_ident(char ch);
  int	isdigit(int ch);
@@ -394,10 +397,8 @@ int GetToken(tParser *File)
 			break;
 		}
 		// Syntax Error
-		File->Token = TOK_INVAL;
-		
-		fprintf(stderr, "Syntax Error: Unknown symbol '%c'\n", *File->CurPos);
-		longjmp(File->JmpTarget, 1);
+		ret = TOK_INVAL;
+		SyntaxError_(File, -1, "Unknown symbol '%c'", *File->CurPos);
 		
 		break;
 	}

@@ -9,7 +9,7 @@
 #include "ast.h"
 
 // === IMPORTS ===
-extern void	SyntaxError_(tParser *Parser, int Line, int bFatal, const char *Message, ...);
+extern void	SyntaxError_(tParser *Parser, int Line, const char *Message, ...);
 
 // === CODE ===
 tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
@@ -372,18 +372,23 @@ tAST_Node *AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bP
 
 tAST_Node *AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_Node *Value)
 {
-	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_ASSIGN, 0);
-	
+	if( !Dest || !Value ) {
+		AST_FreeNode(Dest);
+		AST_FreeNode(Value);
+		return NULL;
+	}	
+
 	if( Dest->Type != NODETYPE_VARIABLE && Dest->Type != NODETYPE_ELEMENT && Dest->Type != NODETYPE_INDEX )
 	{
-		free(ret);
-		SyntaxError_(Parser, -__LINE__, 1, "Assign target is not a variable or attribute (instead %i)",
+		SyntaxError_(Parser, -__LINE__, "Assign target is not a variable or attribute (instead %i)",
 			Dest->Type);
 		AST_FreeNode(Dest);
 		AST_FreeNode(Value);
 		return NULL;
 	}
 	
+	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_ASSIGN, 0);
+
 	ret->Assign.Operation = Operation;
 	ret->Assign.Dest = Dest;
 	ret->Assign.Value = Value;
@@ -393,6 +398,10 @@ tAST_Node *AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_N
 
 tAST_Node *AST_NewCast(tParser *Parser, int Target, tAST_Node *Value)
 {
+	if( !Value ) {
+		return NULL;
+	}
+	
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_CAST, 0);
 	
 	ret->Cast.DataType = Target;
@@ -403,6 +412,10 @@ tAST_Node *AST_NewCast(tParser *Parser, int Target, tAST_Node *Value)
 
 tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right)
 {
+	if( !Left || !Right ) {
+		AST_FreeNode(Left);
+		AST_FreeNode(Right);
+	}
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, Operation, 0);
 	
 	ret->BinOp.Left = Left;
@@ -415,6 +428,10 @@ tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_No
  */
 tAST_Node *AST_NewUniOp(tParser *Parser, int Operation, tAST_Node *Value)
 {
+	if( !Value ) {
+		return NULL;
+	}
+	
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, Operation, 0);
 	
 	ret->UniOp.Value = Value;
@@ -540,6 +557,10 @@ tAST_Node *AST_NewFunctionCall(tParser *Parser, const char *Name)
 }
 tAST_Node *AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Name)
 {
+	if( !Object ) {
+		return NULL;
+	}
+	
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_METHODCALL, strlen(Name) + 1 );
 	
 	ret->FunctionCall.Object = Object;
@@ -593,6 +614,10 @@ void AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg)
  */
 tAST_Node *AST_NewCreateArray(tParser *Parser, int Type, tAST_Node *Size)
 {
+	if( !Size ) {
+		return NULL;
+	}
+	
 	tAST_Node *ret = AST_int_AllocateNode(Parser, NODETYPE_CREATEARRAY, 0);
 	ret->Cast.DataType = Type;
 	ret->Cast.Value = Size;
@@ -604,6 +629,10 @@ tAST_Node *AST_NewCreateArray(tParser *Parser, int Type, tAST_Node *Size)
  */
 tAST_Node *AST_NewClassElement(tParser *Parser, tAST_Node *Object, const char *Name)
 {
+	if( !Object ) {
+		return NULL;
+	}
+	
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_ELEMENT, strlen(Name) + 1 );
 	ret->Scope.Element = Object;
 	strcpy(ret->Scope.Name, Name);
