@@ -37,12 +37,15 @@ $(BIN): $(OBJ)
 	$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
 
 export_types.gen.h: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
+	@mkdir -p $(dir $@)
 	perl ../tools/gen_scriptfcns.pl --mkhdr-lang $@ $(EXPORT_FILES)
 
 .exports/_index.c: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
+	@mkdir -p $(dir $@)
 	perl ../tools/gen_scriptfcns.pl -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
 
 .exports/%.c: %.ssf export_types.gen.h ../tools/gen_scriptfcns.pl
+	@mkdir -p $(dir $@)
 	perl ../tools/gen_scriptfcns.pl -H export_types.gen.h $@ $<
 
 $(OBJ): $(OBJDIR)%.o: %.c

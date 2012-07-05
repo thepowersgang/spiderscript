@@ -185,6 +185,11 @@ void AST_FreeNode(tAST_Node *Node)
 		for( node = Node->Block.FirstChild; node; )
 		{
 			tAST_Node	*savedNext = node->NextSibling;
+			if( savedNext == node ) {
+				fprintf(stderr, "Node %p (type %i) loops on itself\n", node, node->Type);
+				AST_FreeNode(node);
+				break;
+			}
 			AST_FreeNode(node);
 			node = savedNext;
 		}

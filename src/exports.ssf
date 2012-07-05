@@ -176,6 +176,35 @@
 	@}
 @}
 
+int compare_spiderstring_ptrs(const void *s1, const void *s2)
+{
+	const tSpiderString	* const *strp1 = s1, * const *strp2 = s2;
+
+	if( !*strp1 && !*strp2 )
+		return 0;
+	else if( !*strp1 )
+		return 1;	// NULL sorts to the end
+	else if( !*strp2 )
+		return -1;
+	else
+		return SpiderScript_StringCompare(*strp1, *strp2);
+}
+
+@FUNCTION String[] SortStrings(String[] Input)
+@{
+	if( !Input )
+		@RETURN NULL;
+	
+	tSpiderArray	*ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, Input->Length);
+	for( int i = 0; i < Input->Length; i ++ ) {
+		ret->Strings[i] = Input->Strings[i];
+		if( ret->Strings[i] )
+			SpiderScript_ReferenceString(ret->Strings[i]);
+	}
+	qsort(ret->Strings, ret->Length, sizeof(ret->Strings[0]), compare_spiderstring_ptrs);
+	@RETURN ret;
+@}
+
 @NAMESPACE Strings
 @{
 
@@ -227,6 +256,34 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	free(strings);
 
 	@RETURN ret;
+@}
+
+@FUNCTION Integer Search(String Haystack, String Needle)
+@{
+	if( !Haystack || !Needle )
+		@RETURN -1;
+	
+	const char *end = memmem(Haystack->Data, Haystack->Length, Needle->Data, Needle->Length);
+	if( !end )
+		@RETURN -1;
+	
+	@RETURN end - Haystack->Data;
+@}
+
+@FUNCTION String SubStr(String Input, Integer Offset, Integer Length)
+@{
+	if( !Input )
+		@RETURN NULL;
+	if( Offset > Input->Length )
+		@RETURN SpiderScript_CreateString(0, NULL);
+	if( Length > Input->Length )
+		Length = Input->Length;
+	if( Offset + Length > Input->Length )
+		Length = Input->Length - Offset;
+	if( Length == 0 )
+		@RETURN SpiderScript_CreateString(0, NULL);
+	
+	@RETURN SpiderScript_CreateString(Length, Input->Data + Offset);
 @}
 
 @} // NAMESPACE Strings	

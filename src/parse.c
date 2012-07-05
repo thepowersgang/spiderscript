@@ -482,8 +482,13 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		
 		SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_OPEN);
 		
-		if(LookAhead(Parser) != TOK_SEMICOLON)
-			init = Parse_DoExpr0(Parser);
+		if(LookAhead(Parser) != TOK_SEMICOLON) {
+			// TODO: When will this go out of scope?
+			if(LookAhead(Parser) == TOK_IDENT)
+				init = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
+			else
+				init = Parse_DoExpr0(Parser);
+		}
 		
 		SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON);
 		
@@ -551,7 +556,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		}
 		return ret;
 	
-	// Define Variables
+	// Define Variables / Functions / Call functions
 	case TOK_IDENT:
 		ret = Parse_VarDefList(Parser, CodeNode, NULL);
 		break;
@@ -574,8 +579,10 @@ tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 	
 	ret = Parse_GetIdent(Parser, Class ? GETIDENTMODE_CLASS : GETIDENTMODE_EXPRROOT, Class);
 	if( !ret || ret->Type != NODETYPE_DEFVAR ) {
+		// Either an error, or a function call/definition
 		return ret;
 	}
+	
 	type = ret->DefVar.DataType;
 	while(GetToken(Parser) == TOK_COMMA)
 	{
@@ -643,6 +650,28 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class)
 		GetToken(Parser);
 		init = Parse_DoExpr0(Parser);
 		if(!init)	return NULL;
+	}
+	else if( LookAhead(Parser) == TOK_PAREN_OPEN )
+	{
+		GetToken(Parser);	// Eat '('
+		// TODO: Replace the final square bracket size denotion with
+		// "String[] $string_array($size);"
+		if( init )
+			SyntaxError(Parser, 1, "Cannot construct an array");
+		if( level )
+			SyntaxError(Parser, 1, "Cannot construct an array");
+		
+		init = AST_NewCreateObject( Parser, SpiderScript_GetTypeName(Parser->Script, Type) );
+		// Read arguments
+		if( GetToken(Parser) != TOK_PAREN_CLOSE )
+		{
+			PutBack(Parser);
+			do {
+				DEBUGS2(" Parse_GetIdent: Argument");
+				AST_AppendFunctionCallArg( init, Parse_DoExpr0(Parser) );
+			} while(GetToken(Parser) == TOK_COMMA);
+			SyntaxAssert( Parser, Parser->Token, TOK_PAREN_CLOSE );
+		}
 	}
 	else if( init )
 	{
