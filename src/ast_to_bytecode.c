@@ -490,12 +490,28 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	
 	// Return
 	case NODETYPE_RETURN:
-		ret = AST_ConvertNode(Block, Node->UniOp.Value, 1);
-		if(ret)	return ret;
+		// Special case for `return null;`
+		if( Node->UniOp.Value->Type == NODETYPE_NULL ) {
+			if( SS_GETARRAYDEPTH(Block->Function->ReturnType) )
+				;
+			else if( SS_ISTYPEOBJECT(Block->Function->ReturnType) )
+				;
+			else if( Block->Function->ReturnType == SS_DATATYPE_STRING )
+				;
+			else {
+				AST_RuntimeError(Node, "Cannot return null when not a reference type");
+				return -1;
+			}
+			Bytecode_AppendConstNull(Block->Handle, Block->Function->ReturnType);
+		}
+		else {
+			ret = AST_ConvertNode(Block, Node->UniOp.Value, 1);
+			if(ret)	return ret;
+			// Pop return type and check that it's sane
+			ret = _StackPop(Block, Node->UniOp.Value, Block->Function->ReturnType, NULL);
+			if(ret < 0)	return -1;
+		}
 		Bytecode_AppendReturn(Block->Handle);
-		// Pop return type and check that it's sane
-		ret = _StackPop(Block, Node->UniOp.Value, Block->Function->ReturnType, NULL);
-		if(ret < 0)	return -1;
 		break;
 	
 	case NODETYPE_BREAK:
