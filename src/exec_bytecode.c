@@ -13,6 +13,7 @@
 #include <string.h>
 #include "ast.h"
 #include <inttypes.h>
+#include <stdarg.h>
 
 #define TRACE	0
 
@@ -61,6 +62,12 @@ struct sBC_Stack
 // === CODE ===
 void SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...)
 {
+	va_list	args;
+	fprintf(stderr, "Runtime Error: ");
+	va_start(args, Format);
+	vfprintf(stderr, Format, args);
+	fprintf(stderr, "\n");
+	va_end(args);
 }
 
 int Bytecode_int_StackPop(tBC_Stack *Stack, tBC_StackEnt *Dest)
@@ -680,6 +687,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 					bError = 1;
 					break;
 				}
+				val2.Type = type;
 				PUT_STACKVAL(val2);
 				DEBUG_F("[Got "); PRINT_STACKVAL(val2); DEBUG_F("]\n");
 			}
