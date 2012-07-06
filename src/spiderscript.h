@@ -85,6 +85,8 @@ struct sSpiderVariant
 	
 	 int	bImplicitCasts;	//!< Allow implicit casts (casts to lefthand side)
 	
+	void	(*HandleError)(tSpiderScript *Script, const char *Message);
+	
 	 int	nFunctions;
 	tSpiderFunction	**Functions;	//!< Functions (Pointer to array)
 	 int	nClasses;

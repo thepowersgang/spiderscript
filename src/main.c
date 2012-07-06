@@ -12,8 +12,11 @@
 #include <stdarg.h>
 
 // === IMPORTS ===
-extern  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
+extern int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
 extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
+
+// === PROTOTYPES ===
+char	*mkstrv(const char *format, va_list args);
 
 // === CODE ===
 /**
@@ -136,15 +139,40 @@ void SpiderScript_Free(tSpiderScript *Script)
 	free(Script);
 }
 
+void SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...)
+{
+	va_list	args;
+	va_start(args, Format);
+	char *msg = mkstrv(Format, args);
+	va_end(args);
+
+	if( Script->Variant->HandleError )
+		Script->Variant->HandleError(Script, msg);
+	else
+		fprintf(stderr, "Runtime Error: %s\n", msg);
+
+	free(msg);
+}
+
+char *mkstrv(const char *format, va_list args)
+{
+	va_list args_saved;
+	
+	va_copy(args_saved, args);
+	int len = vsnprintf(NULL, 0, format, args_saved);
+	va_end(args_saved);
+	
+	char *ret = malloc(len + 1);
+	vsnprintf(ret, len+1, format, args);
+	
+	return ret;
+}
+
 char *mkstr(const char *format, ...)
 {
 	va_list	args;
 	va_start(args, format);
-	int len = vsnprintf(NULL, 0, format, args);
-	va_end(args);
-	char *ret = malloc(len + 1);
-	va_start(args, format);
-	vsnprintf(ret, len+1, format, args);
+	char *ret = mkstrv(format, args);
 	va_end(args);
 	return ret;
 }

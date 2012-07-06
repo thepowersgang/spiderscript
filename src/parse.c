@@ -1347,10 +1347,11 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	char	*tname = NULL;
 	 int	level = 0;
 
-	#define BC_NS_SEPARATOR	'@'	
-
 	do {
-		SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT );
+		if( SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT ) ) {
+			if(tname)	free(tname);
+			return NULL;
+		}
 		tname = realloc(tname, namelen + Parser->TokenLen + 1);
 		if(namelen)
 			tname[namelen-1] = BC_NS_SEPARATOR;
@@ -1364,6 +1365,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	#else
 	while( 0 );
 	#endif
+	
 	// Create a stack-allocated copy of tname to avoid having to free it later
 	char name[strlen(tname)+1];
 	strcpy(name, tname);

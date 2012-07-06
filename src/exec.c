@@ -12,8 +12,6 @@
 #include <string.h>
 #include <stdarg.h>
 
-#define BC_NS_SEPARATOR	'@'
-
 // === IMPORTS ===
 
 // === PROTOTYPES ===

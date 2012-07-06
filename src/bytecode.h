@@ -7,8 +7,6 @@
 
 #include "bytecode_ops.h"
 
-#define BC_NS_SEPARATOR	'@'
-
 typedef struct sBC_Op	tBC_Op;
 typedef struct sBC_Function	tBC_Function;
 

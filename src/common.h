@@ -8,6 +8,7 @@
 #include <spiderscript.h>
 
 #define CONSTRUCTOR_NAME	"__constructor"
+#define BC_NS_SEPARATOR	'@'
 
 typedef struct sScript_Function	tScript_Function;
 typedef struct sScript_Arg	tScript_Arg;
@@ -106,5 +107,7 @@ extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
 
 extern int	SpiderScript_int_GetTypeSize(int TypeCode);
+
+extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
 #endif
 
