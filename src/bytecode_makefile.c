@@ -85,6 +85,9 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	_ASSERT(code_ofs, <, State->FileSize, NULL);
 	_ASSERT(code_ofs+code_len, <, State->FileSize, NULL);
 
+//	printf("namestr = %i, code_ofs = %x, code_len = %x, ret_type = %x, n_args = %i\n",
+//		namestr, (unsigned int)code_ofs, (unsigned int)code_len, ret_type, n_args);
+
 	struct {
 		uint32_t	Name;
 		uint32_t	Type;
@@ -100,6 +103,7 @@ tScript_Function *_get_fcn(t_loadstate *State)
 		args[i].Name = _get32(State);
 		args[i].Type = _get32(State);
 		datasize += _get_str(State, NULL, args[i].Name) + 1;
+//		printf(" Arg %i: Name=%i,Type=%x\n", i, args[i].Name, args[i].Type);
 	}
 
 	// Create and populate metadata structure
@@ -117,6 +121,7 @@ tScript_Function *_get_fcn(t_loadstate *State)
 		int len = _get_str(State, nameptr, args[i].Name);
 		ret->Arguments[i].Type = args[i].Type;
 		nameptr += len + 1;
+//		printf(" Arg %i: Name=\"%s\"\n", i, ret->Arguments[i].Name);
 	}
 	
 	// Load code
@@ -181,7 +186,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	off_t	ofs_str = _get32(State);
 	// TODO: Validation	
 
-	printf("n_fcn = %i, n_class = %i, n_str = %i\n", n_fcn, n_class, n_str);
+//	printf("n_fcn = %i, n_class = %i, n_str = %i\n", n_fcn, n_class, n_str);
 
 	// Load string table
 	_ASSERT(ofs_str + n_str*(4+4), <=, file_size, 1);
@@ -197,6 +202,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	fseek(fp, MAGIC_STR_LEN+4*4, SEEK_SET);	
 	State->Strings = strings;
 	State->NStr = n_str;
+//	printf("State->Strings = %p, State->NStr = %i\n", State->Strings, State->NStr);
 
 	
 	// Parse functions
@@ -205,7 +211,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		tScript_Function *fcn;
 		fcn = _get_fcn(State);
 
-		printf("Loaded function '%s'\n", fcn->Name);
+//		printf("Loaded function '%s'\n", fcn->Name);
 	
 		if( Script->Functions )
 			Script->LastFunction->Next = fcn;
@@ -231,7 +237,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		sc->nProperties = n_attrib;
 		sc->TypeCode = 0x2000 | i;	// HACK! Abuses types.c's internals
 
-		printf("Added class '%s'\n", sc->Name);
+//		printf("Added class '%s'\n", sc->Name);
 		// Append
 		if( Script->FirstClass )
 			Script->LastClass->Next = sc;
@@ -264,7 +270,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 			tScript_Function *fcn;
 			
 			fcn = _get_fcn(State);
-			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
+//			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
 			if( sc->FirstFunction )
 				sc->LastFunction->Next = fcn;
 			else
@@ -586,7 +592,7 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 		_put_index(strIdx);
 	}
 
-	printf("Function->LabelCount = %i\n", Function->LabelCount);
+//	printf("Function->LabelCount = %i\n", Function->LabelCount);
 	_put_index(Function->LabelCount);
 	for( i = 0; i < Function->LabelCount; i ++ )
 	{
@@ -750,7 +756,6 @@ double buf_get_double(t_bi *Bi)
 
 tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State)
 {
-	size_t ofs = 0;
 	tBC_Function	*ret;
 	tBC_Op	*op;
 	 int	sidx;
@@ -774,7 +779,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 		ret->Labels[i] = (void*) (intptr_t) buf_get32(Bi);
 	}
 
-	while( ofs < Length )
+	while( bi.Ofs < Length )
 	{
 		 int	ot = buf_get8(Bi);
 		switch( ot )
