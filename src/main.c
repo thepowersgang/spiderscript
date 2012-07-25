@@ -59,10 +59,8 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 	
 	
 	// Create the script
-	ret = malloc(sizeof(tSpiderScript));
+	ret = calloc(1,sizeof(tSpiderScript));
 	ret->Variant = Variant;
-	ret->Functions = NULL;
-	ret->FirstClass = NULL;
 	
 	if( Parse_Buffer(ret, data, Filename) ) {
 		free(data);
