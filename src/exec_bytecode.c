@@ -332,6 +332,8 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	}
 	if( !ret )
 		ret = Fcn->ReturnType;
+	else
+		ret = -1;
 	free(stack);
 
 	return ret;
