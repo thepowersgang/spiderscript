@@ -286,6 +286,58 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	@RETURN SpiderScript_CreateString(Length, Input->Data + Offset);
 @}
 
+@FUNCTION String Replace(String Haystack, String Needle, String Replacement)
+@{
+	if( !Haystack )
+		@RETURN NULL;
+	if( !Needle || !Replacement ) {
+		SpiderScript_ReferenceString(Haystack);
+		@RETURN Haystack;
+	}
+
+	// Pass 1 - Count replacements
+	const char *pos;
+	 int	ofs = 0;
+	 int	nMatches = 0;
+	 int	slen;
+	do {
+		pos = memmem(Haystack->Data + ofs, Haystack->Length - ofs, Needle->Data, Needle->Length);
+		if( pos )
+			slen = pos - (Haystack->Data + ofs);
+		else
+			slen = Haystack->Length - ofs;
+
+		if( pos )
+			nMatches ++;	
+
+		ofs += slen + Needle->Length;
+	} while(pos);
+
+	// Pass 2 - Build new string
+	size_t	newlen = Haystack->Length - nMatches*Needle->Length + nMatches*Replacement->Length;
+	tSpiderString *ret = SpiderScript_CreateString(newlen, NULL);
+	 int	write_ofs = 0;
+	ofs = 0;
+	do {
+		pos = memmem(Haystack->Data + ofs, Haystack->Length - ofs, Needle->Data, Needle->Length);
+		if( pos )
+			slen = pos - (Haystack->Data + ofs);
+		else
+			slen = Haystack->Length - ofs;
+
+		memcpy(ret->Data + write_ofs, Haystack->Data + ofs, slen);
+		write_ofs += slen;
+		if( pos ) {
+			memcpy(ret->Data + write_ofs, Replacement->Data, Replacement->Length);
+			write_ofs += Replacement->Length;
+		}
+
+		ofs += slen + Needle->Length;
+	} while(pos);
+	
+	@RETURN ret;
+@}
+
 @} // NAMESPACE Strings	
 @} // NAMESPACE Lang
 
