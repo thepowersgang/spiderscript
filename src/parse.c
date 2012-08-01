@@ -1510,11 +1510,27 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 void SyntaxError_(tParser *Parser, int Line, const char *Message, ...)
 {
 	va_list	args;
+	 int	len = 0;
 	va_start(args, Message);
-	fprintf(stderr, "%s:%i: (parse.c:%i) error: ", Parser->Filename, Parser->CurLine, Line);
-	vfprintf(stderr, Message, args);
-	fprintf(stderr, "\n");
+	len += snprintf(NULL, 0, "%s:%i: (parse.c:%i) error: ", Parser->Filename, Parser->CurLine, Line);
+	len += vsnprintf(NULL, 0, Message, args);
+	len += snprintf(NULL, 0, "\n");
 	va_end(args);
+	char buffer[len+1];
+	char	*buf = buffer;
+	
+	va_start(args, Message);
+	buf += sprintf(buf, "%s:%i: (parse.c:%i) error: ", Parser->Filename, Parser->CurLine, Line);
+	buf += vsprintf(buf, Message, args);
+	buf += sprintf(buf, "\n");
+	va_end(args);
+		
+	if( Parser->Variant->HandleError ) {
+		Parser->Variant->HandleError(Parser->Script, buf);
+	}
+	else {
+		fprintf(stderr, "%s", buf);
+	}
 }
 
 int SyntaxAssert_(tParser *Parser, int Line, int Have, int Want)

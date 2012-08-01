@@ -338,6 +338,8 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	@RETURN ret;
 @}
 
+// TODO: RegexReplace
+
 @} // NAMESPACE Strings	
 @} // NAMESPACE Lang
 
