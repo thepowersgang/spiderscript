@@ -1171,10 +1171,15 @@ tAST_Node *Parse_GetString(tParser *Parser)
 		{
 			if( Parser->TokenStr[i] == '\\' ) {
 				i ++;
+				if( i == Parser->TokenLen - 1 ) {
+					SyntaxError(Parser, "\\ at end of string");
+					return NULL;
+				}
 				switch( Parser->TokenStr[i] )
 				{
 				case 'n':	data[j++] = '\n';	break;
 				case 'r':	data[j++] = '\r';	break;
+				case '"':	data[j++] = '"';	break;
 				default:
 					// TODO: Octal Codes
 					// TODO: Error/Warning?
@@ -1514,22 +1519,21 @@ void SyntaxError_(tParser *Parser, int Line, const char *Message, ...)
 	va_start(args, Message);
 	len += snprintf(NULL, 0, "%s:%i: (parse.c:%i) error: ", Parser->Filename, Parser->CurLine, Line);
 	len += vsnprintf(NULL, 0, Message, args);
-	len += snprintf(NULL, 0, "\n");
 	va_end(args);
-	char buffer[len+1];
-	char	*buf = buffer;
 	
+	char buffer[len+1];
+	char *buf = buffer;
+
 	va_start(args, Message);
 	buf += sprintf(buf, "%s:%i: (parse.c:%i) error: ", Parser->Filename, Parser->CurLine, Line);
 	buf += vsprintf(buf, Message, args);
-	buf += sprintf(buf, "\n");
 	va_end(args);
 		
 	if( Parser->Variant->HandleError ) {
-		Parser->Variant->HandleError(Parser->Script, buf);
+		Parser->Variant->HandleError(Parser->Script, buffer);
 	}
 	else {
-		fprintf(stderr, "%s", buf);
+		fprintf(stderr, "%s\n", buffer);
 	}
 }
 

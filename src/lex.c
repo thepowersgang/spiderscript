@@ -217,7 +217,7 @@ int GetToken(tParser *File)
 	
 	// Strings
 	case '"':
-		while( *File->CurPos && !(*File->CurPos == '"' && *File->CurPos != '\\') )
+		while( *File->CurPos && !(*File->CurPos == '"' && File->CurPos[-1] != '\\') )
 			File->CurPos ++;
 		if( *File->CurPos )
 		{
