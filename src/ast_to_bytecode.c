@@ -155,7 +155,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	tAST_Node	*node;
 	 int	ret = 0, type;
 	 int	i, op = 0;
-	 int	bAddedValue = 1;	// Used to tell if the value needs to be deleted
+	// int	bAddedValue = 1;	// Used to tell if the value needs to be deleted
 	void	*ident;	// used for classes
 	tScript_Class	*sc;
 	tSpiderClass *nc;
@@ -165,7 +165,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	{
 	// No Operation
 	case NODETYPE_NOP:
-		bAddedValue = 0;
+		//bAddedValue = 0;
 		break;
 	
 	// Code block

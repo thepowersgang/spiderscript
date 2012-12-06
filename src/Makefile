@@ -40,7 +40,7 @@ export_types.gen.h: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
 	@mkdir -p $(dir $@)
 	perl ../tools/gen_scriptfcns.pl --mkhdr-lang $@ $(EXPORT_FILES)
 
-.exports/_index.c: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
+.exports/_index.c: $(EXPORT_FILES) export_types.gen.h ../tools/gen_scriptfcns.pl
 	@mkdir -p $(dir $@)
 	perl ../tools/gen_scriptfcns.pl -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
 
@@ -50,7 +50,8 @@ export_types.gen.h: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
 
 $(OBJ): $(OBJDIR)%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo [CC] -o $@
+	@$(CC) $(CFLAGS) -c $< -o $@
 	@$(CC) $(CPPFLAGS) -M -MT $@ $< -o $@.dep
 
 -include $(OBJ:%=%.dep)

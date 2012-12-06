@@ -378,7 +378,7 @@ tSpiderInteger SpiderScript_CastValueToInteger(int Type, const void *Source)
 	case SS_DATATYPE_REAL:
 		return *(const tSpiderReal*)Source;
 	case SS_DATATYPE_STRING:
-		return atoll( ((const tSpiderString*)Source)->Data);
+		return strtoll( ((const tSpiderString*)Source)->Data, NULL, 0);
 	default:
 		return 0;
 	}
