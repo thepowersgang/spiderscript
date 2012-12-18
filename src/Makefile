@@ -11,7 +11,7 @@ OBJDIR = obj/
 
 OBJ  = main.o lex.o parse.o ast.o values.o
 OBJ += ast_to_bytecode.o bytecode_gen.o bytecode_makefile.o
-OBJ += exec.o exec_bytecode.o exec_ast.o types.o
+OBJ += exec.o exec_bytecode.o exec_ast.o types.o ast_optimise.o
 OBJ += exceptions.o
 EXPORT_FILES := exports.ssf
 BIN = ../libspiderscript.so

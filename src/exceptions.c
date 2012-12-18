@@ -10,6 +10,16 @@
 #include <stdlib.h>
 
 // === CODE ===
+int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num, int Expected, int Got)
+{
+	char *msg = mkstr("%s Arg %i - Expected %s, got %s",
+		Name,
+		SpiderScript_GetTypeName(Script, Expected),
+		SpiderScript_GetTypeName(Script, Got)
+		);
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT, msg);
+}
+
 int SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message)
 {
 	if( Script->CurException ) {
