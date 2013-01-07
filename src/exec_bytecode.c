@@ -314,7 +314,8 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	// Call
 	ret = Bytecode_int_ExecuteFunction(Script, Fcn, stack, NArguments);
 
-	if( !ret && Fcn->ReturnType != SS_DATATYPE_NOVALUE ) {
+	if( !ret && Fcn->ReturnType != SS_DATATYPE_NOVALUE )
+	{
 		// Get return value
 		if( Bytecode_int_StackPop(Script, stack, &val) ) {
 			free(stack);
@@ -330,10 +331,16 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 		}
 		memcpy(RetData, &val.Boolean, SpiderScript_int_GetTypeSize(val.Type));
 	}
-	if( !ret )
+	switch(ret)
+	{
+	case 0:
 		ret = Fcn->ReturnType;
-	else
+		break;
+	// TODO: Handle exception RV
+	default:
 		ret = -1;
+		break;
+	}
 	free(stack);
 
 	return ret;
@@ -1001,7 +1008,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 						bError = 1;
 						break;
 					}
-					Bytecode_int_ExecuteFunction(Script, fcn, Stack, arg_count);
+					rv = Bytecode_int_ExecuteFunction(Script, fcn, Stack, arg_count);
+					if( rv ) {
+						bError = 1;
+					}
 					break ;
 				}
 			}
@@ -1027,6 +1037,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			bError = 1;
 			break;
 		}
+		// TODO: Handle exceptions by allowing a script to push/pop exception handlers
 		if( bError )
 			break ;
 		op = nextop;

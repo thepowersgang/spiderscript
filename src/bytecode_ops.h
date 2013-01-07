@@ -68,7 +68,10 @@ enum eBC_Ops
 	BC_OP_GREATERTHANOREQUAL,
 	
 	BC_OP_REFEQUALS,
-	BC_OP_REFNOTEQUALS
+	BC_OP_REFNOTEQUALS,
+	
+	BC_OP_EXCEPTION_PUSH,	// Push an exception handler to the stack
+	BC_OP_EXCEPTION_POP,
 };
 
 #endif

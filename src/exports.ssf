@@ -28,6 +28,12 @@
 	}
 @}
 
+@FUNCTION void exit()
+@{
+	exit(0);
+//	return -1;	// TODO: Return RV_CLEANEXIT
+@}
+
 @FUNCTION Boolean isnull( * Value )
 @{
 	if( !Value )
