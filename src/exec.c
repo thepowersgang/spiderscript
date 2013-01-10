@@ -456,7 +456,7 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 	// Check for the cache
 	if( FunctionIdent && *FunctionIdent ) {
 		if( (intptr_t)*FunctionIdent & 1 )
-			sc = (void*)( *(intptr_t*) FunctionIdent & ~1ULL );
+			sc = (void*)( *(intptr_t*) FunctionIdent >> 1 << 1 );
 		else
 			nc = *FunctionIdent;
 	}
