@@ -33,11 +33,12 @@ enum eAST_NodeTypes
 	NODETYPE_REAL,	//!< Real Constant
 	
 	// 9
-	NODETYPE_DEFVAR,	//!< Define a variable (Variable)
+	NODETYPE_DEFVAR,	//!< Define a variable
+	NODETYPE_DEFGLOBAL,	//!< Define a script-global variable
 	NODETYPE_ELEMENT,	//!< Reference a class attribute
 	NODETYPE_CAST,	//!< Cast a value to another (Uniop)
 	
-	// 12
+	// 13
 	NODETYPE_RETURN,	//!< Return from a function (reserved word)
 	NODETYPE_BREAK, 	//!< Break out of a loop
 	NODETYPE_CONTINUE,	//!< Next loop iteration
@@ -50,20 +51,20 @@ enum eAST_NodeTypes
 	NODETYPE_CREATEOBJECT,	//!< Create an object
 	NODETYPE_CREATEARRAY,	//!< Create an empty array
 	
-	// 23
+	// 24
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_LOOP,	//!< Looping Construct
 	
-	// 25
+	// 26
 	NODETYPE_INDEX,	//!< Index into an array
 	
-	// 26
+	// 27
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
 	NODETYPE_LOGICALXOR,	//!< Logical XOR operator
 	
-	// 30
+	// 31
 	NODETYPE_REFEQUALS,	//!< References are equal
 	NODETYPE_REFNOTEQUALS,	//!< References differ
 	NODETYPE_EQUALS,	//!< Comparison Equals
@@ -73,18 +74,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
-	// 37
+	// 38
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
-	// 41
+	// 42
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
-	// 43
+	// 45
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract
@@ -182,12 +183,12 @@ struct sAST_Node
 	};
 };
 
-struct sAST_Variable
-{
-	tAST_Variable	*Next;
-	 int	Type;	// Only used for static typing
-	char	Name[];
-};
+//struct sAST_Variable
+//{
+//	tAST_Variable	*Next;
+//	 int	Type;	// Only used for static typing
+//	char	Name[];
+//};
 
 // === FUNCTIONS ===
 extern tAST_Script	*AST_NewScript(void);

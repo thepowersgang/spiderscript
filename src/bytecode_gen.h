@@ -78,6 +78,7 @@ extern void	Bytecode_AppendEnterContext(tBC_Function *Handle);
 extern void	Bytecode_AppendLeaveContext(tBC_Function *Handle);
 //extern void	Bytecode_AppendImportNamespace(tBC_Function *Handle, const char *Name);
 extern void	Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, int Type);
+extern void	Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, int Type);
 
 #endif
 

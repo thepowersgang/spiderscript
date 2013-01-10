@@ -12,6 +12,7 @@
 #include "bytecode_gen.h"
 #include <string.h>
 #include "bytecode.h"
+#include <assert.h>
 
 // === IMPORTS ===
 
@@ -29,9 +30,10 @@ tBC_Function *Bytecode_CreateFunction(tScript_Function *Fcn)
 	tBC_Function *ret;
 	 int	i;
 
-	ret = malloc(sizeof(tBC_Function));
+	ret = calloc(sizeof(tBC_Function), 1);
 	if(!ret)	return NULL;
 	
+#if 0
 	ret->LabelSpace = ret->LabelCount = 0;
 	ret->Labels = NULL;
 
@@ -42,6 +44,7 @@ tBC_Function *Bytecode_CreateFunction(tScript_Function *Fcn)
 
 	ret->OperationCount = 0;
 	ret->Operations = NULL;
+#endif
 	ret->OperationsEnd = (void*)&ret->Operations;
 
 	for( i = 0; i < Fcn->ArgumentCount; i ++ )
@@ -63,6 +66,8 @@ void Bytecode_DeleteFunction(tBC_Function *Fcn)
 	}
 	if( Fcn->VariableNames )
 		free(Fcn->VariableNames);
+	if( Fcn->GlobalNames )
+		free(Fcn->GlobalNames);
 	free(Fcn->Labels);
 	free(Fcn);
 }
@@ -110,37 +115,69 @@ void Bytecode_int_AppendOp(tBC_Function *Fcn, tBC_Op *Op)
 	Fcn->OperationsEnd = Op;
 }
 
+int _AddVariable(int *Count, int *Space, int Depth, const char ***NamesBuf, const char *Name, int *MaxVars)
+{
+	if(*Count == *Space) {
+		void	*tmp;
+		*Space += 10;
+		tmp = realloc(*NamesBuf, *Space * sizeof(const char *));
+		if(!tmp)	return -1;	// TODO: Error
+		*NamesBuf = tmp;
+	}
+	(*NamesBuf)[*Count] = Name;
+	(*Count) ++;
+	// Get max count (used when executing to get the frame size)
+	if(*Count - Depth >= *MaxVars)
+		*MaxVars = *Count - Depth;
+//	if( Name )
+//		printf("_AddVariable: %s given %i\n", Name, *Count - Depth - 1);
+	return *Count - Depth - 1;
+	
+}
+
 int Bytecode_int_AddVariable(tBC_Function *Handle, const char *Name)
 {
-	if(Handle->VariableCount == Handle->VariableSpace) {
-		void	*tmp;
-		Handle->VariableSpace += 10;
-		tmp = realloc(Handle->VariableNames, Handle->VariableSpace * sizeof(Handle->VariableNames[0]));
-		if(!tmp)	return -1;	// TODO: Error
-		Handle->VariableNames = tmp;
+	return _AddVariable(&Handle->VariableCount, &Handle->VariableSpace, Handle->CurContextDepth,
+		&Handle->VariableNames, Name, &Handle->MaxVariableCount);
+}
+int Bytecode_int_AddGlobal(tBC_Function *Handle, const char *Name)
+{
+	return _AddVariable(&Handle->GlobalCount, &Handle->GlobalSpace, Handle->CurContextDepth,
+		&Handle->GlobalNames, Name, &Handle->MaxGlobalCount);
+}
+
+int _GetVarIndex(int Count, int Depth, const char **Names, const char *Name)
+{
+	for( int i = Count; i --; )
+	{
+		// Ignore (and account for) Start-of-block markers
+		if( !Names[i] ) {
+			Depth --;
+			continue ;
+		}
+		if( strcmp(Name, Names[i]) == 0 )
+			return i - Depth;
 	}
-	Handle->VariableNames[Handle->VariableCount] = Name;
-	Handle->VariableCount ++;
-	// Get max count (used when executing to get the frame size)
-	if(Handle->VariableCount - Handle->CurContextDepth >= Handle->MaxVariableCount)
-		Handle->MaxVariableCount = Handle->VariableCount - Handle->CurContextDepth;
-//	printf("_AddVariable: %s given %i\n", Name, Handle->VariableCount - Handle->CurContextDepth - 1);
-	return Handle->VariableCount - Handle->CurContextDepth - 1;
+	return -1;
 }
 
 int Bytecode_int_GetVarIndex(tBC_Function *Handle, const char *Name)
 {
-	 int	i, context_depth = Handle->CurContextDepth;
-	// Get the start of this context
-	for( i = Handle->VariableCount; i --; )
-	{
-		if( !Handle->VariableNames[i] ) {
-			context_depth --;
-			continue ;
-		}
-		if( strcmp(Name, Handle->VariableNames[i]) == 0 )
-			return i - context_depth;
+	 int	rv;
+	
+	// Locals
+	rv = _GetVarIndex(Handle->VariableCount, Handle->CurContextDepth, Handle->VariableNames, Name);
+	if( rv >= 0 ) {
+//		printf("Variable %s in slot %i\n", Name, rv);
+		return rv;
 	}
+	
+	// Globals
+	rv = _GetVarIndex(Handle->GlobalCount, Handle->CurContextDepth, Handle->GlobalNames, Name);
+	if( rv >= 0 )
+		return rv | 0x80;
+
+	// TODO: Some form of error	
 	return -1;
 }
 
@@ -154,6 +191,7 @@ int Bytecode_int_OpUsesString(int Op)
 	case BC_OP_CALLFUNCTION:
 	case BC_OP_CREATEOBJ:
 	case BC_OP_DEFINEVAR:
+	case BC_OP_IMPGLOBAL:
 		return 1;
 	default:
 		return 0;
@@ -175,6 +213,7 @@ int Bytecode_int_OpUsesInteger(int Op)
 	case BC_OP_SAVEVAR:
 	case BC_OP_CAST:
 	case BC_OP_DEFINEVAR:
+	case BC_OP_IMPGLOBAL:
 	case BC_OP_LOADNULL:
 		return 1;
 	default:
@@ -316,20 +355,27 @@ void Bytecode_AppendDelete(tBC_Function *Handle)
 // Does some bookeeping to allocate variable slots at compile time
 void Bytecode_AppendEnterContext(tBC_Function *Handle)
 {
+//	printf("_EnterContext: %i %i,%i\n", Handle->CurContextDepth, Handle->GlobalCount, Handle->VariableCount);
 	Handle->CurContextDepth ++;
 	Bytecode_int_AddVariable(Handle, NULL);	// NULL to record the extent of this	
+	Bytecode_int_AddGlobal(Handle, NULL);	// NULL to record the extent of this	
 
 	DEF_BC_NONE(BC_OP_ENTERCONTEXT)
 }
 void Bytecode_AppendLeaveContext(tBC_Function *Handle)
 {
 	 int	i;
-	for( i = Handle->VariableCount; i --; )
-	{
-		if( Handle->VariableNames[i] == NULL )	break;
-	}
+
+	assert(Handle->CurContextDepth);
+	assert(Handle->VariableCount);
+	assert(Handle->GlobalCount);
+
+	for( i = Handle->VariableCount; i && Handle->VariableNames[i-1] != NULL; i -- );
+	Handle->VariableCount = i-1;
+	for( i = Handle->GlobalCount; i && Handle->GlobalNames[i-1] != NULL; i -- );
+	Handle->GlobalCount = i-1;
 	Handle->CurContextDepth --;
-	Handle->VariableCount = i;
+//	printf("_LeaveContext: %i %i,%i\n", Handle->CurContextDepth, Handle->GlobalCount, Handle->VariableCount);
 
 	DEF_BC_NONE(BC_OP_LEAVECONTEXT);
 }
@@ -353,7 +399,11 @@ void Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, int Type)
 	#endif
 
 	i = Bytecode_int_AddVariable(Handle, Name);
-//	printf("Variable %s given slot %i\n", Name, i);	
 
 	DEF_BC_STRINT(BC_OP_DEFINEVAR, Name, (Type&0xFFFFFF) | (i << 24))
+}
+void Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, int Type)
+{
+	int i = Bytecode_int_AddGlobal(Handle, Name);
+	DEF_BC_STRINT(BC_OP_IMPGLOBAL, Name,  (Type&0xFFFFFF) | (i << 24))
 }

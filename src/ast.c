@@ -44,7 +44,7 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 
 int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, int Type)
 {
-	tScript_Class_Var	*p;
+	tScript_Var	*p;
 
 	// Check for duplicates
 	for( p = Class->FirstProperty; p; p = p->Next ) {
@@ -53,7 +53,7 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 	}
 	
 	// Allocate new
-	p = malloc( sizeof(tScript_Class_Var) + strlen(Name) + 1 );
+	p = malloc( sizeof(tScript_Var) + strlen(Name) + 1 );
 	if(!p)	return -1;
 	p->Next = NULL;
 	p->Type = Type;
@@ -241,6 +241,7 @@ void AST_FreeNode(tAST_Node *Node)
 	
 	// Define a variable
 	case NODETYPE_DEFVAR:
+	case NODETYPE_DEFGLOBAL:
 		AST_FreeNode(Node->DefVar.InitialValue);
 		break;
 	

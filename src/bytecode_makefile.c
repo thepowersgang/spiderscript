@@ -248,7 +248,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		// Attributes
 		for( int j = 0; j < n_attrib; j ++ )
 		{
-			tScript_Class_Var *at;
+			tScript_Var *at;
 			int name = _get32(State);
 			int type = _get32(State);
 		
@@ -388,7 +388,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
 	{
 		 int	n_methods = 0, n_attributes = 0;
-		tScript_Class_Var *at;
+		tScript_Var *at;
 
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 			n_methods ++;
@@ -425,7 +425,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	{
 		fcn_hdr_offset += 4+2+2;	// Object header
 		
-		for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next )
+		for( tScript_Var *at = sc->FirstProperty; at; at = at->Next )
 			fcn_hdr_offset += 4+4;
 		
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)

@@ -31,7 +31,12 @@ const struct {
 	{TOK_RWD_FUNCTION, "function"},
 	{TOK_RWD_CLASS, "class"},
 	{TOK_RWD_NAMESPACE, "namespace"},
-	
+
+	// Storage class
+	{TOK_RWD_GLOBAL, "global"},
+	{TOK_RWD_GLOBAL, "static"},
+	{TOK_RWD_GLOBAL, "const"},
+
 	{TOK_RWD_RETURN, "return"},
 	{TOK_RWD_BREAK, "break"},
 	{TOK_RWD_CONTINUE, "continue"},

@@ -448,7 +448,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	 int	ast_op, i, rv;
 	tBC_Op	*op;
 	tBC_StackEnt	val1, val2, rval;
-	 int	local_var_count = Fcn->BCFcn->MaxVariableCount;
+	const int	local_var_count = Fcn->BCFcn->MaxVariableCount;
+	const int	imp_global_count = Fcn->BCFcn->MaxGlobalCount;
 	tBC_StackEnt	*local_vars;
 	 int	type;
 	void	*ptr, *ptr2;
@@ -461,6 +462,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	local_vars = malloc( sizeof(tBC_StackEnt) * local_var_count );	// Includes arguments
 	for( i = 0; i < local_var_count; i ++ )
 		local_vars[i].Type = SS_DATATYPE_NOVALUE;
+	
+	// Imported globals
+	tScript_Var	*globals[imp_global_count];
+	memset(globals, 0, sizeof(globals));
 	
 	// Pop off arguments
 	// - Handle optional arguments
@@ -547,6 +552,39 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 			local_vars[slot].Type = type;
 			} break;
 
+		case BC_OP_IMPGLOBAL: {
+			int type = OP_INDX(op) & 0xFFFFFF;
+			int slot = OP_INDX(op) >> 24;
+			if(slot < 0 || slot >= imp_global_count ) {
+				SpiderScript_RuntimeError(Script, "Global slot %i out of 0-%i", slot, imp_global_count);
+				bError = 1;
+				break;
+			}
+
+			globals[slot] = NULL;
+			for( tScript_Var *v = Script->FirstGlobal; v; v = v->Next )
+			{
+				if( strcmp(v->Name, OP_STRING(op)) == 0 ) {
+					globals[slot] = v;
+					break;
+				}
+			}
+			if( !globals[slot] ) {
+				// TODO: Create new global? Or should they all be defined at load?
+				SpiderScript_RuntimeError(Script, "Reference to undefined global variable '%s'", OP_STRING(op));
+				bError = 1;
+				break;
+			}
+
+			if( globals[slot]->Type != type ) {
+				SpiderScript_RuntimeError(Script, "Importing '%s' as invalid type (is %i, want %i)",
+					OP_STRING(op), globals[slot]->Type, type);
+				bError = 1;
+				break;
+			}
+			
+			} break;
+
 		// Create an array
 		case BC_OP_CREATEARRAY:
 			val1.Type = OP_INDX(op);
@@ -578,30 +616,76 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		case BC_OP_LOADVAR: {
 			 int	slot = OP_INDX(op);
 			STATE_HDR();
-			DEBUG_F("LOADVAR %i ", slot);
-			if( slot < 0 || slot >= local_var_count ) {
-				SpiderScript_RuntimeError(Script, "Loading from invalid slot %i", slot);
-				bError = 1; break;
+			DEBUG_F("LOADVAR 0x%x ", slot);
+			if( slot & 0x80 )
+			{
+				slot &= 0x80-1;
+				if( slot >= imp_global_count ) {
+					SpiderScript_RuntimeError(Script, "Loading from invalid slot %i (%i max) - %s",
+						slot, local_var_count, Fcn->Name);
+					bError = 1; break;
+				}
+				if( !globals[slot] ) {
+					SpiderScript_RuntimeError(Script, "Global slot %i empty", slot);
+					bError = 1; break;
+				}
+				
+				Bytecode_int_SetSpiderValue(Script, &val1, globals[slot]->Type, globals[slot]->Ptr);
+				PUT_STACKVAL(val1);
 			}
-			DEBUG_F("("); PRINT_STACKVAL(local_vars[slot]); DEBUG_F(")\n");
-			PUT_STACKVAL(local_vars[slot]);
-			Bytecode_int_RefStackValue( Script, &local_vars[slot] );
+			else
+			{
+				if( slot < 0 || slot >= local_var_count ) {
+					SpiderScript_RuntimeError(Script, "Loading from invalid slot %i (%i max) - %s",
+						slot, local_var_count, Fcn->Name);
+					bError = 1; break;
+				}
+				DEBUG_F("("); PRINT_STACKVAL(local_vars[slot]); DEBUG_F(")\n");
+				PUT_STACKVAL(local_vars[slot]);
+				Bytecode_int_RefStackValue( Script, &local_vars[slot] );
+			}
 			} break;
 		case BC_OP_SAVEVAR: {
 			 int	slot = OP_INDX(op);
 			STATE_HDR();
-			DEBUG_F("SAVEVAR %i = ", slot);
-			if( slot < 0 || slot >= local_var_count ) {
-				SpiderScript_RuntimeError(Script, "Loading from invalid slot %i", slot);
-				bError = 1; break;
+			DEBUG_F("SAVEVAR 0x%i = ", slot);
+			if( slot & 0x80 )
+			{
+				slot &= 0x80-1;
+				if( slot >= imp_global_count ) {
+					SpiderScript_RuntimeError(Script, "Loading from invalid slot %i (%i max) - %s",
+						slot, local_var_count, Fcn->Name);
+					bError = 1; break;
+				}
+				if( !globals[slot] ) {
+					SpiderScript_RuntimeError(Script, "Global slot %i empty", slot);
+					bError = 1; break;
+				}
+				
+				Bytecode_int_SetSpiderValue(Script, &val1, globals[slot]->Type, globals[slot]->Ptr);
+				DEREF_STACKVAL(val1);	// _SetSpiderValue
+				DEREF_STACKVAL(val1);	// Whatever was there before
+				
+				GET_STACKVAL(val1);
+				if( val1.Type != globals[slot]->Type ) {
+					bError = 1; break;
+				}
+				Bytecode_int_GetSpiderValue(Script, &val1, &globals[slot]->Ptr);
 			}
-			// Remove whatever was in there before
-			DEBUG_F("[Deref "); PRINT_STACKVAL(local_vars[slot]); DEBUG_F("] ");
-			DEREF_STACKVAL( local_vars[slot] );
-			// Place new in
-			GET_STACKVAL(local_vars[slot]);
-			PRINT_STACKVAL(local_vars[slot]);
-			DEBUG_F("\n");
+			else
+			{	
+				if( slot < 0 || slot >= local_var_count ) {
+					SpiderScript_RuntimeError(Script, "Loading from invalid slot %i", slot);
+					bError = 1; break;
+				}
+				// Remove whatever was in there before
+				DEBUG_F("[Deref "); PRINT_STACKVAL(local_vars[slot]); DEBUG_F("] ");
+				DEREF_STACKVAL( local_vars[slot] );
+				// Place new in
+				GET_STACKVAL(local_vars[slot]);
+				PRINT_STACKVAL(local_vars[slot]);
+				DEBUG_F("\n");
+			}
 			} break;
 
 		// Array index (get or set)

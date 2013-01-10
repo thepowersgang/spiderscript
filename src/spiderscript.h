@@ -54,6 +54,7 @@ EXPORT extern int	SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *
 #define SS_DOWNARRAY(_type)	((_type) - 0x10000)
 #define SS_GETARRAYDEPTH(_type)	((_type) >> 16)
 #define SS_ISTYPEOBJECT(_type)	((_type) & 0xF000)
+#define SS_ISTYPEREFERENCE(_type)	(((_type)>>12) || ((_type)==SS_DATATYPE_STRING))
 
 enum eSpiderValueOps
 {

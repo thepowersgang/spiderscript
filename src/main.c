@@ -116,7 +116,7 @@ void SpiderScript_Free(tSpiderScript *Script)
 
 	for(sc = Script->FirstClass; sc; sc = n)
 	{
-		tScript_Class_Var *at;
+		tScript_Var *at;
 		for( at = sc->FirstProperty; at; at = n )
 		{
 			n = at->Next;
@@ -133,6 +133,22 @@ void SpiderScript_Free(tSpiderScript *Script)
 		n = sc->Next;
 		free(sc);
 	}	
+	
+	for( tScript_Var *var = Script->FirstGlobal; var; var = n )
+	{
+		n = var->Next;
+		if( SS_GETARRAYDEPTH(var->Type) )
+			SpiderScript_DereferenceArray(var->Ptr);
+		else if( SS_ISTYPEOBJECT(var->Type) )
+			SpiderScript_DereferenceObject(var->Ptr);
+		else if( var->Type == SS_DATATYPE_STRING )
+			SpiderScript_DereferenceString(var->Ptr);
+		else
+			;
+		free(var);
+	}
+	Script->FirstGlobal = NULL;
+	Script->LastGlobal = NULL;
 
 	free(Script);
 }

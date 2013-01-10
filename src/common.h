@@ -13,7 +13,7 @@
 typedef struct sScript_Function	tScript_Function;
 typedef struct sScript_Arg	tScript_Arg;
 typedef struct sScript_Class	tScript_Class;
-typedef struct sScript_Class_Var	tScript_Class_Var;
+typedef struct sScript_Var	tScript_Var;
 
 struct sSpiderScript
 {
@@ -27,6 +27,9 @@ struct sSpiderScript
 	
 	 int	CurException;
 	char	*CurExceptionString;
+	
+	tScript_Var	*FirstGlobal;
+	tScript_Var	*LastGlobal;
 };
 
 struct sScript_Arg
@@ -51,11 +54,12 @@ struct sScript_Function
 	tScript_Arg	Arguments[];
 };
 
-struct sScript_Class_Var
+struct sScript_Var
 {
-	tScript_Class_Var	*Next;
+	tScript_Var	*Next;
+	void	*Ptr;
 	 int	Type;
-	char	Name[];
+	char	*Name;
 };
 
 struct sScript_Class
@@ -65,8 +69,8 @@ struct sScript_Class
 	tScript_Function	*FirstFunction;
 	tScript_Function	*LastFunction;
 	
-	tScript_Class_Var	*FirstProperty;
-	tScript_Class_Var	*LastProperty;
+	tScript_Var	*FirstProperty;
+	tScript_Var	*LastProperty;
 	 int	nProperties;
 
 	tSpiderScript_DataType	TypeCode;	

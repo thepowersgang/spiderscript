@@ -18,6 +18,7 @@
 #define MAX_NAMESPACE_DEPTH	10
 #define MAX_STACK_DEPTH	10	// This is for one function, so shouldn't need more
 #define SS_DATATYPE_UNDEF	-1
+#define MAX_GLOBALS	32
 
 #if DEBUG >= 1
 # define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
@@ -31,6 +32,12 @@ extern tSpiderFunction	*gpExports_First;
 extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, int Type1);
 
 // === TYPES ===
+//typedef struct sAST_ImpGlobal
+//{
+//	struct sAST_ImpGlobal	*Next;
+//	tScript_Var	*Entry;
+//} tAST_ImpGlobal;
+
 typedef struct sAST_BlockInfo
 {
 	struct sAST_BlockInfo	*Parent;
@@ -47,8 +54,9 @@ typedef struct sAST_BlockInfo
 		int	Type;
 		void	*Info;
 	}	Stack[MAX_STACK_DEPTH];	// Stores types of stack values
-	
-	tAST_Variable	*FirstVar;
+
+	tScript_Var	*ImportedGlobals[MAX_GLOBALS];	
+	tScript_Var	*FirstVar;
 	tAST_Node	*CurNode;
 } tAST_BlockInfo;
 
@@ -62,6 +70,7 @@ typedef struct sAST_BlockInfo
 
 // Variables
  int 	BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name);
+ int	BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name);
  int	BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode);
  int	BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode);
 void	BC_Variable_Clear(tAST_BlockInfo *Block);
@@ -562,6 +571,21 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		break;
 	
+	// Define/Import a global variable
+	case NODETYPE_DEFGLOBAL:
+		ret = BC_Variable_DefImportGlobal(Block, Node, Node->DefVar.DataType, Node->DefVar.Name);
+		if(ret)	return ret;
+		
+		if( Node->DefVar.InitialValue )
+		{
+			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, 1);
+			if(ret)	return ret;
+			ret = _StackPop(Block, Node->DefVar.InitialValue, Node->DefVar.DataType, NULL);
+			if(ret < 0)	return -1;
+			Bytecode_AppendSaveVar(Block->Handle, Node->DefVar.Name);
+		}
+		break;
+	
 	// Variable
 	case NODETYPE_VARIABLE:
 		ret = BC_Variable_GetValue( Block, Node );
@@ -591,7 +615,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			ret = nc->AttributeDefs[i].Type;
 		}
 		else if(sc) {
-			tScript_Class_Var *at;
+			tScript_Var *at;
 			for( at = sc->FirstProperty; at; at = at->Next )
 			{
 				if( strcmp(Node->Scope.Name, at->Name) == 0 )
@@ -1231,7 +1255,7 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 			type = nc->AttributeDefs[i].Type;
 		}
 		else if(sc) {
-			tScript_Class_Var *at;
+			tScript_Var *at;
 			for( at = sc->FirstProperty; at; at = at->Next )
 			{
 				if( strcmp(DestNode->Scope.Name, at->Name) == 0 )
@@ -1297,48 +1321,27 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, int DestType, int Sourc
 	return 0;
 }
 
-/**
- * \brief Define a variable
- * \param Block	Current block state
- * \param Type	Type of the variable
- * \param Name	Name of the variable
- * \return Boolean Failure
- */
-int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, int Type, const char *Name)
+const tScript_Var *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode, const char *Name, int CreateType)
 {
-	tAST_Variable	*var, *prev = NULL;
-	
-	for( var = Block->FirstVar; var; prev = var, var = var->Next )
-	{
-		if( strcmp(var->Name, Name) == 0 ) {
-			AST_RuntimeError(Node, "Redefinition of variable '%s'", Name);
-			return -1;
-		}
-	}
-	
-	var = malloc( sizeof(tAST_Variable) + strlen(Name) + 1 );
-	var->Next = NULL;
-	var->Type = Type;
-	strcpy(var->Name, Name);
-	
-	if(prev)	prev->Next = var;
-	else	Block->FirstVar = var;
-	
-	Bytecode_AppendDefineVar(Block->Handle, Name, Type);
-	return 0;
-}
-
-tAST_Variable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode, int CreateType)
-{
-	tAST_Variable	*var = NULL;
+	tScript_Var	*var = NULL;
 	tAST_BlockInfo	*bs;
 	
 	for( bs = Block; bs; bs = bs->Parent )
 	{
 		for( var = bs->FirstVar; var; var = var->Next )
 		{
-			if( strcmp(var->Name, VarNode->Variable.Name) == 0 )
+			if( strcmp(var->Name, Name) == 0 )
 				break;
+		}
+		if(var)	break;
+		
+		// TODO: Scan imported globals
+		for( int i = 0; i < MAX_GLOBALS; i ++ )
+		{
+			if( bs->ImportedGlobals[i] && strcmp(bs->ImportedGlobals[i]->Name, Name) == 0 ) {
+				var = bs->ImportedGlobals[i];
+				break;
+			}
 		}
 		if(var)	break;
 	}
@@ -1351,17 +1354,101 @@ tAST_Variable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode, int
 //		}
 //		else
 //		{
-			AST_RuntimeError(VarNode, "Variable '%s' is undefined", VarNode->Variable.Name);
+			if( VarNode->Type != NODETYPE_DEFGLOBAL )
+			{
+				AST_RuntimeError(VarNode, "Variable '%s' is undefined", Name);
+			}
 			return NULL;
 //		}
 	}
 		
 	#if TRACE_VAR_LOOKUPS
 	AST_RuntimeMessage(VarNode, "debug", "Variable lookup of '%s' %p type %i",
-		VarNode->Variable.Name, var, var->Type);
+		Name, var, var->Type);
 	#endif
 	
 	return var;
+}
+
+/**
+ * \brief Define a variable
+ * \param Block	Current block state
+ * \param Type	Type of the variable
+ * \param Name	Name of the variable
+ * \return Boolean Failure
+ */
+int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, int Type, const char *Name)
+{
+	tScript_Var	*var, *prev = NULL;
+	
+	for( var = Block->FirstVar; var; prev = var, var = var->Next )
+	{
+		if( strcmp(var->Name, Name) == 0 ) {
+			AST_RuntimeError(Node, "Redefinition of variable '%s'", Name);
+			return -1;
+		}
+	}
+	
+	var = malloc( sizeof(tScript_Var) + strlen(Name) + 1 );
+	var->Next = NULL;
+	var->Type = Type;
+	var->Name = (char*)(var + 1);
+	strcpy(var->Name, Name);
+	
+	if(prev)	prev->Next = var;
+	else	Block->FirstVar = var;
+	
+	Bytecode_AppendDefineVar(Block->Handle, Name, Type);
+	return 0;
+}
+
+int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name)
+{
+	 int	slot;
+	
+	// Find a free slot
+	for( slot = 0; slot < MAX_GLOBALS && Block->ImportedGlobals[slot]; slot ++ )
+		;
+	if( slot == MAX_GLOBALS ) {
+		AST_RuntimeError(DefNode, "Too many globals in function, %i max", MAX_GLOBALS);
+		return -1;
+	}
+
+	if( BC_Variable_Lookup(Block, DefNode, Name, SS_DATATYPE_UNDEF) ) {
+		AST_RuntimeError(DefNode, "Global %s re-imported", Name);
+		return -1;
+	}
+
+	// Locate the global in the script
+	tScript_Var	*var;
+	for( var = Block->Script->FirstGlobal; var; var = var->Next )
+	{
+		if( strcmp(var->Name, Name) == 0 )
+			break;
+	}
+	// - If it's not there, create a new one
+	if( !var )
+	{
+		 int	size = SS_ISTYPEREFERENCE(Type) ? 0 : SpiderScript_int_GetTypeSize(Type);
+		var = malloc( sizeof(tScript_Var) + size + strlen(Name) + 1 );
+		var->Type = Type;
+		var->Ptr = var + 1;
+		var->Name = (char*)var->Ptr + size;
+		if( size == 0 )
+			var->Ptr = 0;
+		strcpy(var->Name, Name);
+		var->Next = NULL;
+		if( !Block->Script->FirstGlobal )
+			Block->Script->FirstGlobal = var;
+		else
+			Block->Script->LastGlobal->Next = var;
+		Block->Script->LastGlobal = var;
+	}
+	Block->ImportedGlobals[slot] = var;
+
+	Bytecode_AppendImportGlobal(Block->Handle, Name, Type);
+	
+	return 0;
 }
 
 /**
@@ -1370,10 +1457,7 @@ tAST_Variable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode, int
  */
 int BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
 {
-	tAST_Variable	*var;
-	
-	// TODO: Implicit definition type
-	var = BC_Variable_Lookup(Block, VarNode, SS_DATATYPE_UNDEF);
+	const tScript_Var *var = BC_Variable_Lookup(Block, VarNode, VarNode->Variable.Name, SS_DATATYPE_UNDEF);
 	if(!var)	return -1;
 
 	int type = _StackPop(Block, VarNode, SS_DATATYPE_UNDEF, NULL);
@@ -1394,9 +1478,7 @@ int BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
  */
 int BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
 {
-	tAST_Variable	*var;
-
-	var = BC_Variable_Lookup(Block, VarNode, 0);	
+	const tScript_Var *var = BC_Variable_Lookup(Block, VarNode, VarNode->Variable.Name, 0);	
 	if(!var)	return -1;
 
 	// NOTE: Abuses ->Object as the info pointer	
@@ -1407,10 +1489,11 @@ int BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
 
 void BC_Variable_Clear(tAST_BlockInfo *Block)
 {
-	tAST_Variable	*var;
+	tScript_Var	*var;
+	
 	for( var = Block->FirstVar; var; )
 	{
-		tAST_Variable	*tv = var->Next;
+		tScript_Var	*tv = var->Next;
 		free( var );
 		var = tv;
 	}

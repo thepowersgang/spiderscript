@@ -71,7 +71,7 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 {
 	 int	n_attr = 0;
 	 int	size = sizeof(tSpiderObject);
-	tScript_Class_Var *at;
+	tScript_Var *at;
 	 int	i;
 
 	for( at = Class->FirstProperty; at; at = at->Next )
@@ -122,7 +122,7 @@ void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 		}
 		else if( sc ) {
 			// TODO: Destructor
-			for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next )
+			for( tScript_Var *at = sc->FirstProperty; at; at = at->Next )
 				n_att ++;
 		}
 		else {
@@ -137,7 +137,7 @@ void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 		}
 		else if( sc ) {
 			n_att = 0;
-			for( tScript_Class_Var *at = sc->FirstProperty; at; at = at->Next ) {
+			for( tScript_Var *at = sc->FirstProperty; at; at = at->Next ) {
 				at_types[n_att] = at->Type;
 				n_att ++;
 			}

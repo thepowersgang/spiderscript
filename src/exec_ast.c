@@ -15,7 +15,7 @@
 #define TRACE_NODE_RETURNS	0
 
 // === IMPORTS ===
- int	SpiderScript_int_GetTypeSize(int Type);
+//extern int	SpiderScript_int_GetTypeSize(int Type);
 
 // === PROTOTYPES ===
 
@@ -415,7 +415,7 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 		className = nc->Name;
 	}
 	else if( sc ) {
-		tScript_Class_Var *at;
+		tScript_Var *at;
 		for( i = 0, at = sc->FirstProperty; at; at = at->Next, i ++ )
 		{
 			if( strcmp(ElementName, at->Name) == 0 )

@@ -39,10 +39,15 @@ struct sBC_Function
 	tBC_Op	**Labels;
 	
 	 int	MaxVariableCount;
+	 int	MaxGlobalCount;
 	// NOTE: These fields are invalid after compilation
 	 int	VariableCount;
 	 int	VariableSpace;
-	const char	**VariableNames;
+	const char	**VariableNames;	
+	 int	GlobalCount;
+	 int	GlobalSpace;
+	const char	**GlobalNames;
+
 	 int	CurContextDepth;	// Used to get the real var count
 
 	 int	OperationCount;

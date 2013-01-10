@@ -639,7 +639,26 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		if(code)	AST_FreeNode(code);
 		return NULL;
 		}
-	
+
+	// Global variable
+	case TOK_RWD_GLOBAL:
+		GetToken(Parser);	// Eat the global
+		if( SyntaxAssert(Parser, LookAhead(Parser), TOK_IDENT) )
+			return NULL;
+		ret = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
+		if( !ret || ret == ERRPTR )
+			return ret;
+		if( ret->Type != NODETYPE_DEFVAR ) {
+			// Oops?
+			AST_FreeNode(ret);
+			return NULL;
+		}
+		ret->Type = NODETYPE_DEFGLOBAL;
+		if( ret->DefVar.InitialValue ) {
+			// Nope?
+		}
+		break;
+
 	// Define Variables / Functions / Call functions
 	case TOK_IDENT:
 		ret = Parse_VarDefList(Parser, CodeNode, NULL);
