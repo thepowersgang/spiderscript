@@ -294,7 +294,7 @@ enum eSpiderScript_Exceptions
 	SS_EXCEPTION_NAMEERROR	// Invalid name/ID
 };
 
-EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message);
+EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message, ...);
 EXPORT extern int	SpiderScript_GetException(tSpiderScript *Script, const char **Message);
 EXPORT extern void	SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved);
 EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);

@@ -173,7 +173,8 @@ void Bytecode_int_SetSpiderValue(tSpiderScript *Script, tBC_StackEnt *Ent, int T
 		Ent->Real = *(const tSpiderReal*)Source;
 		break;
 	case SS_DATATYPE_STRING:
-		Ent->String = *(tSpiderString*const*)Source;
+//		Ent->String = *(tSpiderString*const*)Source;
+		Ent->String = (void*)Source;
 		SpiderScript_ReferenceString(Ent->String);
 		break;
 	
@@ -314,7 +315,7 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	// Call
 	ret = Bytecode_int_ExecuteFunction(Script, Fcn, stack, NArguments);
 
-	if( !ret && Fcn->ReturnType != SS_DATATYPE_NOVALUE )
+	if( ret == 0 && Fcn->ReturnType != SS_DATATYPE_NOVALUE )
 	{
 		// Get return value
 		if( Bytecode_int_StackPop(Script, stack, &val) ) {
@@ -329,7 +330,10 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 			free(stack);
 			return -1;
 		}
-		memcpy(RetData, &val.Boolean, SpiderScript_int_GetTypeSize(val.Type));
+		if( SS_ISTYPEREFERENCE(val.Type) )
+			*(void**)RetData = val.String;	// Or object, or array
+		else
+			memcpy(RetData, &val.Boolean, SpiderScript_int_GetTypeSize(val.Type));
 	}
 	switch(ret)
 	{

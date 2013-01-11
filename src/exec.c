@@ -112,8 +112,12 @@ int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 	)
 {
 	int id = 0;
-	if( !Ident || !*Ident )
+	if( !Ident || !*Ident ) {
 		id = SpiderScript_ResolveFunction(Script, NULL, Function, Ident);
+		if( id != -1 && (id >> 16) == 0 && Ident ) {
+			*Ident = (void*)( (intptr_t)*Ident | 1 );
+		}
+	}
 	return SpiderScript_int_ExecuteFunction(Script, id, RetData, NArguments, ArgTypes, Arguments, Ident);
 }
 

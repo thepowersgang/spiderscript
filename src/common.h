@@ -6,6 +6,7 @@
 #define _COMMON_H_
 
 #include <spiderscript.h>
+#include <stdarg.h>
 
 #define CONSTRUCTOR_NAME	"__constructor"
 #define BC_NS_SEPARATOR	'@'
@@ -79,6 +80,7 @@ struct sScript_Class
 };
 
 extern char	*mkstr(const char *Format, ...);
+extern char	*mkstrv(const char *format, va_list args);
 
 extern int	SpiderScript_BytecodeScript(tSpiderScript *Script);
 extern tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type);

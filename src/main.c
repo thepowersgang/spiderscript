@@ -16,7 +16,6 @@ extern int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *F
 extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 
 // === PROTOTYPES ===
-char	*mkstrv(const char *format, va_list args);
 
 // === CODE ===
 /**
