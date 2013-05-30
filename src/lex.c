@@ -34,8 +34,8 @@ const struct {
 
 	// Storage class
 	{TOK_RWD_GLOBAL, "global"},
-	{TOK_RWD_GLOBAL, "static"},
-	{TOK_RWD_GLOBAL, "const"},
+	{TOK_RWD_STATIC "static"},
+	{TOK_RWD_CONSTANT, "const"},
 
 	{TOK_RWD_RETURN, "return"},
 	{TOK_RWD_BREAK, "break"},
