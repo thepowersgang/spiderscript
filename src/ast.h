@@ -165,13 +165,13 @@ struct sAST_Node
 		}	Scope;	// Used by NODETYPE_SCOPE and NODETYPE_ELEMENT
 		
 		struct {
-			 int	DataType;
+			tSpiderTypeRef	DataType;
 			tAST_Node	*InitialValue;
 			char	Name[];
 		}	DefVar;
 		
 		struct {
-			 int	DataType;
+			 tSpiderTypeRef	DataType;
 			 tAST_Node	*Value;
 		}	Cast;
 		
@@ -196,9 +196,9 @@ extern size_t	AST_WriteScript(void *Buffer, tSpiderScript *Script);
 extern size_t	AST_WriteNode(void *Buffer, size_t Offset, tAST_Node *Node);
 
 extern tScript_Class	*AST_AppendClass(tParser *Parser, const char *Name);
-extern int	AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, int Type);
-extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
-extern int	AST_AppendFunction(tParser *Parser, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
+extern int	AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type);
+extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
+extern int	AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
 
 extern tAST_Node	*AST_NewNop(tParser *Parser);
 
@@ -209,7 +209,7 @@ extern tAST_Node	*AST_NewNullReference(tParser *Parser);
 extern tAST_Node	*AST_NewBoolean(tParser *Parser, int Value);
 
 extern tAST_Node	*AST_NewVariable(tParser *Parser, const char *Name);
-extern tAST_Node	*AST_NewDefineVar(tParser *Parser, int Type, const char *Name);
+extern tAST_Node	*AST_NewDefineVar(tParser *Parser, tSpiderTypeRef Type, const char *Name);
 extern tAST_Node	*AST_NewConstant(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewClassElement(tParser *Parser, tAST_Node *Object, const char *Name);
 
@@ -217,7 +217,7 @@ extern tAST_Node	*AST_NewFunctionCall(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewCreateObject(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Name);
 extern void	AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg);
-extern tAST_Node	*AST_NewCreateArray(tParser *Parser, int Type, tAST_Node *Size);
+extern tAST_Node	*AST_NewCreateArray(tParser *Parser, tSpiderTypeRef InnerType, tAST_Node *Size);
 
 extern tAST_Node	*AST_NewCodeBlock(tParser *Parser);
 extern void	AST_AppendNode(tAST_Node *Parent, tAST_Node *Child);
@@ -226,7 +226,7 @@ extern tAST_Node	*AST_NewIf(tParser *Parser, tAST_Node *Condition, tAST_Node *Tr
 extern tAST_Node	*AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bPostCheck, tAST_Node *Condition, tAST_Node *Increment, tAST_Node *Code);
 
 extern tAST_Node	*AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_Node *Value);
-extern tAST_Node	*AST_NewCast(tParser *Parser, int Target, tAST_Node *Value);
+extern tAST_Node	*AST_NewCast(tParser *Parser, tSpiderTypeRef Target, tAST_Node *Value);
 extern tAST_Node	*AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right);
 extern tAST_Node	*AST_NewUniOp(tParser *Parser, int Operation, tAST_Node *Value);
 extern tAST_Node	*AST_NewBreakout(tParser *Parser, int Type, const char *DestTag);
@@ -234,11 +234,11 @@ extern tAST_Node	*AST_NewBreakout(tParser *Parser, int Type, const char *DestTag
 extern void	AST_FreeNode(tAST_Node *Node);
 
 // exec_ast.h
-extern int	AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type);
+extern tSpiderScript_CoreType	AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, tSpiderScript_CoreType Type);
 extern tSpiderInteger	AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value);
 extern tSpiderReal	AST_ExecuteNode_UniOp_Real   (tSpiderScript *Script, int Op, tSpiderReal Value);
 
-extern int	AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LeftType, int RightType);
+extern int	AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, tSpiderScript_CoreType LeftType, tSpiderScript_CoreType RightType);
 extern int	AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *Dest,
 	int Op, tSpiderInteger Left, int RightType, const void *Right);
 extern int	AST_ExecuteNode_BinOp_Real   (tSpiderScript *Script, void *Dest,
@@ -246,8 +246,8 @@ extern int	AST_ExecuteNode_BinOp_Real   (tSpiderScript *Script, void *Dest,
 extern int	AST_ExecuteNode_BinOp_String (tSpiderScript *Script, void *Dest,
 	int Op, const tSpiderString *Left, int RightType, const void *Right);
 extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest,
-	tSpiderArray *Array, int Index, int NewType, void *NewValue);
+	tSpiderArray *Array, int Index, tSpiderTypeRef NewType, void *NewValue);
 extern int	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest,
-	tSpiderObject *Object, const char *Element, int NewType, void *NewValue);
+	tSpiderObject *Object, const char *Element, tSpiderTypeRef NewType, void *NewValue);
 
 #endif

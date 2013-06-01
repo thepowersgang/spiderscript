@@ -36,7 +36,7 @@ struct sSpiderScript
 struct sScript_Arg
 {
 
-	 int	Type;
+	tSpiderTypeRef	Type;
 	char	*Name;
 };
 
@@ -46,7 +46,7 @@ struct sScript_Function
 	// char	*Namespace;
 	char	*Name;
 
-	 int	ReturnType;
+	tSpiderTypeRef	ReturnType;
 	
 	struct sAST_Node	*ASTFcn;
 	struct sBC_Function	*BCFcn;
@@ -59,7 +59,7 @@ struct sScript_Var
 {
 	tScript_Var	*Next;
 	void	*Ptr;
-	 int	Type;
+	tSpiderTypeRef	Type;
 	char	*Name;
 };
 
@@ -67,14 +67,14 @@ struct sScript_Class
 {
 	tScript_Class	*Next;
 	
+	tSpiderScript_TypeDef	TypeInfo;
+	
 	tScript_Function	*FirstFunction;
 	tScript_Function	*LastFunction;
 	
 	tScript_Var	*FirstProperty;
 	tScript_Var	*LastProperty;
 	 int	nProperties;
-
-	tSpiderScript_DataType	TypeCode;	
 
 	char	Name[];
 };
@@ -94,7 +94,7 @@ extern int	giNumExportedClasses;
 extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	void *RetValue, int NArgs, const int *ArgTypes, const void * const Args[]);
 
-extern int	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **IDent);
+extern tSpiderTypeRef	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **IDent);
 extern int	SpiderScript_ResolveFunction(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **Ident);
 
 extern int	SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
@@ -112,7 +112,7 @@ extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
 
-extern int	SpiderScript_int_GetTypeSize(int TypeCode);
+extern int	SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeCode);
 
 extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
 #endif

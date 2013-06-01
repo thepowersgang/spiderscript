@@ -20,6 +20,16 @@
 #define SS_DATATYPE_UNDEF	-1
 #define MAX_GLOBALS	32
 
+#define POP_UNDEF	((tSpiderTypeRef){0,0})
+#define POP_STRING	((tSpiderTypeRef){.ArrayDepth=0,.Def=&gSpiderScript_StringType})
+#define POP_REAL	((tSpiderTypeRef){.ArrayDepth=0,.Def=&gSpiderScript_RealType})
+#define POP_INTEGER	((tSpiderTypeRef){.ArrayDepth=0,.Def=&gSpiderScript_IntegerType})
+#define POP_BOOLEAN	((tSpiderTypeRef){.ArrayDepth=0,.Def=&gSpiderScript_BoolType})
+
+#define STACKPOP_RV_NULL	1
+#define STACKPOP_RV_UFLOW	-1
+#define STACKPOP_RV_MISMATCH	-2
+
 #if DEBUG >= 1
 # define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
 #else
@@ -29,7 +39,7 @@
 // === IMPORTS ===
 // TODO: These should not be here
 extern tSpiderFunction	*gpExports_First;
-extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, int Type1);
+extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1);
 
 // === TYPES ===
 //typedef struct sAST_ImpGlobal
@@ -51,7 +61,7 @@ typedef struct sAST_BlockInfo
 
 	 int	StackDepth;
 	struct {
-		int	Type;
+		tSpiderTypeRef	Type;
 		void	*Info;
 	}	Stack[MAX_STACK_DEPTH];	// Stores types of stack values
 
@@ -63,14 +73,14 @@ typedef struct sAST_BlockInfo
 // === PROTOTYPES ===
 // Node Traversal
  int	AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue);
- int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, int ArgTypes[]);
- int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, int ArgTypes[]);
+ int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[]);
+ int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef *RetType, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[]);
  int	BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode);
- int	BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, int DestType, int SourceType);
+ int	BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType, tSpiderTypeRef SourceType);
 
 // Variables
- int 	BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name);
- int	BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name);
+ int 	BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name);
+ int	BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name);
  int	BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode);
  int	BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode);
 void	BC_Variable_Clear(tAST_BlockInfo *Block);
@@ -78,8 +88,10 @@ void	BC_Variable_Clear(tAST_BlockInfo *Block);
 void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
 void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 // - Type stack
- int	_StackPush(tAST_BlockInfo *Block, tAST_Node *Node, int Type, void *Info);
- int	_StackPop(tAST_BlockInfo *Block, tAST_Node *Node, int WantedType, void **Info);
+ int	_StackPush(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info);
+ int	_StackPop(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef WantedType, tSpiderTypeRef *Type, void **Info);
+// - Helpers
+tSpiderTypeRef	_GetCoreType(tSpiderScript_CoreType CoreType);
 
 // === GLOBALS ===
 // int	giNextBlockIdent = 1;
@@ -151,7 +163,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 #define CHECK_IF_NEEDED(b_warn) do { if(!bKeepValue) {\
 	if(b_warn)AST_RuntimeMessage(Node, "Bytecode", "Operation without saving");\
 	Bytecode_AppendDelete(Block->Handle);\
-	_StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);\
+	_StackPop(Block, Node, POP_UNDEF, NULL, NULL);\
 } } while(0)
 
 /**
@@ -162,7 +174,8 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 {
 	tAST_Node	*node;
-	 int	ret = 0, type;
+	 int	ret = 0;
+	tSpiderTypeRef	type, type2;
 	 int	i, op = 0;
 	// int	bAddedValue = 1;	// Used to tell if the value needs to be deleted
 	void	*ident;	// used for classes
@@ -212,18 +225,18 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		// Perform assignment operation
 		if( Node->Assign.Operation != NODETYPE_NOP )
 		{
-			 int	t1, t2;
+			tSpiderTypeRef	t1, t2;
 			
 			ret = AST_ConvertNode(Block, Node->Assign.Dest, 1);
 			if(ret)	return ret;
-			t1 = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
-			if(t1 < 0)	return -1;
+			// TODO: Support <op>= on objects?
+			ret = _StackPop(Block, Node, POP_UNDEF, &t1, NULL);
+			if(ret)	return ret;
 			
 			ret = AST_ConvertNode(Block, Node->Assign.Value, 1);
 			if(ret)	return ret;
-			t2 = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
-			if(t2 < 0)	return -1;
-
+			ret = _StackPop(Block, Node, POP_UNDEF, &t2, NULL);
+			if(ret)	return ret;
 
 			switch(Node->Assign.Operation)
 			{
@@ -255,11 +268,11 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		
 		if( bKeepValue ) {
-			ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, &ident);
+			ret = _StackPop(Block, Node, POP_UNDEF, &type, &ident);
 			if(ret < 0)	return -1;
-			ret = _StackPush(Block, Node, ret, ident);
+			ret = _StackPush(Block, Node, type, ident);
 			if(ret < 0)	return -1;
-			ret = _StackPush(Block, Node, ret, ident);
+			ret = _StackPush(Block, Node, type, ident);
 			if(ret < 0)	return -1;
 			Bytecode_AppendDuplicate(Block->Handle);
 		}
@@ -276,21 +289,26 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			ret = BC_Variable_GetValue(Block, Node->UniOp.Value);
 			if(ret)	return ret;
 		}
-		
-		Bytecode_AppendConstInt(Block->Handle, 1);
-		ret = _StackPush(Block, Node, SS_DATATYPE_INTEGER, NULL);
-		if(ret < 0)	return -1;
-		
+
+		// Left value
+		// TODO: Support post inc/dec on objects
 		ret = AST_ConvertNode(Block, Node->UniOp.Value, 1);
 		if(ret)	return ret;
+		ret = _StackPop(Block, Node, POP_INTEGER, NULL, NULL);
+		if(ret < 0)	return -1;
+	
+		// Constant 1	
+		Bytecode_AppendConstInt(Block->Handle, 1);
+		ret = _StackPush(Block, Node, POP_INTEGER, NULL);
+		if(ret < 0)	return -1;
 
+		// Operation	
 		if( Node->Type == NODETYPE_POSTDEC )
 			Bytecode_AppendBinOp(Block->Handle, BC_OP_SUBTRACT);
 		else
 			Bytecode_AppendBinOp(Block->Handle, BC_OP_ADD);
 
-		ret = _StackPop(Block, Node, SS_DATATYPE_INTEGER, NULL);	// TODO: Check for objects too
-		if(ret < 0)	return -1;
+		// Wrieback
 		ret = BC_SaveValue(Block, Node->UniOp.Value);
 		if(ret)	return ret;
 		break;
@@ -303,13 +321,12 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
 			nargs ++;
 		
-		int argtypes[nargs];
+		tSpiderTypeRef argtypes[nargs];
 		
 		ret = AST_ConvertNode(Block, Node->FunctionCall.Object, 1);
 		if(ret)	return ret;
-		type = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
-		if(type < 0)	return -1;
-		argtypes[0] = type;
+		ret = _StackPop(Block, Node, POP_UNDEF, &argtypes[0], NULL);
+		if(ret)	return -1;
 		
 		int i = 1;
 		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling, i++)
@@ -319,14 +336,14 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			if(ret)	return ret;
 			
 			// Pop type off the stack
-			argtypes[i] = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
-			if(argtypes[i] < 0)	return -1;
+			ret = _StackPop(Block, Node, POP_UNDEF, &argtypes[i], NULL);
+			if(ret)	return -1;
 		}
 	
-		ret = BC_CallFunction(Block, Node, NULL, Node->FunctionCall.Name, nargs, argtypes);
+		ret = BC_CallFunction(Block, Node, &type, NULL, Node->FunctionCall.Name, nargs, argtypes);
 		if(ret < 0)	return ret;
 		
-		if( ret != 0 ) {
+		if( type.Def != NULL ) {
 			CHECK_IF_NEEDED(0);	// Don't warn
 			// TODO: Implement warn_unused_ret
 		}
@@ -346,31 +363,34 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			nargs ++;
 
 		// Push arguments to the stack and get the types
-		int	arg_types[nargs];
+		tSpiderTypeRef	arg_types[nargs];
 		nargs = 0;
 		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
 		{
 			ret = AST_ConvertNode(Block, node, 1);
 			if(ret)	return ret;
 			
-			arg_types[nargs] = _StackPop(Block, node, SS_DATATYPE_UNDEF, 0);
-			if(arg_types[nargs] < 0)	return -1;
+			ret = _StackPop(Block, node, POP_UNDEF, &arg_types[nargs], 0);
+			if(ret < 0)	return -1;
 			nargs ++;
 		}
 		
 		// Call the function
 		if( Node->Type == NODETYPE_CREATEOBJECT )
 		{
-			ret = BC_ConstructObject(Block, Node, namespaces, Node->FunctionCall.Name, nargs, arg_types);
+			ret = BC_ConstructObject(Block, Node, namespaces,
+				Node->FunctionCall.Name, nargs, arg_types);
 			if(ret < 0)	return ret;
+			type2.Def = (void*)-1;
 		}
 		else
 		{
-			ret = BC_CallFunction(Block, Node, namespaces, Node->FunctionCall.Name, nargs, arg_types);
+			ret = BC_CallFunction(Block, Node, &type2, namespaces,
+				Node->FunctionCall.Name, nargs, arg_types);
 			if(ret < 0)	return ret;
 		}
 
-		if( ret != 0 ) {
+		if( type2.Def != NULL ) {
 			CHECK_IF_NEEDED(0);	// Don't warn
 			// TODO: Implement warn_unused_ret
 		}
@@ -384,7 +404,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	case NODETYPE_CREATEARRAY:
 		ret = AST_ConvertNode(Block, Node->Cast.Value, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node->Cast.Value, SS_DATATYPE_INTEGER, NULL);
+		ret = _StackPop(Block, Node->Cast.Value, POP_INTEGER, NULL, NULL);
 		if(ret < 0)	return -1;
 
 		Bytecode_AppendCreateArray(Block->Handle, Node->Cast.DataType);
@@ -400,7 +420,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		if(ret)	return ret;
 		
 		// Note: Technically should be boolean, but there's logic in execution to handle it
-		ret = _StackPop(Block, Node->If.Condition, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, Node->If.Condition, POP_UNDEF, NULL, NULL);
 		if(ret < 0)	return -1;
 	
 		if_end = Bytecode_AllocateLabel(Block->Handle);
@@ -460,7 +480,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			if(ret)	return ret;
 			Bytecode_AppendUniOp(Block->Handle, BC_OP_LOGICNOT);
 			// Boolean magic in exec_bytecode.c
-			ret = _StackPop(Block, Node->For.Condition, SS_DATATYPE_UNDEF, NULL);
+			ret = _StackPop(Block, Node->For.Condition, POP_UNDEF, NULL, NULL);
 			if(ret < 0)	return -1;
 			Bytecode_AppendCondJump(Block->Handle, loop_end);
 		}
@@ -481,7 +501,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			ret = AST_ConvertNode(Block, Node->For.Condition, 1);
 			if(ret)	return ret;
 			// Boolean magic in exec_bytecode.c
-			ret = _StackPop(Block, Node->If.Condition, SS_DATATYPE_UNDEF, NULL);
+			ret = _StackPop(Block, Node->If.Condition, POP_UNDEF, NULL, NULL);
 			if(ret < 0)	return ret;
 			Bytecode_AppendCondJump(Block->Handle, loop_start);
 		}
@@ -501,11 +521,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	case NODETYPE_RETURN:
 		// Special case for `return null;`
 		if( Node->UniOp.Value->Type == NODETYPE_NULL ) {
-			if( SS_GETARRAYDEPTH(Block->Function->ReturnType) )
-				;
-			else if( SS_ISTYPEOBJECT(Block->Function->ReturnType) )
-				;
-			else if( Block->Function->ReturnType == SS_DATATYPE_STRING )
+			if( SS_ISTYPEREFERENCE(Block->Function->ReturnType) )
 				;
 			else {
 				AST_RuntimeError(Node, "Cannot return null when not a reference type");
@@ -517,7 +533,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			ret = AST_ConvertNode(Block, Node->UniOp.Value, 1);
 			if(ret)	return ret;
 			// Pop return type and check that it's sane
-			ret = _StackPop(Block, Node->UniOp.Value, Block->Function->ReturnType, NULL);
+			ret = _StackPop(Block, Node->UniOp.Value, Block->Function->ReturnType, NULL, NULL);
 			if(ret < 0)	return -1;
 		}
 		Bytecode_AppendReturn(Block->Handle);
@@ -565,7 +581,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		{
 			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, 1);
 			if(ret)	return ret;
-			ret = _StackPop(Block, Node->DefVar.InitialValue, Node->DefVar.DataType, NULL);
+			ret = _StackPop(Block, Node->DefVar.InitialValue, Node->DefVar.DataType, NULL, NULL);
 			if(ret < 0)	return -1;
 			Bytecode_AppendSaveVar(Block->Handle, Node->DefVar.Name);
 		}
@@ -580,7 +596,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		{
 			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, 1);
 			if(ret)	return ret;
-			ret = _StackPop(Block, Node->DefVar.InitialValue, Node->DefVar.DataType, NULL);
+			ret = _StackPop(Block, Node->DefVar.InitialValue, Node->DefVar.DataType, NULL, NULL);
 			if(ret < 0)	return -1;
 			Bytecode_AppendSaveVar(Block->Handle, Node->DefVar.Name);
 		}
@@ -598,13 +614,15 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = AST_ConvertNode( Block, Node->Scope.Element, 1 );
 		if(ret)	return ret;
 
-		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, &ident);
+		ret = _StackPop(Block, Node, POP_UNDEF, &type, &ident);
 		if(ret < 0)	return -1;
 
-		nc = SpiderScript_GetClass_Native(Block->Script, ret);
-		sc = SpiderScript_GetClass_Script(Block->Script, ret);
-
-		if(nc) {
+		if( type.ArrayDepth || type.Def == NULL ) {
+			AST_RuntimeError(Node, "");
+			return -1;
+		}
+		else if( type.Def->Class == SS_TYPECLASS_NCLASS ) {
+			nc = type.Def->NClass;
 			for( i = 0; i < nc->NAttributes; i ++ ) {
 				if( strcmp(Node->Scope.Name, nc->AttributeDefs[i].Name) == 0 )
 					break;
@@ -612,9 +630,10 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			if( i == nc->NAttributes )
 				AST_RuntimeError(Node, "Class %s does not have an attribute '%s'",
 					nc->Name, Node->Scope.Name);
-			ret = nc->AttributeDefs[i].Type;
+			type2 = nc->AttributeDefs[i].Type;
 		}
-		else if(sc) {
+		else if( type.Def->Class == SS_TYPECLASS_SCLASS ) {
+			sc = type.Def->SClass;
 			tScript_Var *at;
 			for( at = sc->FirstProperty; at; at = at->Next )
 			{
@@ -624,7 +643,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			if( !at )
 				AST_RuntimeError(Node, "Class %s does not have an attribute '%s'",
 					sc->Name, Node->Scope.Name);
-			ret = at->Type;
+			type2 = at->Type;
 		}
 		else {
 			AST_RuntimeError(Node, "Getting element of non-class type %i", ret);
@@ -633,7 +652,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		// TODO: Don't save the element name, instead store the index into the attribute array
 		Bytecode_AppendElement(Block->Handle, Node->Scope.Name);
 		
-		ret = _StackPush(Block, Node, ret, NULL);
+		ret = _StackPush(Block, Node, type2, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
@@ -642,10 +661,10 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	case NODETYPE_CAST:
 		ret = AST_ConvertNode(Block, Node->Cast.Value, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, Node, POP_UNDEF, &type, NULL);
 		if(ret < 0)	return -1;
 
-		ret = BC_CastValue(Block, Node, Node->Cast.DataType, ret);
+		ret = BC_CastValue(Block, Node, Node->Cast.DataType, type);
 		CHECK_IF_NEEDED(1);
 		break;
 
@@ -655,14 +674,13 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		ret = AST_ConvertNode(Block, Node->BinOp.Left, 1);
 		if(ret)	return ret;
 		//  > Type check
-		ret = _StackPop(Block, Node, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, Node, POP_UNDEF, &type, NULL);
 		if(ret < 0)	return -1;
-		type = ret;
 		
 		// - Offset
 		ret = AST_ConvertNode(Block, Node->BinOp.Right, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node, SS_DATATYPE_INTEGER, NULL);
+		ret = _StackPop(Block, Node, POP_INTEGER, &type2, NULL);
 		if(ret < 0)	return -1;
 		
 		if(SS_GETARRAYDEPTH(type) != 0)
@@ -670,16 +688,17 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			Bytecode_AppendIndex(Block->Handle);
 		
 			// Update the array depth
-			type = SS_DOWNARRAY(type);	// Decrease the array level
+			type.ArrayDepth --;
 			ret = _StackPush(Block, Node, type, NULL);
 			if( ret < 0 )	return -1;
 		}
 		else if( SS_ISTYPEOBJECT(type) )
 		{
-			 int	args[] = {type, ret};	// `ret` is the index type
-			char	*name = SpiderScript_FormatTypeStr1(Block->Script, "operator [](%s)", ret);
-			ret = BC_CallFunction(Block, Node, NULL, name, 2, args);
-			free(name);
+			tSpiderTypeRef	args[] = {type, type2};
+//			char	*name = SpiderScript_FormatTypeStr1(Block->Script, "operator [](%s)", type2);
+//			ret = BC_CallFunction(Block, Node, NULL, NULL, name, 2, args);
+//			free(name);
+			ret = BC_CallFunction(Block, Node, NULL, NULL, "operator []", 2, args);
 			if(ret < 0)	return -1;
 		}
 		else
@@ -700,25 +719,26 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	// Constant Values
 	case NODETYPE_STRING:
 		Bytecode_AppendConstString(Block->Handle, Node->ConstString->Data, Node->ConstString->Length);
-		ret = _StackPush(Block, Node, SS_DATATYPE_STRING, NULL);
+		ret = _StackPush(Block, Node, POP_STRING, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
 	case NODETYPE_INTEGER:
 		Bytecode_AppendConstInt(Block->Handle, Node->ConstInt);
-		ret = _StackPush(Block, Node, SS_DATATYPE_INTEGER, NULL);
+		ret = _StackPush(Block, Node, POP_INTEGER, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
 	case NODETYPE_REAL:
 		Bytecode_AppendConstReal(Block->Handle, Node->ConstReal);
-		ret = _StackPush(Block, Node, SS_DATATYPE_REAL, NULL);
+		ret = _StackPush(Block, Node, POP_REAL, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
 	
 	case NODETYPE_DELETE:
-		ret = _StackPush(Block, Node, SS_DATATYPE_NOVALUE, NULL);
+		// TODO: POP_NOVALUE?
+		ret = _StackPush(Block, Node, POP_UNDEF, NULL);
 		if(ret < 0)	return -1;
 		BC_SaveValue(Block, Node->UniOp.Value);
 		if( bKeepValue ) {
@@ -737,8 +757,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		if(!op)	op = BC_OP_NEG;
 		ret = AST_ConvertNode(Block, Node->UniOp.Value, 1);
 		if(ret)	return ret;
-		type = _StackPop(Block, Node->UniOp.Value, SS_DATATYPE_UNDEF, NULL);
-		if(type < 0)	return -1;
+		ret = _StackPop(Block, Node->UniOp.Value, POP_UNDEF, &type, NULL);
+		if(ret < 0)	return -1;
 
 		if( SS_GETARRAYDEPTH(type) != 0) {
 			AST_RuntimeError(Node, "Unary operation on array is invalid");
@@ -746,7 +766,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		else if( SS_ISTYPEOBJECT(type) ) {
 			const char *name;
-			int args[] = {type};
+			tSpiderTypeRef args[] = {type};
 			switch(Node->Type)
 			{
 			case NODETYPE_LOGICALNOT:	name = "operator !";	break;
@@ -757,19 +777,26 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				return -1;
 			}
 			// TODO: Somehow handle if the object doesn't expose an "operator !" and use the UniOp instead
-			ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
+			ret = BC_CallFunction(Block, Node, NULL, NULL, name, 1, args);
 			if(ret < 0)	return ret;
 		}
-		else {
+		else if( type.Def != NULL || type.Def->Class == SS_TYPECLASS_CORE )
+		{
 			Bytecode_AppendUniOp(Block->Handle, op);
-			i = AST_ExecuteNode_UniOp_GetType(Block->Script, Node->Type, type);
+			i = AST_ExecuteNode_UniOp_GetType(Block->Script, Node->Type, type.Def->Core);
 			if( i <= 0 ) {
 				AST_RuntimeError(Node, "Invalid unary operation #%i on 0x%x", Node->Type, type);
 				return -1;
 			}
 			ret = _StackPush(Block, Node, type, NULL);
 			if(ret < 0)	return -1;
-			type = i;
+			type = _GetCoreType(i);
+		}
+		else
+		{
+			AST_RuntimeError(Node, "Unary boolean on invalid type %s",
+				SpiderScript_GetTypeName(Block->Script, type));
+			return -1;
 		}
 		
 		CHECK_IF_NEEDED(1);
@@ -779,18 +806,17 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	case NODETYPE_REFEQUALS:	if(!op)	op = 1;
 	case NODETYPE_REFNOTEQUALS:	if(!op)	op = 2;
 		op --;
-		// Left (because it's the output type)
+		// Left first
 		ret = AST_ConvertNode(Block, Node->BinOp.Left, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node->BinOp.Left, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, Node->BinOp.Left, POP_UNDEF, &type, NULL);
 		if(ret < 0)	return -1;
-		type = ret;	// Save
 
 		if( SS_GETARRAYDEPTH(type) )
 			;	// Array - can be ref-compared
-		else if(SS_ISTYPEOBJECT(type))
+		else if(SS_ISTYPEREFERENCE(type))
 			;	// Object - OK too
-		else if( type == SS_DATATYPE_STRING )
+		else if( SS_ISCORETYPE(type, SS_DATATYPE_STRING) )
 			;	// Strings - yup
 		else {
 			// Value type - nope.avi
@@ -798,12 +824,12 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 			return -1;
 		}
 
+		// Then right
 		if( Node->BinOp.Right->Type != NODETYPE_NULL )
 		{
-			// Right
 			ret = AST_ConvertNode(Block, Node->BinOp.Right, 1);
 			if(ret)	return ret;
-			ret = _StackPop(Block, Node->BinOp.Right, type, NULL);
+			ret = _StackPop(Block, Node->BinOp.Right, type, NULL, NULL);
 			if(ret < 0)	return -1;
 			
 		}
@@ -816,7 +842,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		else
 			Bytecode_AppendBinOp(Block->Handle, BC_OP_REFNOTEQUALS);
 		
-		ret = _StackPush(Block, Node, SS_DATATYPE_BOOLEAN, NULL);
+		ret = _StackPush(Block, Node, POP_BOOLEAN, NULL);
 		if(ret < 0)	return -1;
 		
 		CHECK_IF_NEEDED(1);
@@ -848,14 +874,13 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		// Left (because it's the output type)
 		ret = AST_ConvertNode(Block, Node->BinOp.Left, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node->BinOp.Left, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, Node->BinOp.Left, POP_UNDEF, &type, NULL);
 		if(ret < 0)	return -1;
-		type = ret;	// Save
 
 		// Right
 		ret = AST_ConvertNode(Block, Node->BinOp.Right, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, Node->BinOp.Right, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, Node->BinOp.Right, POP_UNDEF, &type2, NULL);
 		if(ret < 0)	return -1;
 		
 		if( SS_GETARRAYDEPTH(type) != 0 ) {
@@ -864,7 +889,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		}
 		else if( SS_ISTYPEOBJECT(type) ) {
 			const char *name_tpl;
-			int args[] = {type, ret};
+			tSpiderTypeRef args[] = {type, type2};
 			switch(Node->Type)
 			{
 			case NODETYPE_LOGICALAND:	name_tpl = "operator &&(%s)";	break;
@@ -890,32 +915,63 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 				AST_RuntimeError(Node, "BUG - Node %i unhandled in BinOp on Object", Node->Type);
 				return -1;
 			}
-			char	*name = SpiderScript_FormatTypeStr1(Block->Script, name_tpl, ret);
-			ret = BC_CallFunction(Block, Node, NULL, name, 2, args);
+			char	*name = SpiderScript_FormatTypeStr1(Block->Script, name_tpl, type2);
+			ret = BC_CallFunction(Block, Node, &type, NULL, name, 2, args);
 			free(name);
 			if(ret < 0)	return ret;
 			break ;
 		}
-		else {
-			i = AST_ExecuteNode_BinOp_GetType(Block->Script, Node->Type, type, ret);
+		else if( type.Def != NULL || type.Def->Class == SS_TYPECLASS_CORE )
+		{
+			tSpiderScript_CoreType	ltype, rtype;
+			ltype = type.Def->Core;
+			
+			// Non-core types are reported as UNDEF
+			if( type2.ArrayDepth || type2.Def == NULL || type2.Def->Class != SS_TYPECLASS_CORE ) {
+				rtype = SS_DATATYPE_UNDEF;
+			}
+			else {
+				rtype = type2.Def->Core;
+			}
+			i = AST_ExecuteNode_BinOp_GetType(Block->Script, Node->Type, ltype, rtype);
 			if( i > 0 ) {
 				// All good
-				type = i;
+				type = _GetCoreType(i);
 			}
-			else if( i < 0 && Block->Script->Variant->bImplicitCasts ) {
-				// Implicit cast
+			else if( i < 0 ) {
 				i = -i;
-				BC_CastValue(Block, Node, i, ret);
-				_StackPop(Block, Node, i, NULL);
-				type = AST_ExecuteNode_BinOp_GetType(Block->Script, Node->Type, type, i);
+				tSpiderTypeRef	tgt_type = _GetCoreType(i);
+				// Implicit cast
+				if( Block->Script->Variant->bImplicitCasts ) {
+					BC_CastValue(Block, Node, tgt_type, type2);
+					_StackPop(Block, Node, tgt_type, NULL, NULL);
+					i = AST_ExecuteNode_BinOp_GetType(Block->Script, Node->Type, ltype, i);
+					type = _GetCoreType(i);
+				}
+				else {
+					AST_RuntimeError(Node, "Cast required for %s #%i %s",
+						SpiderScript_GetTypeName(Block->Script, type),
+						op,
+						SpiderScript_GetTypeName(Block->Script, tgt_type)
+						);
+					return -1;
+				}
 			}
 			else {
 				// Bad combo / no implicit
-				AST_RuntimeError(Node, "Invalid binary operation (0x%x #%i 0x%x)",
-					type, op, ret);
+				AST_RuntimeError(Node, "Invalid binary operation (%s #%i %s)",
+					SpiderScript_GetTypeName(Block->Script, type),
+					op,
+					SpiderScript_GetTypeName(Block->Script, type2)
+					);
 				return -1;
 			}
 			Bytecode_AppendBinOp(Block->Handle, op);
+		}
+		else
+		{
+			AST_RuntimeError(Node, "Binary operation on invalid type");
+			return -1;
 		}
 		_StackPush(Block, Node, type, NULL);
 		CHECK_IF_NEEDED(1);
@@ -930,24 +986,27 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	return 0;
 }
 
-int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, int ArgTypes[])
+int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[])
 {
-	tSpiderClass	*nc;
-	tScript_Class	*sc;
-	 int	type;
+	tSpiderTypeRef	type;
 	 int	ret;
 	void	*unused;
 	
 	// Look up object
 	type = SpiderScript_ResolveObject(Block->Script, Namespaces, Name, &unused);
-	if( type == -1 )
+	if( type.Def == NULL )
 	{
 		AST_RuntimeError(Node, "Undefined reference to class %s", Name);
 		return -1;
 	}
 	
-	if( (sc = SpiderScript_GetClass_Script(Block->Script, type)) )
+	if( type.ArrayDepth ) {
+		AST_RuntimeError(Node, "BUG - SpiderScript_ResolveObject returned an array");
+		return -1;
+	}
+	if( type.Def->Class == SS_TYPECLASS_SCLASS )
 	{
+		tScript_Class	*sc = type.Def->SClass;
 		tScript_Function *sf;
 
 		for( sf = sc->FirstFunction; sf; sf = sf->Next )
@@ -967,7 +1026,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 			// Type checks
 			for( int i = 1; i < NArgs+1; i ++ )
 			{
-				if( sf->Arguments[i].Type != ArgTypes[i-1] ) {
+				if( !SS_TYPESEQUAL(sf->Arguments[i].Type, ArgTypes[i-1]) ) {
 					// Sad to be chucked
 					AST_RuntimeError(Node, "Argument %i of %s constructor should be %i, given %i",
 						i, Name, sf->Arguments[i].Type, ArgTypes[i-1]);
@@ -985,8 +1044,9 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 			}
 		}
 	}
-	else if( (nc = SpiderScript_GetClass_Native(Block->Script, type)) )
+	else if( type.Def->Class == SS_TYPECLASS_NCLASS )
 	{
+		tSpiderClass	*nc = type.Def->NClass;
 		tSpiderFunction *nf = nc->Constructor;
 		 int	minArgc = 0;
 		 int	bVariable = 0;
@@ -996,9 +1056,9 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 			bVariable = 0;
 		}
 		else {
-			for( minArgc = 0; nf->ArgTypes[minArgc] && nf->ArgTypes[minArgc] != -1; minArgc ++ )
+			for( minArgc = 0; nf->Prototype.Args[minArgc].Def; minArgc ++ )
 				;
-			bVariable = (nf->ArgTypes[minArgc] == -1);
+			bVariable = nf->Prototype.bVariableArgs;
 		}
 		// Argument count check
 		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
@@ -1009,10 +1069,12 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 		// Type checks
 		for( int i = 0; i < NArgs; i ++ )
 		{
-			if( nf->ArgTypes[i] != ArgTypes[i] ) {
+			if( !SS_TYPESEQUAL(nf->Prototype.Args[i], ArgTypes[i]) ) {
 				// Sad to be chucked
-				AST_RuntimeError(Node, "Argument %i of constructor %s should be %i, given %i",
-					i, Name, nf->ArgTypes[i], ArgTypes[i]);
+				AST_RuntimeError(Node, "Argument %i of constructor %s should be %s, given %s",
+					i, Name,
+					SpiderScript_GetTypeName(Block->Script, nf->Prototype.Args[i]),
+					SpiderScript_GetTypeName(Block->Script, ArgTypes[i]));
 				return -1;
 			}
 		}
@@ -1024,13 +1086,14 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 	ret = _StackPush(Block, Node, type, NULL);
 	if(ret < 0)	return -1;
 	
-	return type;
+	return 0;
 }
 
 /**
  * \brief Inserts a function call
  * \param Block	AST block state
  * \param Node	Node that caused the function call (used for line numbers
+ * \param ReturnType	Return type of function
  * \param Namespaces	NULL-terminated list of namespaces to search (set to NULL for method call)
  * \param Name	Name of the function to call
  * \param NArgs	Argument count
@@ -1038,26 +1101,33 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
  * \return Boolean failure
  * \note If Namespaces == NULL, then ArgTypes[0] is used as the object type for the method call
  */
-int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, int ArgTypes[])
+int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef *ReturnType, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[])
 {
 	 int	id = 0;
-	 int	ret, ret_type;
+	 int	ret;
+	tSpiderTypeRef	ret_type;
 	tScript_Function *sf = NULL;
 	tSpiderFunction  *nf = NULL;
 
 	if( Namespaces == NULL )
 	{
-		tSpiderClass	*nc;
-		tScript_Class	*sc;
-	
 		if( NArgs < 1 ) {
 			AST_RuntimeError(Node, "BUG - BC_CallFunction(Namespaces == NULL, NArgs < 1)");
 			return -1;
 		}		
 
 		DEBUGS1("Getting method");
-		if( (nc = SpiderScript_GetClass_Native(Block->Script, ArgTypes[0])) )
+		if( ArgTypes[0].ArrayDepth ) {
+			AST_RuntimeError(Node, "Method call on array");
+			return -1;
+		}
+		if( ArgTypes[0].Def == NULL ) {
+			AST_RuntimeError(Node, "Method call on NULL");
+			return -1;
+		}
+		if( ArgTypes[0].Def->Class == SS_TYPECLASS_NCLASS )
 		{
+			tSpiderClass *nc = ArgTypes[0].Def->NClass;
 			for( nf = nc->Methods; nf; nf = nf->Next, id ++ )
 			{
 				if( strcmp(nf->Name, Name) == 0 ) {
@@ -1069,8 +1139,9 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 				return -1;
 			}
 		}
-		else if( (sc = SpiderScript_GetClass_Script(Block->Script, ArgTypes[0])) )
+		else if( ArgTypes[0].Def->Class == SS_TYPECLASS_SCLASS )
 		{
+			tScript_Class	*sc = ArgTypes[0].Def->SClass;
 			// Script class
 			for( sf = sc->FirstFunction; sf; sf = sf->Next, id ++ )
 			{
@@ -1117,7 +1188,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 		// Type checks
 		for( int i = 0; i < NArgs; i ++ )
 		{
-			if( sf->Arguments[i].Type != ArgTypes[i] ) {
+			if( !SS_TYPESEQUAL(sf->Arguments[i].Type, ArgTypes[i]) ) {
 				// Sad to be chucked
 				AST_RuntimeError(Node, "Argument %i of %s should be %i, given %i",
 					i, Name, sf->Arguments[i].Type, ArgTypes[i]);
@@ -1132,9 +1203,9 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 		 int	minArgc = 0;
 		 int	bVariable = 0;
 		
-		for( minArgc = 0; nf->ArgTypes[minArgc] != 0 && nf->ArgTypes[minArgc] != -1; minArgc ++ )
+		for( minArgc = 0; nf->Prototype.Args[minArgc].Def != NULL; minArgc ++ )
 			;
-		bVariable = (nf->ArgTypes[minArgc] == -1);
+		bVariable = !!(nf->Prototype.bVariableArgs);
 		DEBUGS1("minArgc = %i, bVariable = %i", minArgc, bVariable);
 
 		// Check argument count
@@ -1147,21 +1218,26 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 		// Check argument types (and passing too few arguments)
 		for( int i = 0; i < minArgc; i ++ )
 		{
+			#if 0
 			if( i == 0 && !Namespaces ) {
 				if( nf->ArgTypes[i] != -2 ) {
 					// TODO: Should I chuck?
 				}
 				continue ;
 			}
-			if( nf->ArgTypes[i] != ArgTypes[i] ) {
+			#endif
+			if( !SS_TYPESEQUAL(nf->Prototype.Args[i], ArgTypes[i]) ) {
 				// Sad to be chucked
-				AST_RuntimeError(Node, "Argument %i of %s should be %i, given %i",
-					i, Name, nf->ArgTypes[i], ArgTypes[i]);
+				AST_RuntimeError(Node, "Argument %i of %s should be %s, given %s",
+					i, Name,
+					SpiderScript_GetTypeName(Block->Script, nf->Prototype.Args[i]),
+					SpiderScript_GetTypeName(Block->Script, ArgTypes[i])
+					);
 				return -1;
 			}
 		}
 	
-		ret_type = nf->ReturnType;
+		ret_type = nf->Prototype.ReturnType;
 	}
 	else
 	{
@@ -1176,7 +1252,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 		Bytecode_AppendFunctionCall(Block->Handle, id, NArgs);
 	
 	// Push return type
-	if( ret_type != 0 )
+	if( ret_type.Def != NULL )
 	{
 		ret = _StackPush(Block, Node, ret_type, NULL);
 		if(ret < 0)	return -1;
@@ -1184,16 +1260,18 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespac
 	}
 	else
 		DEBUGS1("Not pushing for void");
-	
-	return ret_type;
+
+	if( ReturnType )
+		*ReturnType = ret_type;	
+
+	return 0;
 }
 
 int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 {
-	 int	ret, type, i;
+	 int	ret, i;
+	tSpiderTypeRef	type, type2;
 	void	*ident;
-	tSpiderClass *nc;
-	tScript_Class	*sc;
 
 	switch(DestNode->Type)
 	{
@@ -1204,30 +1282,30 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 		break;
 	// Array index
 	case NODETYPE_INDEX:
-		ret = AST_ConvertNode(Block, DestNode->BinOp.Left, 1);	// Array
+		// Array
+		ret = AST_ConvertNode(Block, DestNode->BinOp.Left, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, DestNode->BinOp.Left, SS_DATATYPE_UNDEF, NULL);
+		ret = _StackPop(Block, DestNode->BinOp.Left, POP_UNDEF, &type, NULL);
 		if(ret < 0)	return -1;
-		if(SS_GETARRAYDEPTH(ret) == 0) {
-			AST_RuntimeError(DestNode, "Type mismatch, Expected an array, got %i",
-				ret);
+		if(SS_GETARRAYDEPTH(type) == 0) {
+			AST_RuntimeError(DestNode, "Type mismatch, Expected an array, got %s",
+				SpiderScript_GetTypeName(Block->Script, type));
 			return -2;
 		}
-		type = SS_DOWNARRAY(ret);
+		type.ArrayDepth --;
 		
-		ret = AST_ConvertNode(Block, DestNode->BinOp.Right, 1);	// Offset
+		// Offset/index
+		ret = AST_ConvertNode(Block, DestNode->BinOp.Right, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, DestNode->BinOp.Right, SS_DATATYPE_INTEGER, NULL);
+		ret = _StackPop(Block, DestNode->BinOp.Right, POP_INTEGER, &type2, NULL);
 		if(ret < 0)	return -1;
 
-		ret = _StackPop(Block, DestNode, SS_DATATYPE_UNDEF, NULL);
-		if( ret == 0 && SS_ISTYPEOBJECT(type) ) {
+		// Assignment value
+		ret = _StackPop(Block, DestNode, POP_UNDEF, &type2, NULL);
+		if(ret < 0)	return -1;
+		if(type2.Def == 0 && SS_ISTYPEOBJECT(type)) {
+			// Asigning NULL to an object array entry
 			Bytecode_AppendConstNull(Block->Handle, type);
-		}
-		else if( ret != type ) {
-			AST_RuntimeError(DestNode, "Type mismatch when assigning to array (expected 0x%x, got 0x%x)",
-				type, ret);
-			return -1;
 		}
 		
 		Bytecode_AppendSetIndex( Block->Handle );
@@ -1236,13 +1314,24 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 	case NODETYPE_ELEMENT:
 		ret = AST_ConvertNode(Block, DestNode->Scope.Element, 1);
 		if(ret)	return ret;
-		ret = _StackPop(Block, DestNode->Scope.Element, SS_DATATYPE_UNDEF, &ident);
-		if(ret < 0)	return -1;
+		ret = _StackPop(Block, DestNode->Scope.Element, POP_UNDEF, &type, &ident);
+		if(ret)	return -1;
 
-		sc = SpiderScript_GetClass_Script(Block->Script, ret);
-		nc = SpiderScript_GetClass_Native(Block->Script, ret);
-		
-		if(nc) {
+		if(type.ArrayDepth)
+		{
+			AST_RuntimeError(DestNode, "Attempting to access object element of array");
+			return -2;
+		}
+		if(!type.Def)
+		{
+			AST_RuntimeError(DestNode, "BUG Accessing element of undefined object");
+			return -2;
+		}
+
+		// Find type of the element
+		if(type.Def->Class == SS_TYPECLASS_NCLASS)
+		{
+			tSpiderClass *nc = type.Def->NClass;
 			for( i = 0; i < nc->NAttributes; i ++ ) {
 				if( strcmp(DestNode->Scope.Name, nc->AttributeDefs[i].Name) == 0 )
 					break;
@@ -1254,7 +1343,9 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 			}
 			type = nc->AttributeDefs[i].Type;
 		}
-		else if(sc) {
+		else if(type.Def->Class == SS_TYPECLASS_SCLASS)
+		{
+			tScript_Class	*sc  = type.Def->SClass;
 			tScript_Var *at;
 			for( at = sc->FirstProperty; at; at = at->Next )
 			{
@@ -1269,18 +1360,16 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 			type = at->Type;
 		}
 		else {
-			AST_RuntimeError(DestNode, "Setting element of non-class type %i", ret);
+			AST_RuntimeError(DestNode, "Setting element of non-class type %s",
+				SpiderScript_GetTypeName(Block->Script, type) );
 			return -2;
 		}
 
-		ret = _StackPop(Block, DestNode, type, NULL);
-		if( ret == 0 && SS_ISTYPEOBJECT(type) ) {
+		// Assignment
+		ret = _StackPop(Block, DestNode, type, &type2, NULL);
+		if(ret < 0)	return -1;
+		if(ret == STACKPOP_RV_NULL && SS_ISTYPEOBJECT(type)) {
 			Bytecode_AppendConstNull(Block->Handle, type);
-		}
-		else if( ret != type ) {
-			AST_RuntimeError(DestNode, "Type mismatch when assigning to element '%s' (expected 0x%x, got 0x%x)",
-				DestNode->Scope.Name, type, ret);
-			return -1;
 		}
 		
 		Bytecode_AppendSetElement( Block->Handle, DestNode->Scope.Name );
@@ -1294,27 +1383,38 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode)
 	return 0;
 }
 
-int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, int DestType, int SourceType)
+int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType, tSpiderTypeRef SourceType)
 {
 	 int	ret;
-	if( SS_GETARRAYDEPTH(SourceType) && DestType != SS_DATATYPE_BOOLEAN ) {
+	if( SS_GETARRAYDEPTH(SourceType) && SS_ISCORETYPE(DestType, SS_DATATYPE_BOOLEAN) ) {
 		AST_RuntimeError(Node, "Invalid cast from array (0x%x)", SourceType);
 		return 1;
 	}
 	else if( SS_ISTYPEOBJECT(SourceType) ) {
 		char *name = SpiderScript_FormatTypeStr1(Block->Script, "operator (%s)", DestType);
-		int args[] = {SourceType};
-		ret = BC_CallFunction(Block, Node, NULL, name, 1, args);
+		tSpiderTypeRef args[] = {SourceType};
+		tSpiderTypeRef	type;
+		ret = BC_CallFunction(Block, Node, &type, NULL, name, 1, args);
 		free(name);
 		if(ret < 0)	return ret;
-		if( ret != DestType ) {
-			AST_RuntimeError(Node, "BUG - Cast from 0x%x to 0x%x does not return correct type, instead 0x%x",
-				SourceType, DestType, ret);
+		if( !SS_TYPESEQUAL(type, DestType) ) {
+			AST_RuntimeError(Node, "BUG - Cast from %s to %s does not returns %s",
+				SpiderScript_GetTypeName(Block->Script, SourceType),
+				SpiderScript_GetTypeName(Block->Script, DestType),
+				SpiderScript_GetTypeName(Block->Script, type)
+				);
 			return -1;
 		}
 	}
+	else if( DestType.ArrayDepth || !DestType.Def || DestType.Def->Class != SS_TYPECLASS_CORE ) {
+		AST_RuntimeError(Node, "Invalid cast from %s to %s",
+			SpiderScript_GetTypeName(Block->Script, SourceType),
+			SpiderScript_GetTypeName(Block->Script, DestType)
+			);
+		return -1;
+	}
 	else {
-		Bytecode_AppendCast(Block->Handle, DestType);
+		Bytecode_AppendCast(Block->Handle, DestType.Def->Core);
 		ret = _StackPush(Block, Node, DestType, NULL);
 		if(ret < 0)	return -1;
 	}
@@ -1377,7 +1477,7 @@ const tScript_Var *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode,
  * \param Name	Name of the variable
  * \return Boolean Failure
  */
-int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, int Type, const char *Name)
+int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, const char *Name)
 {
 	tScript_Var	*var, *prev = NULL;
 	
@@ -1402,7 +1502,7 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, int Type, const c
 	return 0;
 }
 
-int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, int Type, const char *Name)
+int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name)
 {
 	 int	slot;
 	
@@ -1460,14 +1560,11 @@ int BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode)
 	const tScript_Var *var = BC_Variable_Lookup(Block, VarNode, VarNode->Variable.Name, SS_DATATYPE_UNDEF);
 	if(!var)	return -1;
 
-	int type = _StackPop(Block, VarNode, SS_DATATYPE_UNDEF, NULL);
-	if( type == 0 && SS_ISTYPEOBJECT(var->Type) ) {
+	tSpiderTypeRef	type;
+	int ret = _StackPop(Block, VarNode, var->Type, &type, NULL);
+	if( ret )	return -1;
+	if( SS_ISTYPEOBJECT(var->Type) ) {
 		Bytecode_AppendConstNull(Block->Handle, var->Type);
-	}
-	else if( type != var->Type ) {
-		AST_RuntimeError(VarNode, "Type mismatch when assigning to '%s' (expected 0x%x, got 0x%x)",
-			VarNode->Variable.Name, var->Type, type);
-		return -1;
 	}
 	Bytecode_AppendSaveVar(Block->Handle, VarNode->Variable.Name);
 	return 0;
@@ -1529,7 +1626,7 @@ void AST_RuntimeError(tAST_Node *Node, const char *Format, ...)
 }
 #endif
 
-int _StackPush(tAST_BlockInfo *Block, tAST_Node *Node, int Type, void *Info)
+int _StackPush(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info)
 {
 	if(Block->StackDepth == MAX_STACK_DEPTH - 1) {
 		AST_RuntimeError(Node, "BUG - Stack overflow in AST-Bytecode conversion (node=%i)",
@@ -1537,7 +1634,7 @@ int _StackPush(tAST_BlockInfo *Block, tAST_Node *Node, int Type, void *Info)
 		return -1;
 	}
 
-	if( Type == SS_DATATYPE_UNDEF ) {
+	if( SS_TYPESEQUAL(Type, POP_UNDEF) ) {
 		AST_RuntimeError(Node, "BUG - Pushed SS_DATATYPE_UNDEF (NT%i)", Node->Type);
 		return -1;
 	}
@@ -1548,33 +1645,52 @@ int _StackPush(tAST_BlockInfo *Block, tAST_Node *Node, int Type, void *Info)
 	Block->StackDepth ++;
 	Block->Stack[ Block->StackDepth ].Type = Type;
 	Block->Stack[ Block->StackDepth ].Info = Info;
-	return Type;
+	return 0;
 }
 
-int _StackPop(tAST_BlockInfo *Block, tAST_Node *Node, int WantedType, void **Info)
+int _StackPop(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef WantedType, tSpiderTypeRef *OutType, void **Info)
 {
-	 int	havetype;
+	tSpiderTypeRef	havetype;
 	if(Block->StackDepth == 0) {
 		AST_RuntimeError(Node, "BUG - Stack underflow in AST-Bytecode conversion (node=%i)",
 			Node->Type);
-		return -1;
+		return STACKPOP_RV_UFLOW;
 	}
 	havetype = Block->Stack[ Block->StackDepth ].Type;
 	#if TRACE_TYPE_STACK
 	AST_RuntimeMessage(Node, "_StackPop", "%x(==%x) - NT%i", havetype, WantedType, Node->Type);
 	#endif
-	if(WantedType != SS_DATATYPE_UNDEF && havetype != SS_DATATYPE_UNDEF)
+	if( SS_TYPESEQUAL(WantedType, POP_UNDEF) && !SS_TYPESEQUAL(havetype, POP_UNDEF) )
 	{
-		if( havetype != WantedType ) {
+		if( !SS_TYPESEQUAL(havetype, WantedType) ) {
 			AST_RuntimeError(Node, "AST-Bytecode - Type mismatch (wanted %x got %x)",
 				WantedType, havetype);
-			// TODO: Message?
-			return -2;
+			return STACKPOP_RV_MISMATCH;
 		}
 	}
 	if(Info)
 		*Info = Block->Stack[Block->StackDepth].Info;
 	Block->StackDepth--;
-	return havetype;
+	*OutType = havetype;
+	if( SS_TYPESEQUAL(havetype, POP_UNDEF) )
+		return STACKPOP_RV_NULL;
+	return 0;
+}
+
+tSpiderTypeRef _GetCoreType(tSpiderScript_CoreType CoreType)
+{
+	tSpiderTypeRef	type;
+	type.ArrayDepth = 0;
+	switch(CoreType)
+	{
+	case SS_DATATYPE_BOOLEAN:	type.Def = &gSpiderScript_BoolType;	break;
+	case SS_DATATYPE_INTEGER:	type.Def = &gSpiderScript_IntegerType;	break;
+	case SS_DATATYPE_REAL:   	type.Def = &gSpiderScript_RealType;	break;
+	case SS_DATATYPE_STRING: 	type.Def = &gSpiderScript_StringType;	break;
+	default:
+		type.Def = NULL;
+		break;
+	}
+	return type;
 }
 

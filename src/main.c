@@ -140,7 +140,7 @@ void SpiderScript_Free(tSpiderScript *Script)
 			SpiderScript_DereferenceArray(var->Ptr);
 		else if( SS_ISTYPEOBJECT(var->Type) )
 			SpiderScript_DereferenceObject(var->Ptr);
-		else if( var->Type == SS_DATATYPE_STRING )
+		else if( var->Type.Def == &gSpiderScript_StringType )
 			SpiderScript_DereferenceString(var->Ptr);
 		else
 			;
