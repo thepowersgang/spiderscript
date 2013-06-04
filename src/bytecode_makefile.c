@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MAGIC_STR	"SSBC\r\n\xBC\x55"
+#define MAGIC_STR	"SSBC\r\n\xBC\x56"
 #define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
 
 #define _ASSERT(l,rel,r,rv) do{if(!(l rel r)){\
@@ -28,8 +28,16 @@ typedef struct
 typedef struct
 {
 	FILE	*FP;
-	t_lenofs	*Strings;
 	 int	NStr;
+	t_lenofs	*Strings;
+	 int	NTypes;
+	tSpiderTypeRef	*Types;
+	 int	NClasses;
+	struct {
+		tScript_Class	*Class;
+		 int	NMethods;
+		 int	NAttribs;
+	}	*Classes;
 	size_t	FileSize;
 } t_loadstate;
 
@@ -68,6 +76,13 @@ size_t _get_str(t_loadstate *State, char *Dest, int StringID)
 //		printf("String '%s' read\n", Dest);
 	}
 	return State->Strings[StringID].Length;
+}
+tSpiderTypeRef _get_type(t_loadstate *State, int TypeID)
+{
+	tSpiderTypeRef	retz = {0,0};
+	_ASSERT(TypeID, <, State->NTypes, retz);
+
+	return State->Types[TypeID];
 }
 
 tScript_Function *_get_fcn(t_loadstate *State)
@@ -112,14 +127,14 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	ret->Name = (void*)&ret->Arguments[n_args];
 	_get_str(State, ret->Name, namestr);
 	ret->ArgumentCount = n_args;
-	ret->ReturnType = ret_type;
+	ret->ReturnType = _get_type(State, ret_type);
 	ret->ASTFcn = NULL;
 	char *nameptr = ret->Name + _get_str(State, NULL, namestr) + 1;
 	for( int i = 0; i < n_args; i ++ )
 	{
 		ret->Arguments[i].Name = nameptr;
 		int len = _get_str(State, nameptr, args[i].Name);
-		ret->Arguments[i].Type = args[i].Type;
+		ret->Arguments[i].Type = _get_type(State, args[i].Type);
 		nameptr += len + 1;
 //		printf(" Arg %i: Name=\"%s\"\n", i, ret->Arguments[i].Name);
 	}
@@ -180,8 +195,9 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	
 	
 	// Get counts
-	 int	n_fcn   = _get32(State);
 	 int	n_class = _get32(State);
+	 int	n_types = _get32(State);
+	 int	n_fcn   = _get32(State);
 	 int	n_str   = _get32(State);
 	off_t	ofs_str = _get32(State);
 	// TODO: Validation	
@@ -202,8 +218,65 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	fseek(fp, MAGIC_STR_LEN+4*4, SEEK_SET);	
 	State->Strings = strings;
 	State->NStr = n_str;
+	
+	State->NClasses = n_class;
+	State->Classes = malloc(n_class * sizeof(*State->Classes));
 //	printf("State->Strings = %p, State->NStr = %i\n", State->Strings, State->NStr);
+	
+	// Deserialise class definitions
+	for( int i = 0; i < n_class; i ++ )
+	{
+		tScript_Class	*sc;
+		int namestr = _get32(State);
+		int n_attrib = _get16(State);
+		int n_method = _get16(State);
 
+		sc = malloc( sizeof(tScript_Class) + _get_str(State, NULL, namestr) + 1 );
+		if(!sc)	return -1;
+
+		sc->Next = NULL;
+		_get_str(State, sc->Name, namestr);
+		sc->FirstFunction = NULL;
+		sc->FirstProperty = NULL;
+		sc->nProperties = n_attrib;
+		sc->TypeInfo.Class = SS_TYPECLASS_SCLASS;
+		sc->TypeInfo.SClass = sc;
+
+		State->Classes[i].Class = sc;
+		State->Classes[i].NMethods = n_method;
+		State->Classes[i].NAttribs = n_attrib;
+
+//		printf("Added class '%s'\n", sc->Name);
+		// Append
+		if( Script->FirstClass )
+			Script->LastClass->Next = sc;
+		else
+			Script->FirstClass = sc;
+		Script->LastClass = sc;
+	}
+
+	// Deserialse types
+	State->Types = malloc(n_types * sizeof(*State->Types));
+	State->NTypes = n_types;
+	for( int i = 0; i < n_types; i ++ )
+	{
+		int depth = _get8(State);
+		int class = _get8(State);
+		int idx = _get16(State);
+		State->Types[i].ArrayDepth = depth;
+		switch(class)
+		{
+		case SS_TYPECLASS_SCLASS:
+			_ASSERT(idx, <, n_class, -1);
+			State->Types[i].Def = &State->Classes[idx].Class->TypeInfo;
+			break;
+		case SS_TYPECLASS_NCLASS: {
+			char str[_get_str(State, NULL, idx)];
+			_get_str(State, str, idx);
+			State->Types[i].Def = SpiderScript_ResolveObject(NULL, NULL, str);
+			break; }
+		}
+	}
 	
 	// Parse functions
 	for( int i = 0; i < n_fcn; i ++ )
@@ -222,31 +295,10 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	
 	for( int i = 0; i < n_class; i ++ )
 	{
-		tScript_Class	*sc;
-		int namestr = _get32(State);
-		int n_attrib = _get16(State);
-		int n_method = _get16(State);
-
-		sc = malloc( sizeof(tScript_Class) + _get_str(State, NULL, namestr) + 1 );
-		if(!sc)	return -1;
-
-		sc->Next = NULL;
-		_get_str(State, sc->Name, namestr);
-		sc->FirstFunction = NULL;
-		sc->FirstProperty = NULL;
-		sc->nProperties = n_attrib;
-		sc->TypeCode = 0x2000 | i;	// HACK! Abuses types.c's internals
-
-//		printf("Added class '%s'\n", sc->Name);
-		// Append
-		if( Script->FirstClass )
-			Script->LastClass->Next = sc;
-		else
-			Script->FirstClass = sc;
-		Script->LastClass = sc;
+		tScript_Class	*sc = State->Classes[i].Class;
 		
 		// Attributes
-		for( int j = 0; j < n_attrib; j ++ )
+		for( int j = 0; j < State->Classes[i].NAttribs; j ++ )
 		{
 			tScript_Var *at;
 			int name = _get32(State);
@@ -254,7 +306,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		
 			at = malloc( sizeof(*at) + _get_str(State, NULL, name) + 1 );
 			at->Next = NULL;
-			at->Type = type;
+			at->Type = _get_type(State, type);
 			_get_str(State, at->Name, name);
 
 			if( sc->FirstProperty )
@@ -265,7 +317,7 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		}
 		
 		// Functions
-		for( int j = 0; j < n_method; j ++ )
+		for( int j = 0; j < State->Classes[i].NMethods; j ++ )
 		{
 			tScript_Function *fcn;
 			
@@ -291,7 +343,6 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	 int	fcn_hdr_offset = 0;
 	 int	fcn_count = 0, class_count = 0;
 	 int	strtab_ofs;
-	 int	i;
 
 	void _put8(uint8_t val)
 	{
@@ -314,8 +365,9 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	if(!fp)	return 1;
 	// Create header
 	fwrite(MAGIC_STR, MAGIC_STR_LEN, 1, fp);
-	_put32(0);	// Function count, to be filled
 	_put32(0);	// Class count
+	_put32(0);	// Type count
+	_put32(0);	// Function count, to be filled
 	_put32(0);	// String count
 	_put32(0);	// String table offset
 	// TODO: Variant info
@@ -326,7 +378,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		_put32( StringList_GetString(&strings, fcn->Name, strlen(fcn->Name)) );
 		_put32( 0 );	// Code offset (filled later)
 		_put32( 0 );	// Code length
-		_put32( fcn->ReturnType );
+		_put32( Bytecode_int_GetTypeIdx(Script, fcn->ReturnType) );
 		
 		if(fcn->ArgumentCount > 255) {
 			// ERROR: Too many args
@@ -337,12 +389,12 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		_put8( 0 ); _put8( 0 ); _put8( 0 );	// Padding
 
 		// Argument types?
-		for( i = 0; i < fcn->ArgumentCount; i ++ )
+		for( int i = 0; i < fcn->ArgumentCount; i ++ )
 		{
 			_put32( StringList_GetString(&strings,
 				fcn->Arguments[i].Name, strlen(fcn->Arguments[i].Name))
 				);
-			_put32( fcn->Arguments[i].Type );
+			_put32( Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type) );
 		}
 		return 0;
 	}
@@ -375,7 +427,22 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		fwrite(code, len, 1, fp);
 		free(code);
 		return 0;
-	}	
+	}
+
+	// Pre-scan types (ensure all types used are in the table)
+	for(fcn = Script->Functions; fcn; fcn = fcn->Next)
+	{
+		Bytecode_int_GetTypeIdx(Script, fcn->ReturnType);
+		for( int i = 0; i < fcn->ArgumentCount; i ++ )
+			Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type);
+	}
+	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
+	{
+		for(tScript_Var *at = sc->FirstProperty; at; at = at->Next)
+		{
+			Bytecode_int_GetTypeIdx(Script, at->Type);
+		}
+	}
 
 	// Create function descriptors
 	fcn_hdr_offset = ftell(fp);
@@ -388,21 +455,20 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
 	{
 		 int	n_methods = 0, n_attributes = 0;
-		tScript_Var *at;
 
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 			n_methods ++;
-		for(at = sc->FirstProperty; at; at = at->Next)
+		for(tScript_Var *at = sc->FirstProperty; at; at = at->Next)
 			n_attributes ++;		
 
 		_put32( StringList_GetString(&strings, sc->Name, strlen(sc->Name)) );
 		_put16( n_attributes );	// Attribute count
 		_put16( n_methods );	// Method count
 	
-		for(at = sc->FirstProperty; at; at = at->Next)
+		for(tScript_Var *at = sc->FirstProperty; at; at = at->Next)
 		{
 			_put32( StringList_GetString(&strings, at->Name, strlen(at->Name)) );
-			_put32( at->Type );
+			_put32( Bytecode_int_GetTypeIdx(Script, at->Type) );
 		}
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 		{

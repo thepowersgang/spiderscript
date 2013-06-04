@@ -1103,10 +1103,9 @@ tAST_Node *Parse_DoParen(tParser *Parser)
 		
 		if(LookAhead(Parser) == TOK_IDENT)
 		{
-			tSpiderScript_TypeDef	*type;
 			GetToken(Parser);
 			// Handle casts if the identifer gives a valid type
-			type = SpiderScript_GetTypeEx(Parser->Script, Parser->TokenStr, Parser->TokenLen);
+			const tSpiderScript_TypeDef *type = SpiderScript_GetTypeEx(Parser->Script, Parser->TokenStr, Parser->TokenLen);
 			if( type != NULL )
 			{
 				// TODO: Allow array casts
@@ -1418,7 +1417,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	{
 		DEBUGS2("Function/variable definition");
 		// Function definition
-		tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
+		const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
 		if( type == NULL ) {
 			SyntaxError(Parser, "Unknown type '%s'", name);
 			return NULL;

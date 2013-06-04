@@ -38,7 +38,7 @@ extern void	Bytecode_DeleteFunction(tBC_Function *Fcn);
 
 extern char *Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStringList *Strings);
 extern int	StringList_GetString(tStringList *List, const char *String, int Length);
-extern tBC_Function	*Bytecode_CreateFunction(tScript_Function *Fcn);
+extern tBC_Function	*Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *Fcn);
 
 extern int	Bytecode_AllocateLabel(tBC_Function *Handle);
 extern void	Bytecode_SetLabel(tBC_Function *Handle, int Label);
@@ -68,7 +68,7 @@ extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int Argume
 //  > Manipulation
 extern void	Bytecode_AppendBinOp(tBC_Function *Handle, int Operation);
 extern void	Bytecode_AppendUniOp(tBC_Function *Handle, int Operation);
-extern void	Bytecode_AppendCast(tBC_Function *Handlde, tSpiderScript_CoreType Type);
+extern void	Bytecode_AppendCast(tBC_Function *Handlde, tSpiderTypeRef Type);
 extern void	Bytecode_AppendDuplicate(tBC_Function *Handlde);
 extern void	Bytecode_AppendDelete(tBC_Function *Handle);
 extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, tSpiderTypeRef DataType);

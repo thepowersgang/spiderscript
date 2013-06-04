@@ -28,27 +28,42 @@ const char	*casSpiderScript_InternalTypeNames[] = {
 	};
 
 // === CODE ===
-const char *SpiderScript_GetTypeName(tSpiderScript *Script, int Type)
+const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
 {
-	tSpiderClass *nc;
-	tScript_Class *sc;
+	if( Type.Def == NULL )
+		return "VOID";
+	
+	if( Type.ArrayDepth )
+	{
+		const int buflen = 40;
+		const int bufcount = 3;
+		static __thread int static_bufidx = 0;
+		static __thread char static_bufs[3][40];
+		
+		 int	bufid = static_bufidx;
+		static_bufidx = (static_bufidx + 1) % bufcount;
+		 int	depth = Type.ArrayDepth;
+		Type.ArrayDepth = 0;
+		
+		snprintf(static_bufs[bufid], buflen, "%s[%i]", SpiderScript_GetTypeName(Script, Type), depth);
+		return static_bufs[bufid];
+	}
 
-	Type &= 0xFFFF;	// Remove array level?
-
-	nc = SpiderScript_GetClass_Native(Script, Type);
-	sc = SpiderScript_GetClass_Script(Script, Type);
-
-	if( nc )
-		return nc->Name;
-	else if( sc )
-		return sc->Name;
-	else if( Type < 0 || Type >= NUM_SS_DATATYPES )
-		return "INVAL";
-	else
-		return casSpiderScript_InternalTypeNames[Type];
+	switch(Type.Def->Class)
+	{
+	case SS_TYPECLASS_CORE:
+		return casSpiderScript_InternalTypeNames[Type.Def->Core];
+	case SS_TYPECLASS_NCLASS:
+		return Type.Def->NClass->Name;
+	case SS_TYPECLASS_SCLASS:
+		return Type.Def->SClass->Name;
+	case SS_TYPECLASS_FCNPTR:
+		return "TODO:FcnPtr";
+	}
+	return "UNK";
 }
 
-int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, const char *Template, int Type)
+int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, const char *Template, tSpiderTypeRef Type)
 {
 	 int	len = 0;
 
@@ -84,7 +99,7 @@ int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, c
 	return len;
 }
 
-char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, int Type1)
+char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1)
 {
 	int len = SpiderScript_FormatTypeStrV(Script, NULL, 0, Template, Type1);
 	char *ret = malloc(len+1);
@@ -92,22 +107,25 @@ char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, i
 	return ret;
 }
 
-int SpiderScript_GetTypeCode(tSpiderScript *Script, const char *Name)
+const tSpiderScript_TypeDef *SpiderScript_GetCoreType(tSpiderScript_CoreType Type)
 {
-	return SpiderScript_GetTypeCodeEx(Script, Name, strlen(Name));
+	switch(Type)
+	{
+	case SS_DATATYPE_STRING:	return &gSpiderScript_StringType;
+	case SS_DATATYPE_INTEGER:	return &gSpiderScript_IntegerType;
+	case SS_DATATYPE_REAL:  	return &gSpiderScript_RealType;
+	case SS_DATATYPE_BOOLEAN:	return &gSpiderScript_BoolType;
+	default:	return NULL;
+	}
 }
 
-int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int NameLen)
+const tSpiderScript_TypeDef *SpiderScript_GetType(tSpiderScript *Script, const char *Name)
 {
-	 int	depth = 0;
+	return SpiderScript_GetTypeEx(Script, Name, strlen(Name));
+}
 
-	#if 0	
-	while( isdigit(*Name) )
-		depth = depth * 10 + (*Name++ - '0');
-	#endif	
-
-//	printf("Getting type for '%.*s'\n", NameLen, Name);
-
+const tSpiderScript_TypeDef *SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int NameLen)
+{
 	// #1 - Internal types
 	for( int i = 0; i <= SS_DATATYPE_STRING; i ++ )
 	{
@@ -115,7 +133,7 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 			continue ;
 		if( casSpiderScript_InternalTypeNames[i][NameLen] != '\0' )
 			continue ;
-		return SS_MAKEARRAYN(i, depth);
+		return SpiderScript_GetCoreType(i);
 	}
 	
 	// #2 - Classes (Native)
@@ -128,7 +146,7 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 				continue ;
 			if( class->Name[NameLen] != '\0' )
 				continue ;
-			return SS_MAKEARRAYN(SS_DATATYPE_FLAG_BCLASS | i, depth);
+			return &class->TypeDef;
 		}
 		for( i = 0; i < Script->Variant->nClasses; i++ )
 		{
@@ -137,7 +155,7 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 				continue ;
 			if( class->Name[NameLen] != '\0' )
 				continue ;
-			return SS_MAKEARRAYN(SS_DATATYPE_FLAG_NCLASS | i, depth);
+			return &class->TypeDef;
 		}
 	}
 	
@@ -150,14 +168,15 @@ int SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int Name
 				continue ;
 			if( class->Name[NameLen] != '\0' )
 				continue ;
-			return SS_MAKEARRAYN(SS_DATATYPE_FLAG_SCLASS | i, depth);
+			return &class->TypeInfo;
 		}
 	}
 
 //	printf("Type '%.*s' undefined\n", NameLen, Name);
-	return -1;
+	return NULL;
 }
 
+#if 0
 tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type)
 {
 	 int	idx = Type & 0xFFF;
@@ -189,4 +208,5 @@ tScript_Class *SpiderScript_GetClass_Script(tSpiderScript *Script, int Type)
 		;
 	return ret;
 }
+#endif
 

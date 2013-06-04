@@ -19,13 +19,10 @@
 		@RETURN 0;
 	}	
 
-	switch( @TYPEOF(Value) )
-	{
-	case SS_DATATYPE_STRING:
+	if( SS_ISCORETYPE(@TYPEOF(Value), SS_DATATYPE_INTEGER) )
 		@RETURN @STRING(Value)->Length;
-	default:
-		@RETURN 0;
-	}
+	
+	@RETURN 0;
 @}
 
 @FUNCTION void exit()
@@ -165,7 +162,8 @@
 	@FUNCTION String[] keys()
 	@{
 		t_StringMap_Info *info = this->OpaqueData;
-		tSpiderArray	*ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, info->nItems);
+		tSpiderTypeRef	strtype = {&gSpiderScript_StringType, 0};
+		tSpiderArray	*ret = SpiderScript_CreateArray(strtype, info->nItems);
 		 int	j = 0;		
 
 		for( int i = 0; i < N_STRINGMAP_BUCKETS; i ++ )
@@ -201,7 +199,7 @@ int compare_spiderstring_ptrs(const void *s1, const void *s2)
 	if( !Input )
 		@RETURN NULL;
 	
-	tSpiderArray	*ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, Input->Length);
+	tSpiderArray	*ret = SpiderScript_CreateArray(@TYPE(String), Input->Length);
 	for( int i = 0; i < Input->Length; i ++ ) {
 		ret->Strings[i] = Input->Strings[i];
 		if( ret->Strings[i] )
@@ -257,7 +255,7 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	} while(end);
 
 	// Create output array
-	tSpiderArray *ret = SpiderScript_CreateArray(SS_DATATYPE_STRING, nSubStrs);
+	tSpiderArray *ret = SpiderScript_CreateArray(@TYPEOF(Haystack), nSubStrs);
 	memcpy(ret->Strings, strings, nSubStrs*sizeof(tSpiderString*));
 	free(strings);
 

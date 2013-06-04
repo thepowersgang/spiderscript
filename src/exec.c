@@ -81,33 +81,39 @@ int SpiderScript_ResolveFunction(tSpiderScript *Script, const char *DefaultNames
 	return -1;
 }
 
-int SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespaces[], const char *Name, void **Ident)
+tSpiderScript_TypeDef *SpiderScript_ResolveObject(tSpiderScript *Script, const char *DefaultNamespaces[], const char *Name)
 {
-	int i, id;
-	
-	for( i = 0; i == 0 || (DefaultNamespaces && DefaultNamespaces[i-1]); i ++ )
+	 int	id;
+	void	*lident;
+	for( int i = 0; i == 0 || (DefaultNamespaces && DefaultNamespaces[i-1]); i ++ )
 	{
 		const char *ns = DefaultNamespaces ? DefaultNamespaces[i] : NULL;
 		
-		id = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, Name, Ident);
-		if( id != -1 )
-			return id | 0x2000;
-		id = SpiderScript_int_GetNativeClass(Script, gapExportedClasses, ns, Name, Ident);
-		if( id != -1 )
-			return id | 0x3000;
-		id = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, Name, Ident);
-		if( id != -1 )
-			return id | 0x1000;
+		if( Script ) {
+			id = SpiderScript_int_GetScriptClass(Script, Script->FirstClass, ns, Name, &lident);
+			if( id != -1 ) {
+				return &((tScript_Class*)lident)->TypeInfo;
+			}
+		}
+		id = SpiderScript_int_GetNativeClass(Script, gapExportedClasses, ns, Name, &lident);
+		if( id != -1 ) {
+			return &((tSpiderClass*)lident)->TypeDef;
+		}
+		id = SpiderScript_int_GetNativeClass(Script, Script->Variant->Classes, ns, Name, &lident);
+		if( id != -1 ) {
+			return &((tSpiderClass*)lident)->TypeDef;
+		}
 	}
 	
-	return -1;
+	return NULL;
 }
 
 // --------------------------------------------------------------------
 // External API Functions
 // --------------------------------------------------------------------
 int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
-	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	)
 {
@@ -118,11 +124,13 @@ int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 			*Ident = (void*)( (intptr_t)*Ident | 1 );
 		}
 	}
-	return SpiderScript_int_ExecuteFunction(Script, id, RetData, NArguments, ArgTypes, Arguments, Ident);
+	return SpiderScript_int_ExecuteFunction(Script, id,
+		RetType, RetData, NArguments, ArgTypes, Arguments, Ident);
 }
 
 int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
-	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	)
 {
@@ -139,10 +147,9 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 
 	if( !Ident || !*Ident )
 	{
-		tScript_Class	*sc;
-		tSpiderClass	*nc;
-		if( (sc = SpiderScript_GetClass_Script(Script, Object->TypeCode)) )
+		if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS )
 		{
+			tScript_Class *sc = Object->TypeDef->SClass;
 			tScript_Function	*sf;
 			for( sf = sc->FirstFunction; sf; sf = sf->Next )
 			{
@@ -152,8 +159,9 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 			if( !sf )	return -1;
 			ident = (void*)( (intptr_t)sf | 1 );
 		}
-		else if( (nc = SpiderScript_GetClass_Native(Script, Object->TypeCode)) )
+		else if( Object->TypeDef->Class == SS_TYPECLASS_NCLASS )
 		{
+			tSpiderClass	*nc = Object->TypeDef->NClass;
 			tSpiderFunction	*fcn;
 			for( fcn = nc->Methods; fcn; fcn = fcn->Next )
 			{
@@ -169,27 +177,25 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 	else
 		ident = *Ident;
 	
-	return SpiderScript_int_ExecuteMethod(Script, -1, RetData, NArguments, ArgTypes, Arguments, &ident);
+	return SpiderScript_int_ExecuteMethod(Script, -1,
+		RetType, RetData, NArguments, ArgTypes, Arguments, &ident);
 }
 
 
 int SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
-	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	)
 {
-	void	*ident = NULL;
-	 int	type;
+	tSpiderScript_TypeDef	*type;
 
 	// Can't do caching speedup because the type code is needed
-	type = SpiderScript_ResolveObject(Script, NULL, ClassName, &ident);
-	if( Ident )
-		*Ident = ident;
-	return SpiderScript_int_ConstructObject(Script, type, RetData, NArguments, ArgTypes, Arguments, &ident);
+	type = SpiderScript_ResolveObject(Script, NULL, ClassName);
+	return SpiderScript_int_ConstructObject(Script, type, RetData, NArguments, ArgTypes, Arguments, NULL);
 }
 
-int SpiderScript_CreateObject_Type(tSpiderScript *Script, int TypeCode,
-	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+int SpiderScript_CreateObject_Type(tSpiderScript *Script, tSpiderScript_TypeDef *TypeCode,
+	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	)
 {
@@ -208,7 +214,8 @@ int SpiderScript_CreateObject_Type(tSpiderScript *Script, int TypeCode,
  * \param Arguments	Arguments passed
  */
 int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
-	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent
 	)
 {
@@ -251,6 +258,8 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 		// Abuses alignment requirements on almost all platforms
 		if( FunctionIdent )
 			*FunctionIdent = (void*)( (intptr_t)sfcn | 1 );
+		if( RetType )
+			*RetType = sfcn->ReturnType;
 
 		// Execute!
 		return Bytecode_ExecuteFunction(Script, sfcn, RetData, NArguments, ArgTypes, Arguments);
@@ -259,15 +268,12 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 	{
 		if( FunctionIdent )
 			*FunctionIdent = fcn;
+		if( RetType )
+			*RetType = fcn->Prototype->ReturnType;
 
 		// Execute!
 		int rv = fcn->Handler( Script, RetData, NArguments, ArgTypes, Arguments );
 		if( rv < 0 )	return rv;
-		if( rv != fcn->ReturnType ) {
-			fprintf(stderr, "BUG - Function %s didn't return correct type (0x%x instead of 0x%x)\n",
-				fcn->Name, rv, fcn->ReturnType);
-			return -1;
-		}
 		return rv;
 	}
 	else
@@ -285,7 +291,8 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
  * \param Arguments	Arguments passed (with `this`
  */
 int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
-	void *RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent
 	)
 {
@@ -327,8 +334,9 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	if( !sf && !fcn )
 	{
 		// Script-defined classes
-		if( (sc = SpiderScript_GetClass_Script(Script, Object->TypeCode)) )
+		if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS )
 		{
+			sc = Object->TypeDef->SClass;
 			for( i = 0, sf = sc->FirstFunction; sf; sf = sf->Next )
 			{
 				if( i == MethodID )
@@ -354,7 +362,7 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			// Type checking (eventually will not be needed)
 			for( i = 1; i < NArguments; i ++ )
 			{
-				if( ArgTypes[i] != sf->Arguments[i].Type )
+				if( !SS_TYPESEQUAL(ArgTypes[i],sf->Arguments[i].Type) )
 				{
 					SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
 						mkstr("Argument %i of %s->%s should be %i, got %i",
@@ -364,8 +372,9 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 				}
 			}
 		}
-		else if( (nc = SpiderScript_GetClass_Native(Script, Object->TypeCode)) )
+		else if( Object->TypeDef->Class == SS_TYPECLASS_NCLASS )
 		{
+			nc = Object->TypeDef->NClass;
 			// Search for the function
 			for( i = 0, fcn = nc->Methods; fcn; fcn = fcn->Next )
 			{
@@ -382,9 +391,9 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 				return -1;
 			}
 
-			for( i = 0; fcn->ArgTypes[i] != 0 && fcn->ArgTypes[i] != -1; i ++ );
+			for( i = 0; fcn->Prototype->Args[i].Def != NULL; i ++ );
 			 int	minArgc = i;
-			 int	bVaraible = (fcn->ArgTypes[i] == -1);
+			 int	bVaraible = fcn->Prototype->bVariableArgs;
 
 			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) ) {
 				SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
@@ -398,11 +407,13 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			// - Start at 1 to skip the -2 for 'this class'
 			for( i = 1; i < minArgc; i ++ )
 			{
-				if( ArgTypes[i] != fcn->ArgTypes[i] )
+				if( !SS_TYPESEQUAL(ArgTypes[i], fcn->Prototype->Args[i]) )
 				{
 					SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-						mkstr("Argument type mismatch (0x%x, expected 0x%x)",
-							ArgTypes[i], fcn->ArgTypes[i])
+						mkstr("Argument type mismatch (%s, expected %s)",
+							SpiderScript_GetTypeName(Script, ArgTypes[i]),
+							SpiderScript_GetTypeName(Script, fcn->Prototype->Args[i])
+							)
 						);
 					return -1;
 				}
@@ -432,8 +443,10 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 		return fcn->Handler(Script, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else {
+		tSpiderTypeRef	typeref = {.ArrayDepth=0,.Def=Object->TypeDef};
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("BUG - Method call 0x%x->#%i did not resolve",Object->TypeCode, MethodID)
+			mkstr("BUG - Method call %s #%i did not resolve",
+				SpiderScript_GetTypeName(Script, typeref), MethodID)
 			);
 		return -1;
 	}
@@ -447,8 +460,8 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
  * \param NArguments	Number of arguments to pass
  * \param Arguments	Arguments passed
  */
-int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
-	tSpiderObject **RetData, int NArguments, const int *ArgTypes, const void * const Arguments[],
+int SpiderScript_int_ConstructObject(tSpiderScript *Script, const tSpiderScript_TypeDef *TypeDef,
+	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **FunctionIdent
 	)
 {
@@ -473,10 +486,10 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 	}
 
 	// Find class
-	if( !sc && !sc )
+	if( !nc && !sc )
 	{
-		sc = SpiderScript_GetClass_Script(Script, Type);
-		nc = SpiderScript_GetClass_Native(Script, Type);
+		sc = (TypeDef->Class == SS_TYPECLASS_SCLASS ? TypeDef->SClass : NULL);
+		nc = (TypeDef->Class == SS_TYPECLASS_NCLASS ? TypeDef->NClass : NULL);
 	}
 	
 	// Execute!
@@ -497,7 +510,7 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 		if( rv < 0 )	return -1;
 
 		*RetData = obj;
-		return Type;
+		return 0;
 	}
 	else if( sc )
 	{
@@ -521,21 +534,23 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, int Type,
 		if( f )
 		{
 			const void	*args[NArguments+1];
-			 int	argtypes[NArguments+1];
+			tSpiderTypeRef	argtypes[NArguments+1];
 			args[0] = obj;
-			argtypes[0] = sc->TypeCode;
+			argtypes[0].ArrayDepth = 0;
+			argtypes[0].Def = &sc->TypeInfo;
 			memcpy(args+1, Arguments, NArguments*sizeof(void*));
-			memcpy(argtypes+1, ArgTypes, NArguments*sizeof(int));
+			memcpy(argtypes+1, ArgTypes, NArguments*sizeof(argtypes[0]));
 			rv = Bytecode_ExecuteFunction(Script, f, NULL, NArguments+1, argtypes, args);
 			if( rv < 0 )	return -1;
 		}
 	
-		return Type;
+		return 0;
 	}
 	else	// Not found?
 	{
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
-			mkstr("Undefined reference to class 0x%x\n", Type)
+			mkstr("Undefined reference to class %s\n",
+				SpiderScript_GetTypeName(Script, (tSpiderTypeRef){TypeDef,0}))
 			);
 		return -1;
 	}

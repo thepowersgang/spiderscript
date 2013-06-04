@@ -23,7 +23,7 @@
  int	giNextBlockIdent = 1;
 
 // === CODE ===
-int AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, int Type)
+tSpiderScript_CoreType AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, tSpiderScript_CoreType Type)
 {
 	switch(Type)
 	{
@@ -95,7 +95,7 @@ tSpiderReal AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSp
  * \return =0 = Invalid operation (no casting possible)
  * \return <0 = Valid operation, but needs to be cast to -ve this value
  */
-int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int RType)
+int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, tSpiderScript_CoreType LType, tSpiderScript_CoreType RType)
 {
 	switch(LType)
 	{
@@ -175,6 +175,8 @@ int AST_ExecuteNode_BinOp_GetType(tSpiderScript *Script, int Op, int LType, int 
 			if( RType != SS_DATATYPE_STRING )	return -SS_DATATYPE_STRING;
 			return SS_DATATYPE_STRING;
 		}
+		break;
+	default:
 		break;
 	}
 	return 0;
@@ -300,7 +302,7 @@ int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, void *RetData,
 }
 
 int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
-	tSpiderArray *Array, int Index, int NewType, void *NewData)
+	tSpiderArray *Array, int Index, tSpiderTypeRef NewType, void *NewData)
 {
 	 int	size;
 
@@ -325,7 +327,7 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 
 	if( NewData )
 	{
-		if( NewType != Array->Type ) {
+		if( !SS_TYPESEQUAL(NewType, Array->Type) ) {
 			// TODO: Implicit casting?
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
 				strdup("Type mismatch assiging to array element"));
@@ -341,7 +343,7 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 			Array->Objects[Index] = NewData;
 			SpiderScript_ReferenceObject  ( Array->Objects[Index] );
 		}
-		else if( NewType == SS_DATATYPE_STRING ) {
+		else if( SS_ISCORETYPE(NewType, SS_DATATYPE_STRING) ) {
 			SpiderScript_DereferenceString( Array->Strings[Index] );
 			Array->Strings[Index] = NewData;
 			SpiderScript_ReferenceString  ( Array->Strings[Index] );
@@ -349,7 +351,7 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 		else {
 			memcpy(Array->Bools + size*Index, NewData, size);
 		}
-		return Array->Type;
+		return 0;
 	}
 	else
 	{
@@ -361,14 +363,14 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 			*(tSpiderObject**)RetData = Array->Objects[Index];
 			SpiderScript_ReferenceObject( Array->Objects[Index] );
 		}
-		else if( Array->Type == SS_DATATYPE_STRING ) {
+		else if( SS_ISCORETYPE(Array->Type, SS_DATATYPE_STRING) ) {
 			*(tSpiderString**)RetData = Array->Strings[Index];
 			SpiderScript_ReferenceString( Array->Strings[Index] );
 		}
 		else {
 			memcpy(RetData, Array->Bools + size*Index, size);
 		}
-		return Array->Type;
+		return 0;
 	}
 }
 
@@ -381,25 +383,21 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
  * \param NewType	Type of data to save (used for validation)
  * \param NewData	Pointer to data to store in element
  */
-int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
-	tSpiderObject *Object, const char *ElementName, int NewType, void *NewData)
+tSpiderTypeRef AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
+	tSpiderObject *Object, const char *ElementName, tSpiderTypeRef NewType, void *NewData)
 {
-	 int	i, type;
+	tSpiderTypeRef	type = {0,0};
 	const char	*className;
+	 int	i;
 
-	if( !Object ) {
+	if( !Object || !Object->TypeDef ) {
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF,
 			strdup("Tried to access an element of NULL"));
-		return -1;
+		return type;
 	}
 	
-	tSpiderClass *nc;
-	tScript_Class	*sc;
-	
-	nc = SpiderScript_GetClass_Native(Script, Object->TypeCode);
-	sc = SpiderScript_GetClass_Script(Script, Object->TypeCode);
-
-	if( nc ) {
+	if( Object->TypeDef->Class == SS_TYPECLASS_NCLASS ) {
+		tSpiderClass *nc = Object->TypeDef->NClass;
 		for( i = 0; i < nc->NAttributes; i ++ )
 		{
 			if( strcmp(ElementName, nc->AttributeDefs[i].Name) == 0 )
@@ -409,12 +407,13 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_BADELEMENT,
 				mkstr("No attribute %s of %s", ElementName, nc->Name)
 				);
-			return -1;
+			return type;
 		}
 		type = nc->AttributeDefs[i].Type;
 		className = nc->Name;
 	}
-	else if( sc ) {
+	else if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS ) {
+		tScript_Class	*sc = Object->TypeDef->SClass;
 		tScript_Var *at;
 		for( i = 0, at = sc->FirstProperty; at; at = at->Next, i ++ )
 		{
@@ -423,18 +422,21 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 		}
 		if( !at ) {
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_BADELEMENT,
-				mkstr("No attribute %s of %s", ElementName, nc->Name)
+				mkstr("No attribute %s of %s", ElementName, sc->Name)
 				);
-			return -1;
+			return type;
 		}
 		type = at->Type;
 		className = sc->Name;
 	}
 	else {
+		type.Def = Object->TypeDef;
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
-			mkstr("Unable to get element of type 0x%x", Object->TypeCode)
+			mkstr("Unable to get element of type %s",
+				SpiderScript_GetTypeName(Script, type))
 			);
-		return -1;
+		type.Def = NULL;
+		return type;
 	}
 	
 	int size = SpiderScript_int_GetTypeSize(type);
@@ -443,17 +445,20 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 			mkstr("Type of element %s of %s is invalid (%i)",
 				ElementName, className, type)
 			);
-		return -1;
+		return (tSpiderTypeRef){0,0};
 	}
 	
 	if( NewData )
 	{
-		if( type != NewType ) {
+		if( !SS_TYPESEQUAL(type, NewType) ) {
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
-				mkstr("Assignment of element '%s' of '%s' mismatch (%i should be %i)",
-					ElementName, className, NewType, type)
+				mkstr("Assignment of element '%s' of '%s' mismatch (%s should be %s)",
+					ElementName, className,
+					SpiderScript_GetTypeName(Script, NewType),
+					SpiderScript_GetTypeName(Script, type)
+					)
 				);
-			return -1;
+			return (tSpiderTypeRef){0,0};
 		}
 		if( SS_GETARRAYDEPTH(NewType) ) {
 			SpiderScript_DereferenceArray( Object->Attributes[i] );
@@ -465,7 +470,7 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 			Object->Attributes[i] = NewData;
 			SpiderScript_ReferenceObject  ( Object->Attributes[i] );
 		}
-		else if( NewType == SS_DATATYPE_STRING ) {
+		else if( SS_ISCORETYPE(NewType, SS_DATATYPE_STRING) ) {
 			SpiderScript_DereferenceString( Object->Attributes[i] );
 			Object->Attributes[i] = NewData;
 			SpiderScript_ReferenceString  ( Object->Attributes[i] );
@@ -483,7 +488,7 @@ int AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 			SpiderScript_ReferenceObject  ( Object->Attributes[i] );
 			*(void**)RetData = Object->Attributes[i];
 		}
-		else if( NewType == SS_DATATYPE_STRING ) {
+		else if( SS_ISCORETYPE(NewType, SS_DATATYPE_STRING) ) {
 			SpiderScript_ReferenceString  ( Object->Attributes[i] );
 			*(void**)RetData = Object->Attributes[i];
 		}

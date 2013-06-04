@@ -11,7 +11,8 @@
 #include <stdarg.h>
 
 // === CODE ===
-int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num, int Expected, int Got)
+int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num,
+	tSpiderTypeRef Expected, tSpiderTypeRef Got)
 {
 	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
 		"%s Arg %i - Expected %s, got %s",

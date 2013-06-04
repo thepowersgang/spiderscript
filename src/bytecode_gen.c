@@ -25,13 +25,14 @@ tBC_Op	*Bytecode_int_AllocateOp(int Operation, int ExtraBytes);
 // === GLOBALS ===
 
 // === CODE ===
-tBC_Function *Bytecode_CreateFunction(tScript_Function *Fcn)
+tBC_Function *Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *Fcn)
 {
 	tBC_Function *ret;
 	 int	i;
 
 	ret = calloc(sizeof(tBC_Function), 1);
 	if(!ret)	return NULL;
+	ret->Script = Script;
 	
 #if 0
 	ret->LabelSpace = ret->LabelCount = 0;
@@ -159,6 +160,30 @@ int _GetVarIndex(int Count, int Depth, const char **Names, const char *Name)
 			return i - Depth;
 	}
 	return -1;
+}
+
+int Bytecode_int_GetTypeIdx(tSpiderScript *Script, tSpiderTypeRef Type)
+{
+	for( int i = 0; i < Script->BCTypeCount; i ++ )
+	{
+		if( SS_TYPESEQUAL(Script->BCTypes[i], Type) ) {
+			return i;
+		}
+	}
+	if( Script->BCTypeCount == Script->BCTypeSpace )
+	{
+		Script->BCTypeSpace += 10;
+		void *tmp = realloc(Script->BCTypes, Script->BCTypeSpace * sizeof(*Script->BCTypes));
+		if(!tmp) {
+			perror("Bytecode_int_GetTypeIdx");
+			return -1;
+		}
+		Script->BCTypes = tmp;
+	}
+	
+	memcpy(&Script->BCTypes[Script->BCTypeCount], &Type, sizeof(Type));
+	
+	return Script->BCTypeCount++;
 }
 
 int Bytecode_int_GetVarIndex(tBC_Function *Handle, const char *Name)
@@ -304,8 +329,8 @@ void Bytecode_AppendConstString(tBC_Function *Handle, const void *Data, size_t L
 	op->Content.StringInt.String[Length] = 0;
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendConstNull(tBC_Function *Handle, int Type)
-	DEF_BC_INT(BC_OP_LOADNULL, Type)
+void Bytecode_AppendConstNull(tBC_Function *Handle, tSpiderTypeRef Type)
+	DEF_BC_INT(BC_OP_LOADNULL, Bytecode_int_GetTypeIdx(Handle->Script, Type))
 
 // --- Indexing / Scoping
 void Bytecode_AppendElement(tBC_Function *Handle, const char *Name)
@@ -317,10 +342,10 @@ void Bytecode_AppendIndex(tBC_Function *Handle)
 void Bytecode_AppendSetIndex(tBC_Function *Handle)
 	DEF_BC_NONE(BC_OP_SETINDEX);
 
-void Bytecode_AppendCreateObj(tBC_Function *Handle, int Type, int ArgumentCount)
+void Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderTypeRef Type, int ArgumentCount)
 {
 	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CREATEOBJ, 0);
-	op->Content.Function.ID = Type;
+	op->Content.Function.ID = Bytecode_int_GetTypeIdx(Handle->Script, Type);
 	op->Content.Function.ArgCount = ArgumentCount;
 	Bytecode_int_AppendOp(Handle, op);
 }
@@ -338,15 +363,15 @@ void Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount
 	op->Content.Function.ArgCount = ArgumentCount;
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendCreateArray(tBC_Function *Handle, int DataType)
-	DEF_BC_INT(BC_OP_CREATEARRAY, DataType)
+void Bytecode_AppendCreateArray(tBC_Function *Handle, tSpiderTypeRef Type)
+	DEF_BC_INT(BC_OP_CREATEARRAY, Bytecode_int_GetTypeIdx(Handle->Script, Type))
 
 void Bytecode_AppendBinOp(tBC_Function *Handle, int Operation)
 	DEF_BC_NONE(Operation)
 void Bytecode_AppendUniOp(tBC_Function *Handle, int Operation)
 	DEF_BC_NONE(Operation)
-void Bytecode_AppendCast(tBC_Function *Handle, int Type)
-	DEF_BC_INT(BC_OP_CAST, Type)
+void Bytecode_AppendCast(tBC_Function *Handle, tSpiderTypeRef Type)
+	DEF_BC_INT(BC_OP_CAST, Bytecode_int_GetTypeIdx(Handle->Script, Type))
 void Bytecode_AppendDuplicate(tBC_Function *Handle)
 	DEF_BC_NONE(BC_OP_DUPSTACK);
 void Bytecode_AppendDelete(tBC_Function *Handle)
@@ -381,9 +406,9 @@ void Bytecode_AppendLeaveContext(tBC_Function *Handle)
 }
 //void Bytecode_AppendImportNamespace(tBC_Function *Handle, const char *Name);
 //	DEF_BC_STRINT(BC_OP_IMPORTNS, Name, 0)
-void Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, int Type)
+void Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type)
 {
-	 int	i;
+	 int	i, typeid;
 	#if 1
 	// Get the start of this context
 	for( i = Handle->VariableCount; i --; )
@@ -399,11 +424,13 @@ void Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, int Type)
 	#endif
 
 	i = Bytecode_int_AddVariable(Handle, Name);
+	typeid = Bytecode_int_GetTypeIdx(Handle->Script, Type);
 
-	DEF_BC_STRINT(BC_OP_DEFINEVAR, Name, (Type&0xFFFFFF) | (i << 24))
+	DEF_BC_STRINT(BC_OP_DEFINEVAR, Name, (typeid&0xFFFFFF) | (i << 24))
 }
-void Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, int Type)
+void Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type)
 {
 	int i = Bytecode_int_AddGlobal(Handle, Name);
-	DEF_BC_STRINT(BC_OP_IMPGLOBAL, Name,  (Type&0xFFFFFF) | (i << 24))
+	int typeid = Bytecode_int_GetTypeIdx(Handle->Script, Type);
+	DEF_BC_STRINT(BC_OP_IMPGLOBAL, Name,  (typeid&0xFFFFFF) | (i << 24))
 }

@@ -129,7 +129,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	// Check if the function has already been converted
 	if(Fcn->BCFcn)	return Fcn->BCFcn;
 	
-	ret = Bytecode_CreateFunction(Fcn);
+	ret = Bytecode_CreateFunction(Script, Fcn);
 	if(!ret)	return NULL;
 	
 	bi.Handle = ret;
@@ -988,25 +988,19 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[])
 {
-	tSpiderTypeRef	type;
 	 int	ret;
-	void	*unused;
 	
 	// Look up object
-	type = SpiderScript_ResolveObject(Block->Script, Namespaces, Name, &unused);
-	if( type.Def == NULL )
+	tSpiderScript_TypeDef *def = SpiderScript_ResolveObject(Block->Script, Namespaces, Name);
+	if( def == NULL )
 	{
 		AST_RuntimeError(Node, "Undefined reference to class %s", Name);
 		return -1;
 	}
 	
-	if( type.ArrayDepth ) {
-		AST_RuntimeError(Node, "BUG - SpiderScript_ResolveObject returned an array");
-		return -1;
-	}
-	if( type.Def->Class == SS_TYPECLASS_SCLASS )
+	if( def->Class == SS_TYPECLASS_SCLASS )
 	{
-		tScript_Class	*sc = type.Def->SClass;
+		tScript_Class	*sc = def->SClass;
 		tScript_Function *sf;
 
 		for( sf = sc->FirstFunction; sf; sf = sf->Next )
@@ -1044,9 +1038,9 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 			}
 		}
 	}
-	else if( type.Def->Class == SS_TYPECLASS_NCLASS )
+	else if( def->Class == SS_TYPECLASS_NCLASS )
 	{
-		tSpiderClass	*nc = type.Def->NClass;
+		tSpiderClass	*nc = def->NClass;
 		tSpiderFunction *nf = nc->Constructor;
 		 int	minArgc = 0;
 		 int	bVariable = 0;
@@ -1056,9 +1050,9 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 			bVariable = 0;
 		}
 		else {
-			for( minArgc = 0; nf->Prototype.Args[minArgc].Def; minArgc ++ )
+			for( minArgc = 0; nf->Prototype->Args[minArgc].Def; minArgc ++ )
 				;
-			bVariable = nf->Prototype.bVariableArgs;
+			bVariable = nf->Prototype->bVariableArgs;
 		}
 		// Argument count check
 		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
@@ -1069,17 +1063,18 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Names
 		// Type checks
 		for( int i = 0; i < NArgs; i ++ )
 		{
-			if( !SS_TYPESEQUAL(nf->Prototype.Args[i], ArgTypes[i]) ) {
+			if( !SS_TYPESEQUAL(nf->Prototype->Args[i], ArgTypes[i]) ) {
 				// Sad to be chucked
 				AST_RuntimeError(Node, "Argument %i of constructor %s should be %s, given %s",
 					i, Name,
-					SpiderScript_GetTypeName(Block->Script, nf->Prototype.Args[i]),
+					SpiderScript_GetTypeName(Block->Script, nf->Prototype->Args[i]),
 					SpiderScript_GetTypeName(Block->Script, ArgTypes[i]));
 				return -1;
 			}
 		}
 	}
 
+	tSpiderTypeRef type = {.ArrayDepth = 0, .Def = def};
 	Bytecode_AppendCreateObj(Block->Handle, type, NArgs);
 		
 	// Push return type
@@ -1203,9 +1198,9 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef *Retu
 		 int	minArgc = 0;
 		 int	bVariable = 0;
 		
-		for( minArgc = 0; nf->Prototype.Args[minArgc].Def != NULL; minArgc ++ )
+		for( minArgc = 0; nf->Prototype->Args[minArgc].Def != NULL; minArgc ++ )
 			;
-		bVariable = !!(nf->Prototype.bVariableArgs);
+		bVariable = !!(nf->Prototype->bVariableArgs);
 		DEBUGS1("minArgc = %i, bVariable = %i", minArgc, bVariable);
 
 		// Check argument count
@@ -1226,18 +1221,18 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef *Retu
 				continue ;
 			}
 			#endif
-			if( !SS_TYPESEQUAL(nf->Prototype.Args[i], ArgTypes[i]) ) {
+			if( !SS_TYPESEQUAL(nf->Prototype->Args[i], ArgTypes[i]) ) {
 				// Sad to be chucked
 				AST_RuntimeError(Node, "Argument %i of %s should be %s, given %s",
 					i, Name,
-					SpiderScript_GetTypeName(Block->Script, nf->Prototype.Args[i]),
+					SpiderScript_GetTypeName(Block->Script, nf->Prototype->Args[i]),
 					SpiderScript_GetTypeName(Block->Script, ArgTypes[i])
 					);
 				return -1;
 			}
 		}
 	
-		ret_type = nf->Prototype.ReturnType;
+		ret_type = nf->Prototype->ReturnType;
 	}
 	else
 	{
@@ -1414,7 +1409,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 		return -1;
 	}
 	else {
-		Bytecode_AppendCast(Block->Handle, DestType.Def->Core);
+		Bytecode_AppendCast(Block->Handle, DestType);
 		ret = _StackPush(Block, Node, DestType, NULL);
 		if(ret < 0)	return -1;
 	}

@@ -367,13 +367,15 @@ tSpiderBool SpiderScript_CastValueToBool(tSpiderTypeRef Type, const void *Source
  */
 tSpiderInteger SpiderScript_CastValueToInteger(tSpiderTypeRef Type, const void *Source)
 {
-	if( !Source )
+	if( !Source || !Type.Def )
 		return 0;
 
 	if( SS_GETARRAYDEPTH(Type) )
 		return 0;
 	else if( SS_ISTYPEOBJECT(Type) )
 		return 0;	// TODO: Objects
+	if( Type.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
 	
 	switch( Type.Def->Core )
 	{
@@ -392,13 +394,15 @@ tSpiderInteger SpiderScript_CastValueToInteger(tSpiderTypeRef Type, const void *
 
 tSpiderReal SpiderScript_CastValueToReal(tSpiderTypeRef Type, const void *Source)
 {
-	if( !Source )
+	if( !Source || !Type.Def )
 		return 0;
 
 	if( SS_GETARRAYDEPTH(Type) )
 		return 0;
-	else if( SS_ISTYPEOBJECT(Type) )
+	if( SS_ISTYPEOBJECT(Type) )
 		return 0;	// TODO: Objects
+	if( Type.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
 	
 	switch( Type.Def->Core )
 	{
@@ -435,9 +439,19 @@ tSpiderString *SpiderScript_CreateString_Fmt(const char *Format, ...)
 	return ret;
 }
 
-tSpiderString *SpiderScript_CastValueToString(int Type, const void *Source)
+tSpiderString *SpiderScript_CastValueToString(tSpiderTypeRef Type, const void *Source)
 {
-	switch(Type)
+	if(!Source || !Type.Def)
+		return NULL;
+	
+	if( SS_GETARRAYDEPTH(Type) )
+		return 0;
+	if( SS_ISTYPEOBJECT(Type) )
+		return 0;	// TODO: Objects
+	if( Type.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
+	
+	switch(Type.Def->Core)
 	{
 	case SS_DATATYPE_BOOLEAN:
 		return SpiderScript_CreateString_Fmt("%s", *(const tSpiderBool*)Source ? "True" : "False");

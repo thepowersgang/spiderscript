@@ -13,6 +13,21 @@
 #define ERRPTR	((void*)((intptr_t)0-1))
 
 /**
+ * \brief SpiderScript Variable Datatypes
+ * \todo Expand the descriptions
+ */
+enum eSpiderScript_InternalTypes
+{
+	SS_DATATYPE_NOVALUE,	// "void" - No value stored
+	SS_DATATYPE_UNDEF,	// "undefined" - Can be any type (functions only)
+	SS_DATATYPE_BOOLEAN,	// "Boolean" - true/false
+	SS_DATATYPE_INTEGER,	// "Integer" - 64-bit signed integer
+	SS_DATATYPE_REAL,	// "Real" - 64-bit floating point
+	SS_DATATYPE_STRING,	// "String" - Byte sequence
+	NUM_SS_DATATYPES
+};
+
+/**
  * \brief Opaque script handle
  */
 typedef struct sSpiderScript	tSpiderScript;
@@ -36,21 +51,6 @@ typedef enum eSpiderScript_InternalTypes	tSpiderScript_CoreType;
 typedef struct sSpiderScript_TypeRef	tSpiderTypeRef;
 typedef struct sSpiderScript_TypeDef	tSpiderScript_TypeDef;
 
-/**
- * \brief SpiderScript Variable Datatypes
- * \todo Expand the descriptions
- */
-enum eSpiderScript_InternalTypes
-{
-	SS_DATATYPE_NOVALUE,	// "void" - No value stored
-	SS_DATATYPE_UNDEF,	// "undefined" - Can be any type (functions only)
-	SS_DATATYPE_BOOLEAN,	// "Boolean" - true/false
-	SS_DATATYPE_INTEGER,	// "Integer" - 64-bit signed integer
-	SS_DATATYPE_REAL,	// "Real" - 64-bit floating point
-	SS_DATATYPE_STRING,	// "String" - Byte sequence
-	NUM_SS_DATATYPES
-};
-
 struct sSpiderScript_TypeDef
 {
 	enum {
@@ -67,10 +67,11 @@ struct sSpiderScript_TypeDef
 	};
 };
 
-EXPORT extern tSpiderScript_TypeDef	gSpiderScript_IntegerType;
-EXPORT extern tSpiderScript_TypeDef	gSpiderScript_BoolType;
-EXPORT extern tSpiderScript_TypeDef	gSpiderScript_RealType;
-EXPORT extern tSpiderScript_TypeDef	gSpiderScript_StringType;
+EXPORT extern const tSpiderScript_TypeDef	gSpiderScript_AnyType;
+EXPORT extern const tSpiderScript_TypeDef	gSpiderScript_IntegerType;
+EXPORT extern const tSpiderScript_TypeDef	gSpiderScript_BoolType;
+EXPORT extern const tSpiderScript_TypeDef	gSpiderScript_RealType;
+EXPORT extern const tSpiderScript_TypeDef	gSpiderScript_StringType;
 
 struct sSpiderScript_TypeRef
 {
@@ -79,8 +80,9 @@ struct sSpiderScript_TypeRef
 };
 
 EXPORT extern const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type);
-EXPORT extern tSpiderScript_TypeDef	*SpiderScript_GetType(tSpiderScript *Script, const char *Name);
-EXPORT extern tSpiderScript_TypeDef	*SpiderScript_GetTypeEx(tSpiderScript *Script, const char *Name, int Length);
+EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetCoreType(tSpiderScript_CoreType Type);
+EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetType(tSpiderScript *Script, const char *Name);
+EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetTypeEx(tSpiderScript *Script, const char *Name, int Length);
 
 //#define SS_MAKEARRAYN(_type, _lvl)	((_type) + 0x10000*(_lvl))
 #define SS_MAKEARRAY(_type)	((_type) + 0x10000)
@@ -217,7 +219,7 @@ struct sSpiderClass
  */
 struct sSpiderObject
 {
-	tSpiderScript_TypeDef	*TypeDef;
+	const tSpiderScript_TypeDef	*TypeDef;
 	tSpiderScript	*Script;
 	 int	ReferenceCount;	//!< Number of references
 	void	*OpaqueData;	//!< Pointer to the end of the \a Attributes array
@@ -264,9 +266,9 @@ struct sSpiderFunction
 	 * \param ArgTypes	Types of each argument
 	 * \param Args  	Pointers to each argument (all point to actual data, unlike \a RetData)
 	 */
-	 int	(*Handler)(tSpiderScript *Script, void *RetData, int nArgs, const tSpiderTypeRef **ArgTypes, const void * const Args[]);
+	 int	(*Handler)(tSpiderScript *Script, void *RetData, int nArgs, const tSpiderTypeRef *ArgTypes, const void * const Args[]);
 	
-	tSpiderFcnProto	Prototype;
+	tSpiderFcnProto	*Prototype;
 };
 
 
@@ -280,14 +282,16 @@ struct sSpiderFunction
 EXPORT extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
 
 EXPORT extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
-	void *RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
  * \brief Execute an object method
  */
 EXPORT extern int	SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *MethodName,
-	void *RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
@@ -298,7 +302,7 @@ EXPORT extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char *C
 	void **Ident
 	);
 
-EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, tSpiderTypeRef TypeCode,
+EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, tSpiderScript_TypeDef *TypeCode,
 	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
@@ -379,7 +383,7 @@ EXPORT extern void	SpiderScript_DereferenceString(const tSpiderString *String);
 
 EXPORT extern tSpiderString	*SpiderScript_StringConcat(const tSpiderString *Str1, const tSpiderString *Str2);
 EXPORT extern int        	SpiderScript_StringCompare(const tSpiderString *Str1, const tSpiderString *Str2);
-EXPORT extern tSpiderString	*SpiderScript_CastValueToString(int SourceType, const void *Source);
+EXPORT extern tSpiderString	*SpiderScript_CastValueToString(tSpiderTypeRef SourceType, const void *Source);
 /**
  * \}
  */
