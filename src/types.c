@@ -21,11 +21,17 @@
 // === GLOBALS ===
 const char	*casSpiderScript_InternalTypeNames[] = {
 	"void",
+	"undefined",
 	"Boolean",
 	"Integer",
 	"Real",
 	"String"
 	};
+const tSpiderScript_TypeDef	gSpiderScript_AnyType     = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_UNDEF}};
+const tSpiderScript_TypeDef	gSpiderScript_BoolType    = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_BOOLEAN}};
+const tSpiderScript_TypeDef	gSpiderScript_IntegerType = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_INTEGER}};
+const tSpiderScript_TypeDef	gSpiderScript_RealType    = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_REAL}};
+const tSpiderScript_TypeDef	gSpiderScript_StringType  = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_STRING}};
 
 // === CODE ===
 const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
@@ -124,7 +130,7 @@ const tSpiderScript_TypeDef *SpiderScript_GetType(tSpiderScript *Script, const c
 	return SpiderScript_GetTypeEx(Script, Name, strlen(Name));
 }
 
-const tSpiderScript_TypeDef *SpiderScript_GetTypeCodeEx(tSpiderScript *Script, const char *Name, int NameLen)
+const tSpiderScript_TypeDef *SpiderScript_GetTypeEx(tSpiderScript *Script, const char *Name, int NameLen)
 {
 	// #1 - Internal types
 	for( int i = 0; i <= SS_DATATYPE_STRING; i ++ )
