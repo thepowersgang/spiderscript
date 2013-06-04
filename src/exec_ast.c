@@ -68,9 +68,7 @@ tSpiderInteger AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpi
 	case NODETYPE_NEGATE:	return -Value;
 	case NODETYPE_BWNOT:	return ~Value;
 	default:
-		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("Exec,UniOP,Integer unknown op %i", Op)
-			);
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG, "Exec,UniOP,Integer unknown op %i", Op);
 		return 0;
 	}
 	
@@ -217,7 +215,7 @@ int AST_ExecuteNode_BinOp_Integer(tSpiderScript *Script, void *RetData,
 		return SS_DATATYPE_INTEGER;
 	default:
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("Exec,BinOp,Integer unknown op %i", Op)
+			"Exec,BinOp,Integer unknown op %i", Op
 			);
 		return -1;
 	}

@@ -68,7 +68,7 @@ extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int Argume
 //  > Manipulation
 extern void	Bytecode_AppendBinOp(tBC_Function *Handle, int Operation);
 extern void	Bytecode_AppendUniOp(tBC_Function *Handle, int Operation);
-extern void	Bytecode_AppendCast(tBC_Function *Handlde, tSpiderTypeRef Type);
+extern void	Bytecode_AppendCast(tBC_Function *Handlde, tSpiderScript_CoreType CoreType);
 extern void	Bytecode_AppendDuplicate(tBC_Function *Handlde);
 extern void	Bytecode_AppendDelete(tBC_Function *Handle);
 extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, tSpiderTypeRef DataType);

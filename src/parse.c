@@ -29,12 +29,12 @@
 
 enum eGetIdentMode
 {
-	GETIDENTMODE_VALUE,
-	GETIDENTMODE_NEW,
-	GETIDENTMODE_EXPRROOT,
-	GETIDENTMODE_CLASS,
-	GETIDENTMODE_NAMESPACE,
-	GETIDENTMODE_FUNCTIONDEF
+	GETIDENTMODE_VALUE,	// 0
+	GETIDENTMODE_NEW,	// 1
+	GETIDENTMODE_EXPRROOT,	// 2
+	GETIDENTMODE_CLASS,	// 3
+	GETIDENTMODE_NAMESPACE,	// 4
+	GETIDENTMODE_FUNCTIONDEF // 5
 };
 
 // === PROTOTYPES ===
@@ -646,7 +646,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 
 	// Global variable
 	case TOK_RWD_GLOBAL:
-		GetToken(Parser);	// Eat the global
+		GetToken(Parser);	// Eat the 'global'
 		if( SyntaxAssert(Parser, LookAhead(Parser), TOK_IDENT) )
 			return NULL;
 		ret = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
@@ -1105,14 +1105,15 @@ tAST_Node *Parse_DoParen(tParser *Parser)
 		{
 			GetToken(Parser);
 			// Handle casts if the identifer gives a valid type
-			const tSpiderScript_TypeDef *type = SpiderScript_GetTypeEx(Parser->Script, Parser->TokenStr, Parser->TokenLen);
-			if( type != NULL )
+			const tSpiderScript_TypeDef *type = SpiderScript_GetTypeEx(Parser->Script,
+				Parser->TokenStr, Parser->TokenLen);
+			if( type != ERRPTR )
 			{
 				// TODO: Allow array casts
 				if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
 					return NULL;
-				DEBUGS2("Casting to %i", type);
-				tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = 0};
+				tSpiderTypeRef	ref = {type,0};
+				DEBUGS2("Casting to %s", SpiderScript_GetTypeName(Parser->Script, ref));
 				ret = AST_NewCast(Parser, ref, Parse_DoParen(Parser));
 				return ret;
 			}
@@ -1418,16 +1419,17 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		DEBUGS2("Function/variable definition");
 		// Function definition
 		const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
-		if( type == NULL ) {
+		if( type == ERRPTR ) {
 			SyntaxError(Parser, "Unknown type '%s'", name);
 			return NULL;
 		}
 
 		if( Mode != GETIDENTMODE_EXPRROOT
 		 && Mode != GETIDENTMODE_CLASS
-		 && Mode != GETIDENTMODE_NAMESPACE )
+		 && Mode != GETIDENTMODE_NAMESPACE
+		 && (Parser->Token == TOK_VARIABLE ? Mode != GETIDENTMODE_FUNCTIONDEF : 1))
 		{
-			SyntaxError(Parser, "Function/Variable definition within expression");
+			SyntaxError(Parser, "Function/Variable definition within expression (Mode %i)", Mode);
 			return NULL;
 		}
 		tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = level};

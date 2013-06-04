@@ -18,7 +18,8 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 
 	// TODO: Prepend namespace?
 
-	if( SpiderScript_GetType(Parser->Script, Name) != NULL ) {
+	// Check if there is already a class/type of this name
+	if( SpiderScript_GetType(Parser->Script, Name) != ERRPTR ) {
 		return NULL;
 	}
 	
@@ -58,6 +59,7 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 	if(!p)	return -1;
 	p->Next = NULL;
 	p->Type = Type;
+	p->Name = (char*)(p + 1);
 	strcpy(p->Name, Name);
 	
 	// Append

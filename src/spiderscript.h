@@ -89,10 +89,10 @@ EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetTypeEx(tSpiderScript 
 #define SS_DOWNARRAY(_type)	((_type) - 0x10000)
 #define SS_GETARRAYDEPTH(_type)	((_type).ArrayDepth)
 #define SS_ISCORETYPE(_t,_c)	((_t).ArrayDepth == 0 && (_t).Def && (_t).Def->Class == SS_TYPECLASS_CORE && (_t).Def->Core == _c)
-#define SS_ISTYPEOBJECT(_type)	((_type).Def && (_type).Def->Class != SS_TYPECLASS_CORE)
-#define SS_ISTYPEREFERENCE(_t)	((SS_ISTYPEOBJECT(_t)) || SS_ISCORETYPE(_t,SS_DATATYPE_STRING))
+#define SS_ISTYPEOBJECT(_type)	((_type).ArrayDepth == 0 && (_type).Def && (_type).Def->Class != SS_TYPECLASS_CORE)
+#define SS_ISTYPEREFERENCE(_t)	((_t).ArrayDepth || (SS_ISTYPEOBJECT(_t)) || SS_ISCORETYPE(_t,SS_DATATYPE_STRING))
 
-#define SS_TYPESEQUAL(_t1,_t2)	((_t1).ArrayDepth == (_t2).ArrayDepth && (_t1).Def == (_t2).Def)
+#define SS_TYPESEQUAL(_t1,_t2...)	((_t1).ArrayDepth == (_t2).ArrayDepth && (_t1).Def == (_t2).Def)
 
 enum eSpiderValueOps
 {
@@ -302,7 +302,7 @@ EXPORT extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char *C
 	void **Ident
 	);
 
-EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, tSpiderScript_TypeDef *TypeCode,
+EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, const tSpiderScript_TypeDef *TypeCode,
 	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
@@ -346,6 +346,12 @@ EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int Excepti
 EXPORT extern int	SpiderScript_GetException(tSpiderScript *Script, const char **Message);
 EXPORT extern void	SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved);
 EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
+
+
+EXPORT extern int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName, int Exp, int Got);
+EXPORT extern int SpiderScript_ThrowException_ArgCount(tSpiderScript *Script, const char *Name, int Exp, int Got);
+EXPORT extern int SpiderScript_ThrowException_ArgErrorC(tSpiderScript *Script, const char *CName, const char *FName, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
+EXPORT extern int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
 /**
  * \}
  */

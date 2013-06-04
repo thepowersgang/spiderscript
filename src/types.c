@@ -27,6 +27,7 @@ const char	*casSpiderScript_InternalTypeNames[] = {
 	"Real",
 	"String"
 	};
+const int	ciSpiderScript_NumInternalTypeNames = sizeof(casSpiderScript_InternalTypeNames)/sizeof(char*);
 const tSpiderScript_TypeDef	gSpiderScript_AnyType     = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_UNDEF}};
 const tSpiderScript_TypeDef	gSpiderScript_BoolType    = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_BOOLEAN}};
 const tSpiderScript_TypeDef	gSpiderScript_IntegerType = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_INTEGER}};
@@ -37,7 +38,7 @@ const tSpiderScript_TypeDef	gSpiderScript_StringType  = {.Class=SS_TYPECLASS_COR
 const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
 {
 	if( Type.Def == NULL )
-		return "VOID";
+		return "#VOID";
 	
 	if( Type.ArrayDepth )
 	{
@@ -58,15 +59,17 @@ const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
 	switch(Type.Def->Class)
 	{
 	case SS_TYPECLASS_CORE:
+		if(Type.Def->Core >= ciSpiderScript_NumInternalTypeNames)
+			return "#OoRCore";
 		return casSpiderScript_InternalTypeNames[Type.Def->Core];
 	case SS_TYPECLASS_NCLASS:
 		return Type.Def->NClass->Name;
 	case SS_TYPECLASS_SCLASS:
 		return Type.Def->SClass->Name;
 	case SS_TYPECLASS_FCNPTR:
-		return "TODO:FcnPtr";
+		return "#FcnPtr";
 	}
-	return "UNK";
+	return "#UNK";
 }
 
 int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, const char *Template, tSpiderTypeRef Type)
@@ -117,11 +120,15 @@ const tSpiderScript_TypeDef *SpiderScript_GetCoreType(tSpiderScript_CoreType Typ
 {
 	switch(Type)
 	{
+	case SS_DATATYPE_NOVALUE:	return NULL;
+	case SS_DATATYPE_UNDEF: 	return &gSpiderScript_AnyType;
 	case SS_DATATYPE_STRING:	return &gSpiderScript_StringType;
 	case SS_DATATYPE_INTEGER:	return &gSpiderScript_IntegerType;
 	case SS_DATATYPE_REAL:  	return &gSpiderScript_RealType;
 	case SS_DATATYPE_BOOLEAN:	return &gSpiderScript_BoolType;
-	default:	return NULL;
+	default:
+		fprintf(stderr, "BUG: SpiderScript_GetCoreType unk %i\n", Type);
+		exit(-1);
 	}
 }
 
@@ -133,7 +140,8 @@ const tSpiderScript_TypeDef *SpiderScript_GetType(tSpiderScript *Script, const c
 const tSpiderScript_TypeDef *SpiderScript_GetTypeEx(tSpiderScript *Script, const char *Name, int NameLen)
 {
 	// #1 - Internal types
-	for( int i = 0; i <= SS_DATATYPE_STRING; i ++ )
+	assert( ciSpiderScript_NumInternalTypeNames == NUM_SS_DATATYPES );
+	for( int i = 0; i < NUM_SS_DATATYPES; i ++ )
 	{
 		if( strncmp(Name, casSpiderScript_InternalTypeNames[i], NameLen) != 0 )
 			continue ;
@@ -179,7 +187,7 @@ const tSpiderScript_TypeDef *SpiderScript_GetTypeEx(tSpiderScript *Script, const
 	}
 
 //	printf("Type '%.*s' undefined\n", NameLen, Name);
-	return NULL;
+	return ERRPTR;
 }
 
 #if 0

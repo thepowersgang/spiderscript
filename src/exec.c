@@ -194,7 +194,7 @@ int SpiderScript_CreateObject(tSpiderScript *Script, const char *ClassName,
 	return SpiderScript_int_ConstructObject(Script, type, RetData, NArguments, ArgTypes, Arguments, NULL);
 }
 
-int SpiderScript_CreateObject_Type(tSpiderScript *Script, tSpiderScript_TypeDef *TypeCode,
+int SpiderScript_CreateObject_Type(tSpiderScript *Script, const tSpiderScript_TypeDef *TypeCode,
 	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	)
@@ -346,17 +346,13 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			if( !sf )
 			{
 				SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
-					mkstr("Class '%s' does not have a method id %i", sc->Name, MethodID)
-					);
+					"Class '%s' does not have a method id %i", sc->Name, MethodID);
 				return -1;
 			}
 
 			if( NArguments != sf->ArgumentCount ) {
-				SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-					mkstr("%s->#%i requires %i arguments, %i given",
-						sc->Name, MethodID, sf->ArgumentCount, NArguments)
-					);
-				return -1;
+				return SpiderScript_ThrowException_ArgCountC(Script, sc->Name, sf->Name,
+					sf->ArgumentCount, NArguments);
 			}
 
 			// Type checking (eventually will not be needed)
@@ -364,11 +360,8 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			{
 				if( !SS_TYPESEQUAL(ArgTypes[i],sf->Arguments[i].Type) )
 				{
-					SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-						mkstr("Argument %i of %s->%s should be %i, got %i",
-							i+1, sc->Name, sf->Name, sf->Arguments[i].Type, ArgTypes[i])
-						);
-					return -1;
+					return SpiderScript_ThrowException_ArgErrorC(Script, sc->Name, sf->Name,
+						i+1, sf->Arguments[i].Type, ArgTypes[i]);
 				}
 			}
 		}
@@ -386,8 +379,7 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			if( !fcn )
 			{
 				SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
-					mkstr("Class '%s' does not have a method #%i", nc->Name, MethodID)
-					);
+					"Class '%s' does not have a method #%i", nc->Name, MethodID);
 				return -1;
 			}
 
@@ -396,35 +388,27 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			 int	bVaraible = fcn->Prototype->bVariableArgs;
 
 			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) ) {
-				SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-					mkstr("Argument count mismatch (%i passed, %i%s expected)",
-						1+NArguments, i, (bVaraible?"+":""))
-					);
-				return -1;
+				return SpiderScript_ThrowException_ArgCountC(Script, nc->Name, fcn->Name,
+					(bVaraible ? -minArgc : minArgc), 1+NArguments);
 			}
 
 			// Check the type of the arguments
-			// - Start at 1 to skip the -2 for 'this class'
+			// - Start at 1 to skip 'this'
 			for( i = 1; i < minArgc; i ++ )
 			{
+				if( SS_ISCORETYPE(fcn->Prototype->Args[i], SS_DATATYPE_UNDEF) )
+					continue ;
 				if( !SS_TYPESEQUAL(ArgTypes[i], fcn->Prototype->Args[i]) )
 				{
-					SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-						mkstr("Argument type mismatch (%s, expected %s)",
-							SpiderScript_GetTypeName(Script, ArgTypes[i]),
-							SpiderScript_GetTypeName(Script, fcn->Prototype->Args[i])
-							)
-						);
-					return -1;
+					return SpiderScript_ThrowException_ArgErrorC(Script, nc->Name, fcn->Name,
+						i+1, fcn->Prototype->Args[i], ArgTypes[i]);
 				}
 			}
 		}
 		else
 		{
-			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
-				strdup("Method call on non-object")
-				);
-			return -1;
+			return SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
+				"Method call on non-object");
 		}
 	}
 
@@ -434,12 +418,16 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 		// Abuses alignment requirements on almost all platforms
 		if( FunctionIdent )
 			*FunctionIdent = (void*)( (intptr_t)sf | 1 );
+		if( RetType )
+			*RetType = sf->ReturnType;
 		return Bytecode_ExecuteFunction(Script, sf, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else if( fcn )
 	{
 		if( FunctionIdent )
 			*FunctionIdent = fcn;
+		if( RetType )
+			*RetType = fcn->Prototype->ReturnType;
 		return fcn->Handler(Script, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else {

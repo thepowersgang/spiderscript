@@ -58,7 +58,7 @@ tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *
 
 	tSpiderObject	*ret = calloc(1, size + ExtraBytes);
 	
-	ret->TypeDef = SpiderScript_GetType(Script, Class->Name);
+	ret->TypeDef = &Class->TypeDef;
 	ret->Script = Script;
 	ret->ReferenceCount = 1;
 	ret->OpaqueData = (char*)ret + size;
@@ -89,7 +89,7 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 	size += n_attr * sizeof(void*);
 	
 	tSpiderObject	*ret = calloc(1, size);
-	ret->TypeDef = SpiderScript_GetType(Script, Class->Name);
+	ret->TypeDef = &Class->TypeInfo;
 	ret->Script = Script;
 	ret->ReferenceCount = 1;
 	ret->OpaqueData = 0;

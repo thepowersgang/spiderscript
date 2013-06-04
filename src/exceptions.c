@@ -11,12 +11,37 @@
 #include <stdarg.h>
 
 // === CODE ===
+int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName,
+	int Exp, int Got)
+{
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+		"%s->%s expects %i%s arguments, %i given", CName, FName, abs(Exp), (Exp<0?"+":""), Got);
+}
+int SpiderScript_ThrowException_ArgCount(tSpiderScript *Script, const char *Name, int Exp, int Got)
+{
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+		"%s expects %i%s arguments, %i given", Name, abs(Exp), (Exp<0?"+":""), Got);
+}
+
+int SpiderScript_ThrowException_ArgErrorC(tSpiderScript *Script, const char *CName, const char *FName, int Num,
+	tSpiderTypeRef Expected, tSpiderTypeRef Got)
+{
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
+		"%s->%s expects argument %i to be %s, got %s",
+		CName, FName,
+		Num,
+		SpiderScript_GetTypeName(Script, Expected),
+		SpiderScript_GetTypeName(Script, Got)
+		);
+}
+
 int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num,
 	tSpiderTypeRef Expected, tSpiderTypeRef Got)
 {
 	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-		"%s Arg %i - Expected %s, got %s",
+		"%s expects argument %i to be %s, got %s",
 		Name,
+		Num,
 		SpiderScript_GetTypeName(Script, Expected),
 		SpiderScript_GetTypeName(Script, Got)
 		);

@@ -185,8 +185,8 @@ if( $gMode =~ /^mkhdr/ )
 		my $typename = "TYPE_".$gClasses[$index];
 		$typename =~ s/@/_z_/g;
 		my $symname = "gExports_class_".make_sym($gClasses[$index]);
-		print OUTFILE "extern tSpiderClass $symname;\n";
-		print OUTFILE "#define $typename {&$symname.TypeDef,0}\n";
+		print OUTFILE ( $gMode =~ /lang$/ ? "EXPORT " : ""),"extern tSpiderClass $symname;\n";
+		print OUTFILE "#define $typename &$symname.TypeDef\n";
 	}
 	close(OUTFILE);
 	exit ;
@@ -470,7 +470,7 @@ while(<INFILE>)
 
 		$bInFunction = 1;
 		
-		$gFcnRetType_V = $gCurClass_V;
+		$gFcnRetType_V = "{$gCurClass_V,0}";
 		$gFcnRetType_C = "tSpiderObject*";
 		$gClassConstructor = "&gExports_fcn_$symbol";		
 
@@ -552,7 +552,7 @@ while(<INFILE>)
 		{
 			push @gFcnArgs, "this";
 			$gFcnArgs_C{"this"} = "const tSpiderObject*";
-			$gFcnArgs_V{"this"} = $gCurClass_V;
+			$gFcnArgs_V{"this"} = "{$gCurClass_V,0}";
 			$gFcnArgs_I{"this"} = $argc;
 			$argc ++;
 		}
@@ -612,6 +612,7 @@ while(<INFILE>)
 			print OUTFILE $indent,"tSpiderClass $classsym = {\n";
 			print OUTFILE $indent,"\t.Next=$gLastClass,\n";
 			print OUTFILE $indent,"\t.Name=\"$gCurClass\",\n";
+			print OUTFILE $indent,"\t.TypeDef={.Class=SS_TYPECLASS_NCLASS,{.NClass=&$classsym}},\n";
 			print OUTFILE $indent,"\t.Constructor=$gClassConstructor,\n";
 			print OUTFILE $indent,"\t.Destructor=$gClassDestructor,\n";
 			print OUTFILE $indent,"\t.Methods=$gClassLastFunction,\n";
@@ -725,11 +726,12 @@ while(<INFILE>)
 		$classsym =~ s/@/_/g;
 		s/\@CLASSPTR\b/&$classsym/g;
 	}
-	s/\@TYPECODE\(\s*([^\)]+)\s*\)/(gettype($1))[0]/ge;
+#	s/\@TYPECODE\(\s*([^\)]+)\s*\)/(gettype($1))[0]/ge;
+	s/\@TYPECODE\(\s*([^\)]+)\s*\)/macro_TYPE($1)/ge;
 	if( $bInFunction )
 	{
 		s/\@TYPEOF\(\s*($gIdentRegex)\s*\)/macro_TYPEOF($1)/ge;
-		s/\@TYPE\(\s*($gIdentRegex)\s*\)/macro_TYPE($1)/ge;
+		s/\@TYPE\(\s*([^\)]+)\s*\)/macro_TYPE($1)/ge;
 		s/\@RETURN\b([^;]*);/macro_RETURN($1)/ge;
 		s/\@BOOLEAN\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderBool")/ge;
 		s/\@INTEGER\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderInteger")/ge;

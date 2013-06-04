@@ -11,13 +11,13 @@
 #include "ast.h"
 #include "bytecode_gen.h"
 #include "bytecode_ops.h"
+#include <assert.h>
 
 #define DEBUG	0
 #define TRACE_VAR_LOOKUPS	0
 #define TRACE_TYPE_STACK	0
 #define MAX_NAMESPACE_DEPTH	10
 #define MAX_STACK_DEPTH	10	// This is for one function, so shouldn't need more
-#define SS_DATATYPE_UNDEF	-1
 #define MAX_GLOBALS	32
 
 #define POP_UNDEF	((tSpiderTypeRef){0,0})
@@ -1221,11 +1221,15 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef *Retu
 				continue ;
 			}
 			#endif
-			if( !SS_TYPESEQUAL(nf->Prototype->Args[i], ArgTypes[i]) ) {
-				// Sad to be chucked
+			tSpiderTypeRef	argtype = nf->Prototype->Args[i];
+			// undefined = any type
+			if( SS_ISCORETYPE(argtype, SS_DATATYPE_UNDEF) ) {
+				continue ;
+			}
+			if( !SS_TYPESEQUAL(argtype, ArgTypes[i]) ) {
 				AST_RuntimeError(Node, "Argument %i of %s should be %s, given %s",
 					i, Name,
-					SpiderScript_GetTypeName(Block->Script, nf->Prototype->Args[i]),
+					SpiderScript_GetTypeName(Block->Script, argtype),
 					SpiderScript_GetTypeName(Block->Script, ArgTypes[i])
 					);
 				return -1;
@@ -1409,7 +1413,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 		return -1;
 	}
 	else {
-		Bytecode_AppendCast(Block->Handle, DestType);
+		Bytecode_AppendCast(Block->Handle, DestType.Def->Core);
 		ret = _StackPush(Block, Node, DestType, NULL);
 		if(ret < 0)	return -1;
 	}
@@ -1419,9 +1423,8 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 const tScript_Var *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode, const char *Name, int CreateType)
 {
 	tScript_Var	*var = NULL;
-	tAST_BlockInfo	*bs;
 	
-	for( bs = Block; bs; bs = bs->Parent )
+	for( tAST_BlockInfo *bs = Block; bs; bs = bs->Parent )
 	{
 		for( var = bs->FirstVar; var; var = var->Next )
 		{
@@ -1430,10 +1433,11 @@ const tScript_Var *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *VarNode,
 		}
 		if(var)	break;
 		
-		// TODO: Scan imported globals
 		for( int i = 0; i < MAX_GLOBALS; i ++ )
 		{
-			if( bs->ImportedGlobals[i] && strcmp(bs->ImportedGlobals[i]->Name, Name) == 0 ) {
+			if( !bs->ImportedGlobals[i] )
+				continue ;
+			if( strcmp(bs->ImportedGlobals[i]->Name, Name) == 0 ) {
 				var = bs->ImportedGlobals[i];
 				break;
 			}
@@ -1499,18 +1503,17 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 
 int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name)
 {
-	 int	slot;
-	
+	if( BC_Variable_Lookup(Block, DefNode, Name, SS_DATATYPE_UNDEF) ) {
+		AST_RuntimeError(DefNode, "Global %s collides with exisint name", Name);
+		return -1;
+	}
+
 	// Find a free slot
+	 int	slot;
 	for( slot = 0; slot < MAX_GLOBALS && Block->ImportedGlobals[slot]; slot ++ )
 		;
 	if( slot == MAX_GLOBALS ) {
 		AST_RuntimeError(DefNode, "Too many globals in function, %i max", MAX_GLOBALS);
-		return -1;
-	}
-
-	if( BC_Variable_Lookup(Block, DefNode, Name, SS_DATATYPE_UNDEF) ) {
-		AST_RuntimeError(DefNode, "Global %s re-imported", Name);
 		return -1;
 	}
 
@@ -1525,6 +1528,7 @@ int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpid
 	if( !var )
 	{
 		 int	size = SS_ISTYPEREFERENCE(Type) ? 0 : SpiderScript_int_GetTypeSize(Type);
+		assert(size >= 0);
 		var = malloc( sizeof(tScript_Var) + size + strlen(Name) + 1 );
 		var->Type = Type;
 		var->Ptr = var + 1;
@@ -1629,10 +1633,13 @@ int _StackPush(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void
 		return -1;
 	}
 
+#if 0
 	if( SS_TYPESEQUAL(Type, POP_UNDEF) ) {
 		AST_RuntimeError(Node, "BUG - Pushed SS_DATATYPE_UNDEF (NT%i)", Node->Type);
+		*(char*)0 = 1;
 		return -1;
 	}
+#endif
 
 	#if TRACE_TYPE_STACK
 	AST_RuntimeMessage(Node, "_StackPush", "%x - NT%i", Type, Node->Type);
@@ -1655,18 +1662,22 @@ int _StackPop(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef WantedType,
 	#if TRACE_TYPE_STACK
 	AST_RuntimeMessage(Node, "_StackPop", "%x(==%x) - NT%i", havetype, WantedType, Node->Type);
 	#endif
-	if( SS_TYPESEQUAL(WantedType, POP_UNDEF) && !SS_TYPESEQUAL(havetype, POP_UNDEF) )
+	// Wanted == POP_UNDEF/void means any type is desired (or complex checks are done)
+	if( !SS_TYPESEQUAL(WantedType, POP_UNDEF) && !SS_TYPESEQUAL(havetype, POP_UNDEF) )
 	{
 		if( !SS_TYPESEQUAL(havetype, WantedType) ) {
-			AST_RuntimeError(Node, "AST-Bytecode - Type mismatch (wanted %x got %x)",
-				WantedType, havetype);
+			AST_RuntimeError(Node, "AST-Bytecode - Type mismatch (wanted %s got %s)",
+				SpiderScript_GetTypeName(Block->Script, WantedType),
+				SpiderScript_GetTypeName(Block->Script, havetype)
+				);
 			return STACKPOP_RV_MISMATCH;
 		}
 	}
 	if(Info)
 		*Info = Block->Stack[Block->StackDepth].Info;
 	Block->StackDepth--;
-	*OutType = havetype;
+	if( OutType )
+		*OutType = havetype;
 	if( SS_TYPESEQUAL(havetype, POP_UNDEF) )
 		return STACKPOP_RV_NULL;
 	return 0;
