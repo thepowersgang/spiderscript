@@ -81,10 +81,8 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 
 tSpiderScript *SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename)
 {
-	tSpiderScript *ret = malloc(sizeof(tSpiderScript));
+	tSpiderScript *ret = calloc(sizeof(tSpiderScript), 1);
 	ret->Variant = Variant;
-	ret->Functions = NULL;
-	ret->FirstClass = NULL;
 
 	if( SpiderScript_int_LoadBytecode(ret, Filename) ) {
 		SpiderScript_Free(ret);
@@ -148,6 +146,9 @@ void SpiderScript_Free(tSpiderScript *Script)
 	}
 	Script->FirstGlobal = NULL;
 	Script->LastGlobal = NULL;
+
+	if( Script->BCTypes )
+		free(Script->BCTypes);
 
 	free(Script);
 }
