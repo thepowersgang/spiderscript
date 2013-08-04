@@ -13,7 +13,6 @@
 
 // === IMPORTS ===
 extern int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
-extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 
 // === PROTOTYPES ===
 
@@ -85,6 +84,19 @@ tSpiderScript *SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Fi
 	ret->Variant = Variant;
 
 	if( SpiderScript_int_LoadBytecode(ret, Filename) ) {
+		SpiderScript_Free(ret);
+		return NULL;
+	}
+	
+	return ret;
+}
+
+tSpiderScript *SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Data, size_t Length)
+{
+	tSpiderScript *ret = calloc(sizeof(tSpiderScript), 1);
+	ret->Variant = Variant;
+
+	if( SpiderScript_int_LoadBytecodeMem(ret, Data, Length) ) {
 		SpiderScript_Free(ret);
 		return NULL;
 	}

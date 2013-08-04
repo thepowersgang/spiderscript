@@ -310,10 +310,12 @@ EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, const tS
  * \brief Convert a script to bytecode and save to a file
  */
 EXPORT extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
+EXPORT extern int	SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr);
 /**
  * \brief Load a script from bytecode
  */
 EXPORT extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
+EXPORT extern tSpiderScript	*SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Buf, size_t Len);
 /**
  * \brief Save the AST of a script to a file
  */

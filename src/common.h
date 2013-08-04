@@ -121,5 +121,9 @@ extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, t
 extern int	SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeCode);
 
 extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
+
+
+extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
+extern int	SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size);
 #endif
 

@@ -53,7 +53,9 @@ typedef struct
 // === IMPORTS ===
 
 // === PROTOTYPES ===
-extern tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State);
+ int	SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp);
+ int	SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp);
+tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State);
 
 // === GLOBALS ===
 
@@ -166,12 +168,30 @@ tScript_Function *_get_fcn(t_loadstate *State)
 
 int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 {
-	t_loadstate	state, *State;
-	FILE	*fp;
-	State = &state;
-
-	fp = fopen(SourceFile, "rb");
+	FILE *fp = fopen(SourceFile, "rb");
 	if(!fp)	return -1;
+	
+	int rv = SpiderScript_int_LoadBytecodeStream(Script, fp);
+
+	fclose(fp);	
+	return rv;
+}
+
+int SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size)
+{
+	// (const void*)->(void*) is ok because it's a read-only stream
+	FILE *fp = fmemopen((void*)Buffer, Size, "r");
+	if(!fp)	return -1;
+	
+	int rv = SpiderScript_int_LoadBytecodeStream(Script, fp);
+	
+	fclose(fp);	
+	return rv;
+}
+
+int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
+{	
+	t_loadstate	state, *State = &state;
 	
 	fseek(fp, 0, SEEK_END);
 	off_t file_size = ftell(fp);
@@ -250,6 +270,8 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		State->Classes[i].NAttribs = n_attrib;
 
 		TRACE(" Name = '%s'", sc->Name);
+
+		// TODO: Remove/Error on duplicate classes?
 
 //		printf("Added class '%s'\n", sc->Name);
 		// Append
@@ -384,18 +406,38 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 
 	free(State->Types);
 	free(State->Classes);
-	
-	fclose(fp);
 
 	return 0;
 }
 
 int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 {
+	FILE *fp = fopen(DestFile, "wb");
+	if(!fp)	return 1;
+	
+	int rv = SpiderScript_int_SaveBytecodeStream(Script, fp);
+	
+	fclose(fp);
+	return rv;
+}
+
+int SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr)
+{
+	// Darnit, why isn't (void**) casted like (void*)
+	FILE *fp = open_memstream((char**)BufferPtr, SizePtr);
+	if(!fp)	return 1;	
+
+	int rv = SpiderScript_int_SaveBytecodeStream(Script, fp);
+
+	fclose(fp);
+	return rv;
+}
+
+int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
+{
 	tStringList	strings = {0};
 	tScript_Function	*fcn;
 	tScript_Class	*sc;
-	FILE	*fp;
 	 int	fcn_hdr_offset = 0;
 	 int	num_globals = 0, fcn_count = 0, class_count = 0;
 	 int	strtab_ofs;
@@ -417,8 +459,6 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		_put8(val >> 24);
 	}
 
-	fp = fopen(DestFile, "wb");
-	if(!fp)	return 1;
 	// Create header
 	fwrite(MAGIC_STR, MAGIC_STR_LEN, 1, fp);
 	_put16(0);	// Class count
@@ -455,10 +495,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		if( !fcn->BCFcn )
 			Bytecode_ConvertFunction(Script, fcn);
 		if( !fcn->BCFcn )
-		{
-			fclose(fp);
 			return 1;
-		}
 	
 		off_t	code_pos;
 		int	len = 0;
@@ -633,8 +670,6 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 	_put16(fcn_count);
 	_put16(strings.Count);
 	_put32(strtab_ofs);
-
-	fclose(fp);
 
 	return 0;
 }
