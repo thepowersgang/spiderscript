@@ -487,7 +487,6 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	tBC_StackEnt	val1, val2, rval;
 	const int	local_var_count = Fcn->BCFcn->MaxVariableCount;
 	const int	imp_global_count = Fcn->BCFcn->MaxGlobalCount;
-	tBC_StackEnt	*local_vars;
 	tSpiderTypeRef	type;
 	void	*ptr, *ptr2;
 	 int	bError = 0;
@@ -497,7 +496,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	DEBUG_F("--- ExecuteFunction %s (%i args)\n", Fcn->Name, Fcn->ArgumentCount);
 	
 	// Initialise local vars
-	local_vars = malloc( sizeof(tBC_StackEnt) * local_var_count );	// Includes arguments
+	tBC_StackEnt local_vars[local_var_count];	// Includes arguments
 	memset(local_vars, 0, sizeof(tBC_StackEnt) * local_var_count);
 	
 	// Imported globals
@@ -1286,8 +1285,6 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 		DEBUG_F("+ Rolled back %i stack entries\n", n_rolled);
 		DEBUG_F("+ Kept "); PRINT_STACKVAL(val1); DEBUG_F(" as return\n");
 	}
-
-	free(local_vars);
 
 	DEBUG_F("--- Return %i\n", bError);
 	return bError;
