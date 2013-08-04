@@ -13,7 +13,6 @@
 
 // === IMPORTS ===
 extern int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
-extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 
 // === PROTOTYPES ===
 
@@ -81,12 +80,23 @@ tSpiderScript *SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filen
 
 tSpiderScript *SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename)
 {
-	tSpiderScript *ret = malloc(sizeof(tSpiderScript));
+	tSpiderScript *ret = calloc(sizeof(tSpiderScript), 1);
 	ret->Variant = Variant;
-	ret->Functions = NULL;
-	ret->FirstClass = NULL;
 
 	if( SpiderScript_int_LoadBytecode(ret, Filename) ) {
+		SpiderScript_Free(ret);
+		return NULL;
+	}
+	
+	return ret;
+}
+
+tSpiderScript *SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Data, size_t Length)
+{
+	tSpiderScript *ret = calloc(sizeof(tSpiderScript), 1);
+	ret->Variant = Variant;
+
+	if( SpiderScript_int_LoadBytecodeMem(ret, Data, Length) ) {
 		SpiderScript_Free(ret);
 		return NULL;
 	}
@@ -140,7 +150,7 @@ void SpiderScript_Free(tSpiderScript *Script)
 			SpiderScript_DereferenceArray(var->Ptr);
 		else if( SS_ISTYPEOBJECT(var->Type) )
 			SpiderScript_DereferenceObject(var->Ptr);
-		else if( var->Type == SS_DATATYPE_STRING )
+		else if( var->Type.Def == &gSpiderScript_StringType )
 			SpiderScript_DereferenceString(var->Ptr);
 		else
 			;
@@ -148,6 +158,9 @@ void SpiderScript_Free(tSpiderScript *Script)
 	}
 	Script->FirstGlobal = NULL;
 	Script->LastGlobal = NULL;
+
+	if( Script->BCTypes )
+		free(Script->BCTypes);
 
 	free(Script);
 }

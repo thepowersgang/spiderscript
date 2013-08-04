@@ -10,9 +10,17 @@
 #include "bytecode_gen.h"
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
-#define MAGIC_STR	"SSBC\r\n\xBC\x55"
+#define MAGIC_STR	"SSBC\r\n\xBC\x56"
 #define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
+
+#define DEBUG	0
+#if DEBUG
+# define TRACE(s,args...)	printf("%s:%i "s"\n", __FILE__, __LINE__ ,## args)
+#else
+# define TRACE(v...)	do{}while(0)
+#endif
 
 #define _ASSERT(l,rel,r,rv) do{if(!(l rel r)){\
 	fprintf(stderr,"%s:%i: ASSERT %s [%li] %s %s [%li] failed\n", __FILE__, __LINE__, #l, (long)(l), #rel, #r, (long)(r));\
@@ -28,15 +36,26 @@ typedef struct
 typedef struct
 {
 	FILE	*FP;
-	t_lenofs	*Strings;
+	tSpiderScript	*Script;
 	 int	NStr;
+	t_lenofs	*Strings;
+	 int	NTypes;
+	tSpiderTypeRef	*Types;
+	 int	NClasses;
+	struct {
+		tScript_Class	*Class;
+		 int	NMethods;
+		 int	NAttribs;
+	}	*Classes;
 	size_t	FileSize;
 } t_loadstate;
 
 // === IMPORTS ===
 
 // === PROTOTYPES ===
-extern tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State);
+ int	SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp);
+ int	SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp);
+tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State);
 
 // === GLOBALS ===
 
@@ -69,19 +88,28 @@ size_t _get_str(t_loadstate *State, char *Dest, int StringID)
 	}
 	return State->Strings[StringID].Length;
 }
+tSpiderTypeRef _get_type(t_loadstate *State, int TypeID)
+{
+	tSpiderTypeRef	retz = {0,0};
+	_ASSERT(TypeID, <, State->NTypes, retz);
+
+	return State->Types[TypeID];
+}
 
 tScript_Function *_get_fcn(t_loadstate *State)
 {
 	tScript_Function *ret;
 	
+	TRACE("_get_fcn @ 0x%lx", ftell(State->FP));
 	// Load main function header
-	 int	namestr  = _get32(State);
+	 int	namestr  = _get16(State);
 	off_t	code_ofs = _get32(State);
 	size_t	code_len = _get32(State);
-	 int	ret_type = _get32(State);
-	 int	n_args   = _get8(State);
-	_get8(State); _get8(State); _get8(State);
+	 int	ret_type = _get16(State);
+	 int	n_args   = _get16(State);
 
+	TRACE("_get_fcn: Name [%i] 0x%lx+%li RV%i %i args",
+		namestr, code_ofs, code_len, ret_type, n_args);
 	_ASSERT(code_ofs, <, State->FileSize, NULL);
 	_ASSERT(code_ofs+code_len, <, State->FileSize, NULL);
 
@@ -100,10 +128,9 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	datasize += _get_str(State, NULL, namestr) + 1;
 	for( int i = 0; i < n_args; i ++ )
 	{
-		args[i].Name = _get32(State);
-		args[i].Type = _get32(State);
+		args[i].Name = _get16(State);
+		args[i].Type = _get16(State);
 		datasize += _get_str(State, NULL, args[i].Name) + 1;
-//		printf(" Arg %i: Name=%i,Type=%x\n", i, args[i].Name, args[i].Type);
 	}
 
 	// Create and populate metadata structure
@@ -112,16 +139,15 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	ret->Name = (void*)&ret->Arguments[n_args];
 	_get_str(State, ret->Name, namestr);
 	ret->ArgumentCount = n_args;
-	ret->ReturnType = ret_type;
+	ret->ReturnType = _get_type(State, ret_type);
 	ret->ASTFcn = NULL;
 	char *nameptr = ret->Name + _get_str(State, NULL, namestr) + 1;
 	for( int i = 0; i < n_args; i ++ )
 	{
 		ret->Arguments[i].Name = nameptr;
 		int len = _get_str(State, nameptr, args[i].Name);
-		ret->Arguments[i].Type = args[i].Type;
+		ret->Arguments[i].Type = _get_type(State, args[i].Type);
 		nameptr += len + 1;
-//		printf(" Arg %i: Name=\"%s\"\n", i, ret->Arguments[i].Name);
 	}
 	
 	// Load code
@@ -131,18 +157,7 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	fread(code, code_len, 1, State->FP);
 	fseek(State->FP, old_pos, SEEK_SET);
 
-	#if 0
-	for( int i = 0; i < code_len; i ++ )
-	{
-		uint8_t	*buf = code;
-		printf("%02x ", buf[i]);
-		if( (i & 15) == 15 )	printf("\n");
-		else if( (i & 7) == 7 )	printf(" ");
-	}
-	printf("\n");
-	#endif
-
-	// TODO: Parse back into bytecode
+	// Parse back into bytecode
 	ret->BCFcn = Bytecode_DeserialiseFunction(code, code_len, State);
 
 	free(code);
@@ -153,24 +168,43 @@ tScript_Function *_get_fcn(t_loadstate *State)
 
 int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 {
-	t_loadstate	state, *State;
-	FILE	*fp;
-	State = &state;
-
-	fp = fopen(SourceFile, "rb");
+	FILE *fp = fopen(SourceFile, "rb");
 	if(!fp)	return -1;
+	
+	int rv = SpiderScript_int_LoadBytecodeStream(Script, fp);
+
+	fclose(fp);	
+	return rv;
+}
+
+int SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size)
+{
+	// (const void*)->(void*) is ok because it's a read-only stream
+	FILE *fp = fmemopen((void*)Buffer, Size, "r");
+	if(!fp)	return -1;
+	
+	int rv = SpiderScript_int_LoadBytecodeStream(Script, fp);
+	
+	fclose(fp);	
+	return rv;
+}
+
+int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
+{	
+	t_loadstate	state, *State = &state;
 	
 	fseek(fp, 0, SEEK_END);
 	off_t file_size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 
 	State->FP = fp;
+	State->Script = Script;
 	State->Strings = NULL;
 	State->NStr = 0;
 	State->FileSize = file_size;
 
 	// Check magic
-	_ASSERT(file_size, >, MAGIC_STR_LEN + 4*4, 1);
+	_ASSERT(file_size, >, MAGIC_STR_LEN + 5*2+4, 1);
 	{
 		char magic[MAGIC_STR_LEN];
 		fread(magic, MAGIC_STR_LEN, 1, fp);
@@ -180,13 +214,15 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 	
 	
 	// Get counts
-	 int	n_fcn   = _get32(State);
-	 int	n_class = _get32(State);
-	 int	n_str   = _get32(State);
-	off_t	ofs_str = _get32(State);
+	 int	n_class   = _get16(State);
+	 int	n_types   = _get16(State);
+	 int	n_globals = _get16(State);
+	 int	n_fcn     = _get16(State);
+	 int	n_str     = _get16(State);
+	off_t	ofs_str   = _get32(State);
 	// TODO: Validation	
 
-//	printf("n_fcn = %i, n_class = %i, n_str = %i\n", n_fcn, n_class, n_str);
+	TRACE("Header %ic %it %ig %if %is@%lx", n_class, n_types, n_globals, n_fcn, n_str, ofs_str);
 
 	// Load string table
 	_ASSERT(ofs_str + n_str*(4+4), <=, file_size, 1);
@@ -198,34 +234,25 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		strings[i].Offset = _get32(State);
 		_ASSERT(strings[i].Offset, <, file_size, 1);
 		_ASSERT(strings[i].Offset + strings[i].Length, <=, file_size, 1);
+		TRACE("Str %i: 0x%x + %i", i, strings[i].Offset, strings[i].Length);
 	}
-	fseek(fp, MAGIC_STR_LEN+4*4, SEEK_SET);	
+	fseek(fp, MAGIC_STR_LEN+5*2+4, SEEK_SET);	
 	State->Strings = strings;
 	State->NStr = n_str;
+	
+	State->NClasses = n_class;
+	State->Classes = malloc(n_class * sizeof(*State->Classes));
 //	printf("State->Strings = %p, State->NStr = %i\n", State->Strings, State->NStr);
-
 	
-	// Parse functions
-	for( int i = 0; i < n_fcn; i ++ )
-	{
-		tScript_Function *fcn;
-		fcn = _get_fcn(State);
-
-//		printf("Loaded function '%s'\n", fcn->Name);
-	
-		if( Script->Functions )
-			Script->LastFunction->Next = fcn;
-		else
-			Script->Functions = fcn;
-		Script->LastFunction = fcn;
-	}
-	
+	// Deserialise class definitions
 	for( int i = 0; i < n_class; i ++ )
 	{
 		tScript_Class	*sc;
-		int namestr = _get32(State);
+		int namestr = _get16(State);
 		int n_attrib = _get16(State);
 		int n_method = _get16(State);
+
+		TRACE("Class %i: [%i] %i,%i", i, namestr, n_attrib, n_method);
 
 		sc = malloc( sizeof(tScript_Class) + _get_str(State, NULL, namestr) + 1 );
 		if(!sc)	return -1;
@@ -235,7 +262,16 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		sc->FirstFunction = NULL;
 		sc->FirstProperty = NULL;
 		sc->nProperties = n_attrib;
-		sc->TypeCode = 0x2000 | i;	// HACK! Abuses types.c's internals
+		sc->TypeInfo.Class = SS_TYPECLASS_SCLASS;
+		sc->TypeInfo.SClass = sc;
+
+		State->Classes[i].Class = sc;
+		State->Classes[i].NMethods = n_method;
+		State->Classes[i].NAttribs = n_attrib;
+
+		TRACE(" Name = '%s'", sc->Name);
+
+		// TODO: Remove/Error on duplicate classes?
 
 //		printf("Added class '%s'\n", sc->Name);
 		// Append
@@ -244,18 +280,106 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		else
 			Script->FirstClass = sc;
 		Script->LastClass = sc;
+	}
+
+	// Deserialse types
+	State->Types = malloc(n_types * sizeof(*State->Types));
+	State->NTypes = n_types;
+	for( int i = 0; i < n_types; i ++ )
+	{
+		int depth = _get8(State);
+		int class = _get8(State);
+		int idx = _get16(State);
+		
+		State->Types[i].ArrayDepth = depth;
+		switch(class)
+		{
+		case SS_TYPECLASS_CORE:
+			TRACE("Core type %i", idx);
+			State->Types[i].Def = SpiderScript_GetCoreType(idx);
+			break;
+		case SS_TYPECLASS_SCLASS:
+			TRACE("Script class %i", idx);
+			_ASSERT(idx, <, n_class, -1);
+			State->Types[i].Def = &State->Classes[idx].Class->TypeInfo;
+			break;
+		case SS_TYPECLASS_NCLASS: {
+			TRACE("Native class [%i]", idx);
+			char str[_get_str(State, NULL, idx)];
+			_get_str(State, str, idx);
+			TRACE(" > '%s'", str);
+			State->Types[i].Def = SpiderScript_ResolveObject(Script, NULL, str);
+			break; }
+		case SS_TYPECLASS_FCNPTR:
+			// TODO
+			break;
+		default:
+			_ASSERT(class, >, 0, -1);
+			_ASSERT(class, <=, SS_TYPECLASS_FCNPTR, -1);
+			break;
+		}
+		TRACE(" = %s", SpiderScript_GetTypeName(Script, State->Types[i]));
+	}
+
+	// Get globals
+	for( int i = 0; i < n_globals; i ++ )
+	{
+		 int	nameid = _get16(State);
+		 int	typeid = _get16(State);
+
+		// TODO: Need to handle merging of compiled files?		
+
+		tSpiderTypeRef type = _get_type(State, typeid);
+		 int	size = SS_ISTYPEREFERENCE(type) ? 0 : SpiderScript_int_GetTypeSize(type);
+		assert(size >= 0);
+		tScript_Var	*g = malloc( sizeof(tScript_Var) + _get_str(State, NULL, nameid)+1 + size );
+		
+		g->Type = type;
+		g->Ptr = g + 1;
+		g->Name = (char*)g->Ptr + size;
+		if( size == 0 )
+			g->Ptr = 0;
+		_get_str(State, g->Name, nameid);
+		g->Next = NULL;
+		if( !Script->FirstGlobal )
+			Script->FirstGlobal = g;
+		else
+			Script->LastGlobal->Next = g;
+		Script->LastGlobal = g;
+	}	
+
+	// Parse functions
+	for( int i = 0; i < n_fcn; i ++ )
+	{
+		tScript_Function *fcn;
+		
+		fcn = _get_fcn(State);
+		_ASSERT(fcn, !=, NULL, -1);
+
+		if( Script->Functions )
+			Script->LastFunction->Next = fcn;
+		else
+			Script->Functions = fcn;
+		Script->LastFunction = fcn;
+	}
+	
+	for( int i = 0; i < n_class; i ++ )
+	{
+		tScript_Class	*sc = State->Classes[i].Class;
 		
 		// Attributes
-		for( int j = 0; j < n_attrib; j ++ )
+		for( int j = 0; j < State->Classes[i].NAttribs; j ++ )
 		{
 			tScript_Var *at;
-			int name = _get32(State);
-			int type = _get32(State);
+			int name = _get16(State);
+			int type = _get16(State);
 		
 			at = malloc( sizeof(*at) + _get_str(State, NULL, name) + 1 );
 			at->Next = NULL;
-			at->Type = type;
+			at->Type = _get_type(State, type);
+			at->Name = (void*)(at + 1);
 			_get_str(State, at->Name, name);
+			TRACE("%s->%s : %s", sc->Name, at->Name, SpiderScript_GetTypeName(Script, at->Type));
 
 			if( sc->FirstProperty )
 				sc->LastProperty->Next = at;
@@ -265,11 +389,12 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		}
 		
 		// Functions
-		for( int j = 0; j < n_method; j ++ )
+		for( int j = 0; j < State->Classes[i].NMethods; j ++ )
 		{
 			tScript_Function *fcn;
 			
 			fcn = _get_fcn(State);
+			_ASSERT(fcn, !=, NULL, -1);
 //			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
 			if( sc->FirstFunction )
 				sc->LastFunction->Next = fcn;
@@ -279,19 +404,43 @@ int SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *SourceFile)
 		}
 	}
 
+	free(State->Types);
+	free(State->Classes);
+
 	return 0;
 }
 
 int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 {
+	FILE *fp = fopen(DestFile, "wb");
+	if(!fp)	return 1;
+	
+	int rv = SpiderScript_int_SaveBytecodeStream(Script, fp);
+	
+	fclose(fp);
+	return rv;
+}
+
+int SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr)
+{
+	// Darnit, why isn't (void**) casted like (void*)
+	FILE *fp = open_memstream((char**)BufferPtr, SizePtr);
+	if(!fp)	return 1;	
+
+	int rv = SpiderScript_int_SaveBytecodeStream(Script, fp);
+
+	fclose(fp);
+	return rv;
+}
+
+int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
+{
 	tStringList	strings = {0};
 	tScript_Function	*fcn;
 	tScript_Class	*sc;
-	FILE	*fp;
 	 int	fcn_hdr_offset = 0;
-	 int	fcn_count = 0, class_count = 0;
+	 int	num_globals = 0, fcn_count = 0, class_count = 0;
 	 int	strtab_ofs;
-	 int	i;
 
 	void _put8(uint8_t val)
 	{
@@ -310,39 +459,33 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		_put8(val >> 24);
 	}
 
-	fp = fopen(DestFile, "wb");
-	if(!fp)	return 1;
 	// Create header
 	fwrite(MAGIC_STR, MAGIC_STR_LEN, 1, fp);
-	_put32(0);	// Function count, to be filled
-	_put32(0);	// Class count
-	_put32(0);	// String count
+	_put16(0);	// Class count
+	_put16(0);	// Type count
+	_put16(0);	// Global count
+	_put16(0);	// Function count, to be filled
+	_put16(0);	// String count
 	_put32(0);	// String table offset
 	// TODO: Variant info
 
 	int _putfcn_hdr(tScript_Function *fcn)
 	{
-		#define BYTES_PER_FCNHDR(argc)	(4+4+4+4+1+3+(argc)*8)
-		_put32( StringList_GetString(&strings, fcn->Name, strlen(fcn->Name)) );
+		TRACE("Function %s at 0x%lx", fcn->Name, ftell(fp));
+		#define BYTES_PER_FCNHDR(argc)	(2+4+4+2+2+(argc)*4)
+		_put16( StringList_GetString(&strings, fcn->Name, strlen(fcn->Name)) );
 		_put32( 0 );	// Code offset (filled later)
 		_put32( 0 );	// Code length
-		_put32( fcn->ReturnType );
 		
-		if(fcn->ArgumentCount > 255) {
-			// ERROR: Too many args
-			fclose(fp);
-			return 2;
-		}
-		_put8( fcn->ArgumentCount );
-		_put8( 0 ); _put8( 0 ); _put8( 0 );	// Padding
-
-		// Argument types?
-		for( i = 0; i < fcn->ArgumentCount; i ++ )
+		// Prototype
+		_put16( Bytecode_int_GetTypeIdx(Script, fcn->ReturnType) );
+		_put16( fcn->ArgumentCount );
+		for( int i = 0; i < fcn->ArgumentCount; i ++ )
 		{
-			_put32( StringList_GetString(&strings,
+			_put16( StringList_GetString(&strings,
 				fcn->Arguments[i].Name, strlen(fcn->Arguments[i].Name))
 				);
-			_put32( fcn->Arguments[i].Type );
+			_put16( Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type) );
 		}
 		return 0;
 	}
@@ -352,10 +495,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		if( !fcn->BCFcn )
 			Bytecode_ConvertFunction(Script, fcn);
 		if( !fcn->BCFcn )
-		{
-			fclose(fp);
 			return 1;
-		}
 	
 		off_t	code_pos;
 		int	len = 0;
@@ -366,7 +506,7 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		code_pos = ftell(fp);
 		
 		// Update header
-		fseek(fp, hdr_ofs + 4, SEEK_SET);
+		fseek(fp, hdr_ofs + 2, SEEK_SET);
 		_put32(code_pos);
 		_put32(len);
 		fseek(fp, code_pos, SEEK_SET);
@@ -375,34 +515,97 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		fwrite(code, len, 1, fp);
 		free(code);
 		return 0;
-	}	
+	}
+
+	// Pre-scan types (ensure all types used are in the table)
+	for(fcn = Script->Functions; fcn; fcn = fcn->Next, fcn_count ++)
+	{
+		Bytecode_int_GetTypeIdx(Script, fcn->ReturnType);
+		for( int i = 0; i < fcn->ArgumentCount; i ++ )
+			Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type);
+	}
+	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
+	{
+		for(tScript_Var *at = sc->FirstProperty; at; at = at->Next)
+		{
+			Bytecode_int_GetTypeIdx(Script, at->Type);
+		}
+		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
+		{
+			Bytecode_int_GetTypeIdx(Script, fcn->ReturnType);
+			for( int i = 0; i < fcn->ArgumentCount; i ++ )
+				Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type);
+		}
+	}
+
+	// 1. Class definitions (Name + Function/attrib counts)
+	for( sc = Script->FirstClass; sc; sc = sc->Next )
+	{
+		 int	n_methods = 0, n_attributes = 0;
+
+		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
+			n_methods ++;
+		for(tScript_Var *at = sc->FirstProperty; at; at = at->Next)
+			n_attributes ++;		
+
+		TRACE("Class %s %i,%i", sc->Name, n_attributes, n_methods);
+		_put16( StringList_GetString(&strings, sc->Name, strlen(sc->Name)) );
+		_put16( n_attributes );	// Attribute count
+		_put16( n_methods );	// Method count
+	}
+
+	// 2. Type table
+	for( int i = 0; i < Script->BCTypeCount; i ++ )
+	{
+		TRACE("Type %i: %s", i, SpiderScript_GetTypeName(Script, Script->BCTypes[i]));
+		_ASSERT( Script->BCTypes[i].ArrayDepth, <, 256, -1 );
+		_put8( Script->BCTypes[i].ArrayDepth );
+		if( Script->BCTypes[i].Def == NULL ) {
+			_put8(SS_TYPECLASS_CORE);
+			_put16(SS_DATATYPE_NOVALUE);
+			continue ;
+		}
+		_put8( Script->BCTypes[i].Def->Class );
+		switch( Script->BCTypes[i].Def->Class )
+		{
+		case SS_TYPECLASS_CORE:
+			_put16(Script->BCTypes[i].Def->Core);
+			break;
+		case SS_TYPECLASS_NCLASS: {
+			tSpiderClass *nc = Script->BCTypes[i].Def->NClass;
+			_put16( StringList_GetString(&strings, nc->Name, strlen(nc->Name)) );
+			break; }
+		case SS_TYPECLASS_SCLASS:
+			sc = Script->BCTypes[i].Def->SClass;
+			_put16( StringList_GetString(&strings, sc->Name, strlen(sc->Name)) );
+			break;
+		case SS_TYPECLASS_FCNPTR:
+			_ASSERT( Script->BCTypes[i].Def->Class, !=, SS_TYPECLASS_FCNPTR, -1 );
+			break;
+		}
+	}
+
+	// Globals
+	for( tScript_Var *g = Script->FirstGlobal; g; g = g->Next, num_globals ++ )
+	{
+		_put16( StringList_GetString(&strings, g->Name, strlen(g->Name)) );
+		_put16( Bytecode_int_GetTypeIdx(Script, g->Type) );
+	}
 
 	// Create function descriptors
 	fcn_hdr_offset = ftell(fp);
-	for(fcn = Script->Functions; fcn; fcn = fcn->Next, fcn_count ++)
+	for(fcn = Script->Functions; fcn; fcn = fcn->Next)
 	{
 		if( _putfcn_hdr(fcn) )
 			return 2;
 	}
 	
-	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
+	for( sc = Script->FirstClass; sc; sc = sc->Next )
 	{
-		 int	n_methods = 0, n_attributes = 0;
-		tScript_Var *at;
-
-		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
-			n_methods ++;
-		for(at = sc->FirstProperty; at; at = at->Next)
-			n_attributes ++;		
-
-		_put32( StringList_GetString(&strings, sc->Name, strlen(sc->Name)) );
-		_put16( n_attributes );	// Attribute count
-		_put16( n_methods );	// Method count
-	
-		for(at = sc->FirstProperty; at; at = at->Next)
+		for(tScript_Var *at = sc->FirstProperty; at; at = at->Next)
 		{
-			_put32( StringList_GetString(&strings, at->Name, strlen(at->Name)) );
-			_put32( at->Type );
+			_put16( StringList_GetString(&strings, at->Name, strlen(at->Name)) );
+			_put16( Bytecode_int_GetTypeIdx(Script, at->Type) );
 		}
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 		{
@@ -421,12 +624,10 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 		fcn_hdr_offset += BYTES_PER_FCNHDR(fcn->ArgumentCount);
 	}
 	// Class member code
-	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
+	for( sc = Script->FirstClass; sc; sc = sc->Next )
 	{
-		fcn_hdr_offset += 4+2+2;	// Object header
-		
 		for( tScript_Var *at = sc->FirstProperty; at; at = at->Next )
-			fcn_hdr_offset += 4+4;
+			fcn_hdr_offset += 2*2;
 		
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 		{
@@ -463,12 +664,12 @@ int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
 
 	// Fix header
 	fseek(fp, 8, SEEK_SET);
-	_put32(fcn_count);
-	_put32(class_count);
-	_put32(strings.Count);
+	_put16(class_count);
+	_put16(Script->BCTypeCount);
+	_put16(num_globals);
+	_put16(fcn_count);
+	_put16(strings.Count);
 	_put32(strtab_ofs);
-
-	fclose(fp);
 
 	return 0;
 }
@@ -479,10 +680,12 @@ int StringList_GetString(tStringList *List, const char *String, int Length)
 	tString	*ent;
 	for(ent = List->Head; ent; ent = ent->Next, strIdx ++)
 	{
-		if(ent->Length == Length && memcmp(ent->Data, String, Length) == 0)	break;
+		if(ent->Length == Length && memcmp(ent->Data, String, Length) == 0)
+			break;
 	}
 	if( ent ) {
 		ent->RefCount ++;
+		TRACE("String %i '%.*s' reused", strIdx, Length, String);
 	}
 	else {
 		ent = malloc(sizeof(tString) + Length + 1);
@@ -499,6 +702,7 @@ int StringList_GetString(tStringList *List, const char *String, int Length)
 			List->Head = ent;
 		List->Tail = ent;
 		List->Count ++;
+		TRACE("String %i '%.*s' registered", strIdx, Length, String);
 	}
 	return strIdx;
 }
@@ -771,7 +975,9 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 	ret->Operations = NULL;
 	ret->OperationsEnd = NULL;
 	ret->VariableNames = NULL;
+	ret->GlobalNames = NULL;
 	ret->MaxVariableCount = 0;
+	ret->MaxGlobalCount = 0;
 //	printf("%i labels\n", ret->LabelCount);
 	for( int i = 0; i < ret->LabelCount; i ++ )
 	{
@@ -839,14 +1045,47 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			break;
 		}
 
+		// Maintain MaxVariableCount
 		if( ot == BC_OP_LOADVAR || ot == BC_OP_SAVEVAR ) {
-			if( op->Content.StringInt.Integer + 1 > ret->MaxVariableCount )
-				ret->MaxVariableCount = op->Content.StringInt.Integer + 1;
+			 int	s = op->Content.StringInt.Integer;
+			if( s + 1 > ret->MaxVariableCount )
+				ret->MaxVariableCount = s + 1;
 		}
 		if( ot == BC_OP_DEFINEVAR ) {
 			 int	s = (op->Content.StringInt.Integer >> 24);
 			if( s + 1 > ret->MaxVariableCount )
 				ret->MaxVariableCount = s + 1;
+		}
+		// .. and MaxGlobalCount
+		if( ot == BC_OP_IMPGLOBAL ) {
+			 int	s = (op->Content.StringInt.Integer >> 24);
+			if( s + 1 > ret->MaxGlobalCount )
+				ret->MaxGlobalCount = s + 1;
+		}
+		
+		// Convert types
+		int t;
+		switch(ot)
+		{
+		case BC_OP_IMPGLOBAL:
+		case BC_OP_DEFINEVAR:
+			t = op->Content.StringInt.Integer & 0xFFFFFF;
+			_ASSERT(t, <, State->NTypes, NULL);
+			t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
+			op->Content.StringInt.Integer &= ~0xFFFFFF;
+			op->Content.StringInt.Integer |= t;
+			break;
+		case BC_OP_LOADNULL:
+			t = op->Content.StringInt.Integer & 0xFFFFFF;
+			_ASSERT(t, <, State->NTypes, NULL);
+			t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
+			op->Content.StringInt.Integer = t;
+			break;
+		case BC_OP_CREATEOBJ:
+			t = op->Content.Function.ID;
+			_ASSERT(t, <, State->NTypes, NULL);
+			op->Content.Function.ID = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
+			break;
 		}
 	
 		op->Operation = ot;
@@ -863,10 +1102,13 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 	for( int i = 0; i < ret->LabelCount; i ++ )
 	{
 		 int	idx = 0;
-		for( op = ret->Operations; op && idx != (intptr_t)ret->Labels[i]; op = op->Next )
+		const int	labelidx = (intptr_t)ret->Labels[i];
+		for( op = ret->Operations; op && idx != labelidx; op = op->Next )
 			idx ++;
 		if( !op ) {
-			fprintf(stderr, "Function label %i is out of range (%i > %i)", i, (int)(intptr_t)ret->Labels[i], idx);
+			fprintf(stderr, "Function label #%i is out of range (%i out of 0..%i)\n", i,
+				labelidx, idx);
+			return NULL;
 		}
 		ret->Labels[i] = op;
 	}

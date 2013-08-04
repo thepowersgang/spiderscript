@@ -34,10 +34,12 @@ struct sBC_Op
 
 struct sBC_Function
 {
+	tSpiderScript	*Script;
+
 	 int	LabelCount;
 	 int	LabelSpace;
 	tBC_Op	**Labels;
-	
+
 	 int	MaxVariableCount;
 	 int	MaxGlobalCount;
 	// NOTE: These fields are invalid after compilation
@@ -57,5 +59,6 @@ struct sBC_Function
 
 extern int	Bytecode_int_OpUsesString(int Op);
 extern int	Bytecode_int_OpUsesInteger(int Op);
+extern int	Bytecode_int_GetTypeIdx(tSpiderScript *Script, tSpiderTypeRef Type);
 
 #endif

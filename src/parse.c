@@ -29,12 +29,12 @@
 
 enum eGetIdentMode
 {
-	GETIDENTMODE_VALUE,
-	GETIDENTMODE_NEW,
-	GETIDENTMODE_EXPRROOT,
-	GETIDENTMODE_CLASS,
-	GETIDENTMODE_NAMESPACE,
-	GETIDENTMODE_FUNCTIONDEF
+	GETIDENTMODE_VALUE,	// 0
+	GETIDENTMODE_NEW,	// 1
+	GETIDENTMODE_EXPRROOT,	// 2
+	GETIDENTMODE_CLASS,	// 3
+	GETIDENTMODE_NAMESPACE,	// 4
+	GETIDENTMODE_FUNCTIONDEF // 5
 };
 
 // === PROTOTYPES ===
@@ -43,11 +43,11 @@ enum eGetIdentMode
  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
  int	Parse_NamespaceContent(tParser *Parser);
  int	Parse_ClassDefinition(tParser *Parser);
- int	Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, int Type);
+ int	Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type);
 tAST_Node	*Parse_DoCodeBlock(tParser *Parser, tAST_Node *CodeNode);
 tAST_Node	*Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode);
 tAST_Node	*Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class *Class);
-tAST_Node	*Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class);
+tAST_Node	*Parse_GetVarDef(tParser *Parser, tSpiderTypeRef Type, tScript_Class *Class);
 
 tAST_Node	*Parse_DoExpr0(tParser *Parser);	// Assignment
 tAST_Node	*Parse_DoExpr1(tParser *Parser);	// Boolean Operators
@@ -205,8 +205,9 @@ int Parse_BufferInt(tSpiderScript *Script, const char *Buffer, const char *Filen
 	// Return 0 by default
 	if( bRootFile )
 	{
+		const tSpiderTypeRef rettype = {.Def=&gSpiderScript_IntegerType, .ArrayDepth = 0};
 		AST_AppendNode( MainCode, AST_NewUniOp(Parser, NODETYPE_RETURN, AST_NewInteger(Parser, 0)) );
-		AST_AppendFunction( Parser, "", SS_DATATYPE_INTEGER, NULL, MainCode );
+		AST_AppendFunction( Parser, "", rettype, NULL, MainCode );
 	}
 	
 	//printf("---- %p parsed as SpiderScript ----\n", Buffer);
@@ -303,7 +304,10 @@ int Parse_ClassDefinition(tParser *Parser)
 	return 0;
 }
 
-int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, int Type)
+/**
+ * \brief Function
+ */
+int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type)
 {
 	 int	rv = 0;
 	tAST_Node	*first_arg = NULL, *last_arg, *code;
@@ -642,7 +646,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 
 	// Global variable
 	case TOK_RWD_GLOBAL:
-		GetToken(Parser);	// Eat the global
+		GetToken(Parser);	// Eat the 'global'
 		if( SyntaxAssert(Parser, LookAhead(Parser), TOK_IDENT) )
 			return NULL;
 		ret = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
@@ -682,7 +686,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class *Class)
 {
 	tAST_Node	*ret;
-	 int	type;
+	tSpiderTypeRef	type;
 	
 	ret = Parse_GetIdent(Parser, Class ? GETIDENTMODE_CLASS : GETIDENTMODE_EXPRROOT, Class);
 	if( !ret || ret == ERRPTR || ret->Type != NODETYPE_DEFVAR ) {
@@ -716,7 +720,7 @@ tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 /**
  * \brief Get a variable definition
  */
-tAST_Node *Parse_GetVarDef(tParser *Parser, int Type, tScript_Class *Class)
+tAST_Node *Parse_GetVarDef(tParser *Parser, tSpiderTypeRef Type, tScript_Class *Class)
 {
 	char	name[Parser->TokenLen];
 	tAST_Node	*ret = NULL, *init = NULL;
@@ -1099,16 +1103,18 @@ tAST_Node *Parse_DoParen(tParser *Parser)
 		
 		if(LookAhead(Parser) == TOK_IDENT)
 		{
-			 int	type;
 			GetToken(Parser);
 			// Handle casts if the identifer gives a valid type
-			type = SpiderScript_GetTypeCodeEx(Parser->Script, Parser->TokenStr, Parser->TokenLen);
-			if( type != -1 )
+			const tSpiderScript_TypeDef *type = SpiderScript_GetTypeEx(Parser->Script,
+				Parser->TokenStr, Parser->TokenLen);
+			if( type != ERRPTR )
 			{
+				// TODO: Allow array casts
 				if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
 					return NULL;
-				DEBUGS2("Casting to %i", type);
-				ret = AST_NewCast(Parser, type, Parse_DoParen(Parser));
+				tSpiderTypeRef	ref = {type,0};
+				DEBUGS2("Casting to %s", SpiderScript_GetTypeName(Parser->Script, ref));
+				ret = AST_NewCast(Parser, ref, Parse_DoParen(Parser));
 				return ret;
 			}
 			DEBUGS2("'%.*s' doesn't give a type", Parser->TokenLen, Parser->TokenStr);
@@ -1408,53 +1414,39 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		} while(GetToken(Parser) == TOK_SQUARE_OPEN);
 	}	
 
-	if( Parser->Token == TOK_IDENT )
+	if( Parser->Token == TOK_IDENT || Parser->Token == TOK_VARIABLE )
 	{
-		DEBUGS2("Function definition");
+		DEBUGS2("Function/variable definition");
 		// Function definition
-		int type = SpiderScript_GetTypeCode(Parser->Script, name);
-		if( type == -1 ) {
+		const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
+		if( type == ERRPTR ) {
 			SyntaxError(Parser, "Unknown type '%s'", name);
 			return NULL;
 		}
 
-		type = SS_MAKEARRAYN(type, level);
-		
 		if( Mode != GETIDENTMODE_EXPRROOT
 		 && Mode != GETIDENTMODE_CLASS
-		 && Mode != GETIDENTMODE_NAMESPACE )
+		 && Mode != GETIDENTMODE_NAMESPACE
+		 && (Parser->Token == TOK_VARIABLE ? Mode != GETIDENTMODE_FUNCTIONDEF : 1))
 		{
-			SyntaxError(Parser, "Function definition within expression");
+			SyntaxError(Parser, "Function/Variable definition within expression (Mode %i)", Mode);
 			return NULL;
 		}
-		PutBack(Parser);
+		tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = level};
 		
-		if( Parse_FunctionDefinition(Class, Parser, type) )
-			return NULL;
-		
-		ret = ERRPTR;	// Not an error
-	}
-	else if( Parser->Token == TOK_VARIABLE )
-	{
-		DEBUGS2("Variable definition");
-		// Variable definition
-		int type = SpiderScript_GetTypeCode(Parser->Script, name);
-		if( type == -1 ) {
-			SyntaxError(Parser, "Unknown type '%s'", name);
-			return NULL;
-		}
-		// Apply level
-		type = SS_MAKEARRAYN(type, level);
-		
-		if( Mode != GETIDENTMODE_EXPRROOT
-		 && Mode != GETIDENTMODE_CLASS
-		 && Mode != GETIDENTMODE_FUNCTIONDEF )
+		if( Parser->Token == TOK_IDENT )
 		{
-			SyntaxError(Parser, "Variable definition within expression (%i)", Mode);
-			return NULL;
+			DEBUGS2("- Function definition");
+			PutBack(Parser);
+			if( Parse_FunctionDefinition(Class, Parser, ref) )
+				return NULL;
+			ret = ERRPTR;	// Not an error
 		}
-
-		ret = Parse_GetVarDef(Parser, type, Class);
+		else
+		{
+			DEBUGS2("- Variable definition");
+			ret = Parse_GetVarDef(Parser, ref, Class);
+		}
 	}
 	else if( Parser->Token == TOK_PAREN_OPEN )
 	{

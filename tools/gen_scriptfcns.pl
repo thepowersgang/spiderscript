@@ -9,6 +9,10 @@ my $cRegexArgList   = qr/\(([^\)]*)\)/;
 my $cRegexFunction  = qr/^\@FUNCTION ([^\s]+)\s+([A-Za-z_0-9]+)\s*$cRegexArgList$/;
 my $cRegexConstructor = qr/^\@CONSTRUCTOR \s*$cRegexArgList$/;
 
+## \brief Create the true path of a symbol
+## \param namespace_stack	 Current namespace stack
+## \param name	Symbol name
+## \return Path in the form 'Namespace@Subnamespace@Name'
 sub make_path
 {
 	my @namespace_stack = @{$_[0]};
@@ -21,6 +25,7 @@ sub make_path
 	return $rv;
 }
 
+## \brief Convert a SpiderScript namespaced symbol into a C symbol
 sub make_sym
 {
 	my $ret = $_[0];
@@ -28,6 +33,10 @@ sub make_sym
 	return $ret;
 }
 
+## \brief Perform a simple scan of a file
+## \param infile	Input file name
+## \return [0] List of classes defined in the file (with namespace prefixed)
+## \return [1] List of functions ...
 sub scan_file
 {
 	my @namespace_stack;
@@ -48,7 +57,7 @@ sub scan_file
 		s/\s+$//g;
 		if( /^[^\@]/ || /^$/ )
 		{
-			# ignore!
+			# No meta-statements, ignore line
 		}
 		elsif( /^\@NAMESPACE / )
 		{
@@ -122,11 +131,13 @@ my $gOutFilePath;
 my $gHeaderFile = "types.gen.h";
 my $gMode = "convert";
 
+# Parse arguments
 for( my $i = 0; $i < (scalar @ARGV); $i ++ )
 {
 	my $arg = $ARGV[$i];
 
 	if( $arg =~ /^\-[a-zA-Z]/ ) {
+		# -H <file> :: Set the output header file
 		($arg eq "-H") and $gHeaderFile = $ARGV[++$i];
 		next ;
 	}
@@ -146,7 +157,7 @@ for( my $i = 0; $i < (scalar @ARGV); $i ++ )
 	}
 }
 
-
+# Create header
 if( $gMode =~ /^mkhdr/ )
 {
 	my @gClasses;
@@ -171,9 +182,11 @@ if( $gMode =~ /^mkhdr/ )
 
 	my $classcount = scalar @gClasses;
 	for my $index (0 .. $classcount-1) {
-		my $name = "TYPE_".$gClasses[$index];
-		$name =~ s/@/_z_/g;
-		print OUTFILE "#define $name ($flag|".$index.")\n";
+		my $typename = "TYPE_".$gClasses[$index];
+		$typename =~ s/@/_z_/g;
+		my $symname = "gExports_class_".make_sym($gClasses[$index]);
+		print OUTFILE ( $gMode =~ /lang$/ ? "EXPORT " : ""),"extern tSpiderClass $symname;\n";
+		print OUTFILE "#define $typename &$symname.TypeDef\n";
 	}
 	close(OUTFILE);
 	exit ;
@@ -242,26 +255,26 @@ sub gettype
 	
 	if( $ident eq "*" ) {
 		$array_level and die "Can't have an undef array";
-		return ("-1", "const void*");
+		return ("{&gSpiderScript_AnyType,0}", "const void*");
 	}
 	elsif( $ident eq "void" ) {
 		$array_level and die "Can't have an void array";
-		return ("0", "void");
+		return ("{NULL,0}", "void");
 	}
 	elsif( $ident eq "Boolean" ) {
-		$code = "SS_DATATYPE_BOOLEAN";
+		$code = "&gSpiderScript_BoolType";
 		$cast = "tSpiderBool";
 	}
 	elsif( $ident eq "Integer" ) {
-		$code = "SS_DATATYPE_INTEGER";
+		$code = "&gSpiderScript_IntegerType";
 		$cast = "tSpiderInteger";
 	}
 	elsif( $ident eq "Real" ) {
-		$code = "SS_DATATYPE_REAL";
+		$code = "&gSpiderScript_RealType";
 		$cast = "tSpiderReal";
 	}
 	elsif( $ident eq "String" ) {
-		$code = "SS_DATATYPE_STRING";
+		$code = "&gSpiderScript_StringType";
 		$cast = "const tSpiderString *";
 	}
 	else {
@@ -275,9 +288,9 @@ sub gettype
 	
 	if( $array_level )
 	{
-		$code = "SS_MAKEARRAYN($code, $array_level)";
 		$cast = "const tSpiderArray*";
 	}
+	$code = "{$code, $array_level}";
 
 	return ($code,$cast);
 }
@@ -307,11 +320,16 @@ sub function_header
 	my $prev = $_[1];
 	my $fcnname = $_[2];
 	print OUTFILE $indent,"__SFCN_PROTO(Exports_fcn_$symbol);\n";
-	print OUTFILE $indent,"__SFCN_DEF($symbol, $prev, $gFcnRetType_V, \"$fcnname\"";
+	print OUTFILE $indent,"tSpiderFcnProto gExports_fcnp_$symbol = {\n";
+	print OUTFILE $indent,"\t.ReturnType=$gFcnRetType_V,.Args={";
 	foreach my $arg (@gFcnArgs) {
-		print OUTFILE ", $gFcnArgs_V{$arg}";
+		print OUTFILE "$gFcnArgs_V{$arg}, ";
 	}
-	print OUTFILE ");\n";
+	print OUTFILE "{NULL,0}}\n",$indent,"};\n";
+	print OUTFILE $indent,"tSpiderFunction gExports_fcn_$symbol = {\n";
+	print OUTFILE $indent,"\t.Next=$prev, .Name = \"$fcnname\",\n";
+	print OUTFILE $indent,"\t.Handler = Exports_fcn_$symbol, .Prototype = &gExports_fcnp_$symbol\n";
+	print OUTFILE "\t};\n";
 	print OUTFILE $indent,"__SFCN_PROTO(Exports_fcn_$symbol)\n";
 	print OUTFILE $indent,"{\n";
 	
@@ -336,8 +354,8 @@ open(INFILE, "<", $infile) or die "Couldn't open ", $infile, " for reading";
 
 # Open output and append header
 open(OUTFILE, ">", $gOutFilePath) or die "Couldn't open ", $gOutFilePath, " for writing";
-print OUTFILE "#define __SFCN_PROTO(n) int n(tSpiderScript*Script,void*RetData,int NArgs,const int*ArgTypes,const void*const Args[])\n";
-print OUTFILE "#define __SFCN_DEF(i,p,r,n,a...)	tSpiderFunction gExports_fcn_##i = {.Next=p,.Name=n,.Handler=Exports_fcn_##i,.ReturnType=r,.ArgTypes={a}}\n";
+print OUTFILE "#define __SFCN_PROTO(n) int n(tSpiderScript*Script,void*RetData,int NArgs,const tSpiderTypeRef*ArgTypes,const void*const Args[])\n";
+#print OUTFILE "#define __SFCN_DEF(i,p,r,n,a...)	tSpiderFunction gExports_fcn_##i = {.Next=p,.Name=n,.Handler=Exports_fcn_##i,.Prototype={.ReturnType=r,.ArgTypes={a}}}\n";
 print OUTFILE "#include <spiderscript.h>\n";
 print OUTFILE "#include <$gHeaderFile>\n";
 
@@ -452,7 +470,7 @@ while(<INFILE>)
 
 		$bInFunction = 1;
 		
-		$gFcnRetType_V = $gCurClass_V;
+		$gFcnRetType_V = "{$gCurClass_V,0}";
 		$gFcnRetType_C = "tSpiderObject*";
 		$gClassConstructor = "&gExports_fcn_$symbol";		
 
@@ -534,7 +552,7 @@ while(<INFILE>)
 		{
 			push @gFcnArgs, "this";
 			$gFcnArgs_C{"this"} = "const tSpiderObject*";
-			$gFcnArgs_V{"this"} = $gCurClass_V;
+			$gFcnArgs_V{"this"} = "{$gCurClass_V,0}";
 			$gFcnArgs_I{"this"} = $argc;
 			$argc ++;
 		}
@@ -578,9 +596,10 @@ while(<INFILE>)
 		$has_been_meta = 1;
 		if( $bInFunction )
 		{
-			if( $gFcnRetType_V eq "0" )
+			# Leave it up to the compiler to complain if you fall out of a non-void function
+			if( $gFcnRetType_V eq "{NULL,0}" )
 			{
-				print OUTFILE $indent,"\treturn $gFcnRetType_V;\n";
+				print OUTFILE $indent,"\treturn 0;\n";
 			}
 			print OUTFILE $indent,"}\n";
 			$bInFunction = 0;
@@ -590,18 +609,19 @@ while(<INFILE>)
 			my $classpath = $gCurClass;
 			my $classsym = "gExports_class_".$gCurClass;
 			$classsym =~ s/@/_/g;
-			print OUTFILE $indent,"tSpiderClass $classsym = {";
-			print OUTFILE ".Next=$gLastClass,";
-			print OUTFILE ".Name=\"$gCurClass\",";
-			print OUTFILE ".Constructor=$gClassConstructor,";
-			print OUTFILE ".Destructor=$gClassDestructor,";
-			print OUTFILE ".Methods=$gClassLastFunction,";
-			print OUTFILE ".NAttributes=".scalar(%gClassProperties).",";
-			print OUTFILE ".AttributeDefs={";
+			print OUTFILE $indent,"tSpiderClass $classsym = {\n";
+			print OUTFILE $indent,"\t.Next=$gLastClass,\n";
+			print OUTFILE $indent,"\t.Name=\"$gCurClass\",\n";
+			print OUTFILE $indent,"\t.TypeDef={.Class=SS_TYPECLASS_NCLASS,{.NClass=&$classsym}},\n";
+			print OUTFILE $indent,"\t.Constructor=$gClassConstructor,\n";
+			print OUTFILE $indent,"\t.Destructor=$gClassDestructor,\n";
+			print OUTFILE $indent,"\t.Methods=$gClassLastFunction,\n";
+			print OUTFILE $indent,"\t.NAttributes=".scalar(%gClassProperties).",\n";
+			print OUTFILE $indent,"\t.AttributeDefs={";
 			foreach my $pname (keys %gClassProperties) {
 				print OUTFILE "{\"$pname\",$gClassProperties{$pname},0,0},";
 			}
-			print OUTFILE "{NULL,0,0,0}}";
+			print OUTFILE "{NULL,{NULL,0},0,0}}";
 			print OUTFILE "};\n";
 			$gLastClass = "&$classsym";
 			$gCurClass = "";
@@ -624,15 +644,26 @@ while(<INFILE>)
 
 	sub macro_TYPEOF
 	{
-		if( ! exists $gFcnArgs_V{$_[0]} ) {
-			die "Argument $_[0] does not exist";
+		my $arg = $_[0];
+		if( ! exists $gFcnArgs_V{$arg} ) {
+			die "Argument $arg does not exist";
 		}
-		if( $gFcnArgs_V{$_[0]} eq "-1" ) {
-			return "ArgTypes[$gFcnArgs_I{$_[0]}]";
+		if( $gFcnArgs_V{$arg} =~ "gSpiderScript_AnyType" ) {
+			return "ArgTypes[$gFcnArgs_I{$arg}]";
 		}
 		else {
-			return $gFcnArgs_V{$_[0]};
+			return "(tSpiderTypeRef)$gFcnArgs_V{$_[0]}";
 		}
+	}
+	
+	sub macro_TYPE
+	{
+		my $type = $_[0];
+		my $val;
+		my $cast;
+		
+		($val, $cast) = gettype($type);
+		return "(tSpiderTypeRef)$val";
 	}
 	
 	sub macro_CAST
@@ -642,7 +673,7 @@ while(<INFILE>)
 		if( ! exists $gFcnArgs_V{$var} ) {
 			die "Argument $var does not exist";
 		}
-		if( $gFcnArgs_V{$var} eq "-1" )
+		if( $gFcnArgs_V{$var} =~ "gSpiderScript_AnyType" )
 		{
 			if( $dest =~ /\*$/ ) {
 				return "(($dest)$var)";
@@ -658,14 +689,14 @@ while(<INFILE>)
 	
 	sub macro_RETURN
 	{
-		if( $gFcnRetType_V eq "0" ) {
+		if( $gFcnRetType_V eq "{NULL,0}" ) {
 			if( $_[0] !~ /\s*/ ) {
 				die "Can't return a value from a void function";
 			}
 			return "return 0;";
 		}
 		else {
-			return "do{*($gFcnRetType_C*)RetData = ($_[0]);return $gFcnRetType_V;}while(0);"
+			return "do{*($gFcnRetType_C*)RetData = ($_[0]);return 0;}while(0);"
 		}
 	}
 	
@@ -676,7 +707,7 @@ while(<INFILE>)
 			die "Argument $arg does not exist";
 		}
 		
-		if( $gFcnArgs_V{$arg} eq "-1" ) {
+		if( $gFcnArgs_V{$arg} =~ "gSpiderScript_AnyType" ) {
 			die "Can't directly access loosely typed argument $arg";
 		}
 		else {
@@ -686,7 +717,7 @@ while(<INFILE>)
 
 	if( $has_been_meta )
 	{
-		print OUTFILE "#line $line \"$infile\"\n";
+#		print OUTFILE "#line $line \"$infile\"\n";
 	}
 
 	if( $bInFunction && $gCurClass ne "" )
@@ -695,10 +726,12 @@ while(<INFILE>)
 		$classsym =~ s/@/_/g;
 		s/\@CLASSPTR\b/&$classsym/g;
 	}
-	s/\@TYPECODE\(\s*([^\)]+)\s*\)/(gettype($1))[0]/ge;
+#	s/\@TYPECODE\(\s*([^\)]+)\s*\)/(gettype($1))[0]/ge;
+	s/\@TYPECODE\(\s*([^\)]+)\s*\)/macro_TYPE($1)/ge;
 	if( $bInFunction )
 	{
 		s/\@TYPEOF\(\s*($gIdentRegex)\s*\)/macro_TYPEOF($1)/ge;
+		s/\@TYPE\(\s*([^\)]+)\s*\)/macro_TYPE($1)/ge;
 		s/\@RETURN\b([^;]*);/macro_RETURN($1)/ge;
 		s/\@BOOLEAN\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderBool")/ge;
 		s/\@INTEGER\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderInteger")/ge;

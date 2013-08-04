@@ -31,12 +31,16 @@ struct sSpiderScript
 	
 	tScript_Var	*FirstGlobal;
 	tScript_Var	*LastGlobal;
+	
+	 int	BCTypeCount;
+	 int	BCTypeSpace;
+	tSpiderTypeRef	*BCTypes;
 };
 
 struct sScript_Arg
 {
 
-	 int	Type;
+	tSpiderTypeRef	Type;
 	char	*Name;
 };
 
@@ -46,7 +50,7 @@ struct sScript_Function
 	// char	*Namespace;
 	char	*Name;
 
-	 int	ReturnType;
+	tSpiderTypeRef	ReturnType;
 	
 	struct sAST_Node	*ASTFcn;
 	struct sBC_Function	*BCFcn;
@@ -59,7 +63,7 @@ struct sScript_Var
 {
 	tScript_Var	*Next;
 	void	*Ptr;
-	 int	Type;
+	tSpiderTypeRef	Type;
 	char	*Name;
 };
 
@@ -67,14 +71,14 @@ struct sScript_Class
 {
 	tScript_Class	*Next;
 	
+	tSpiderScript_TypeDef	TypeInfo;
+	
 	tScript_Function	*FirstFunction;
 	tScript_Function	*LastFunction;
 	
 	tScript_Var	*FirstProperty;
 	tScript_Var	*LastProperty;
 	 int	nProperties;
-
-	tSpiderScript_DataType	TypeCode;	
 
 	char	Name[];
 };
@@ -92,28 +96,34 @@ extern tSpiderClass	*gapExportedClasses[];
 extern int	giNumExportedClasses;
 
 extern int	Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
-	void *RetValue, int NArgs, const int *ArgTypes, const void * const Args[]);
+	void *RetValue, int NArgs, const tSpiderTypeRef *ArgTypes, const void * const Args[]);
 
-extern int	SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **IDent);
+extern tSpiderScript_TypeDef	*SpiderScript_ResolveObject(tSpiderScript *Script, const char *Namespaces[], const char *Name);
 extern int	SpiderScript_ResolveFunction(tSpiderScript *Script, const char *Namespaces[], const char *Name, void **Ident);
 
 extern int	SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
-	void *RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
+	tSpiderTypeRef *RetType, void *RetData,
+	int ArgumentCount, const tSpiderTypeRef ArgTypes[], const void * const Args[],
 	void **Ident
 	);
-extern int	SpiderScript_int_ConstructObject(tSpiderScript *Script, int TypeCode,
-	tSpiderObject **RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
+extern int	SpiderScript_int_ConstructObject(tSpiderScript *Script, const tSpiderScript_TypeDef *TypeCode,
+	tSpiderObject **RetData, int ArgumentCount, const tSpiderTypeRef ArgTypes[], const void * const Args[],
 	void **Ident
 	);
-extern int	SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
-	void *RetData, int ArgumentCount, const int ArgTypes[], const void * const Args[],
-	void **Ident
+extern int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
+	tSpiderTypeRef *RetType, void *RetData,
+	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
+	void **FunctionIdent
 	);
 
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
 
-extern int	SpiderScript_int_GetTypeSize(int TypeCode);
+extern int	SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeCode);
 
 extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
+
+
+extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
+extern int	SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size);
 #endif
 

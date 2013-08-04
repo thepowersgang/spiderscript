@@ -16,9 +16,15 @@
 // === PROTOTYPES ===
 
 // === CODE ===
-int SpiderScript_int_GetTypeSize(int TypeCode)
+int SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeRef)
 {
-	switch(TypeCode)
+	if( TypeRef.ArrayDepth )
+		return 0;
+	if( TypeRef.Def == NULL )
+		return 0;
+	if( TypeRef.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
+	switch(TypeRef.Def->Core)
 	{
 	case SS_DATATYPE_NOVALUE:
 		return -1;
@@ -52,7 +58,7 @@ tSpiderObject *SpiderScript_AllocateObject(tSpiderScript *Script, tSpiderClass *
 
 	tSpiderObject	*ret = calloc(1, size + ExtraBytes);
 	
-	ret->TypeCode = SpiderScript_GetTypeCode(Script, Class->Name);
+	ret->TypeDef = &Class->TypeDef;
 	ret->Script = Script;
 	ret->ReferenceCount = 1;
 	ret->OpaqueData = (char*)ret + size;
@@ -83,7 +89,7 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 	size += n_attr * sizeof(void*);
 	
 	tSpiderObject	*ret = calloc(1, size);
-	ret->TypeCode = SpiderScript_GetTypeCode(Script, Class->Name);
+	ret->TypeDef = &Class->TypeInfo;
 	ret->Script = Script;
 	ret->ReferenceCount = 1;
 	ret->OpaqueData = 0;
@@ -112,25 +118,25 @@ void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 	Object->ReferenceCount --;
 	if( Object->ReferenceCount == 0 )
 	{
-		tSpiderClass	*nc = SpiderScript_GetClass_Native(Object->Script, Object->TypeCode);
-		tScript_Class	*sc = SpiderScript_GetClass_Script(Object->Script, Object->TypeCode);
-		 int	n_att = 0;
-
-		if( nc ) {
+		 int	n_att = 0;	
+		tSpiderClass	*nc = NULL;
+		tScript_Class	*sc = NULL;
+		
+		if( Object->TypeDef->Class == SS_TYPECLASS_NCLASS ) {
+			nc = Object->TypeDef->NClass;
 			nc->Destructor(Object);
 			n_att = nc->NAttributes;
 		}
-		else if( sc ) {
-			// TODO: Destructor
+		else if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS ) {
+			sc = Object->TypeDef->SClass;
+			// TODO: Script class destructor
 			for( tScript_Var *at = sc->FirstProperty; at; at = at->Next )
 				n_att ++;
 		}
-		else {
-//			assert(nc || sc);
+		else
 			return ;
-		}
 		
-		int at_types[n_att];
+		tSpiderTypeRef at_types[n_att];
 		if( nc ) {
 			for( int i = 0; i < n_att; i ++ )
 				at_types[i] = nc->AttributeDefs[i].Type;
@@ -147,17 +153,16 @@ void SpiderScript_DereferenceObject(const tSpiderObject *_Object)
 		for( int i = 0; i < n_att; i ++ )
 		{
 			void	*ptr = Object->Attributes[i];
-			 int	type = at_types[i];
 			
 			if( !ptr )
 				continue ;
 			Object->Attributes[i] = NULL;
 			
-			if( SS_ISTYPEOBJECT(type) )
-				SpiderScript_DereferenceObject(ptr);
-			else if( SS_GETARRAYDEPTH(type) )
+			if( SS_GETARRAYDEPTH(at_types[i]) )
 				SpiderScript_DereferenceArray(ptr);
-			else if( type == SS_DATATYPE_STRING )
+			else if( SS_ISTYPEOBJECT(at_types[i]) )
+				SpiderScript_DereferenceObject(ptr);
+			else if( at_types[i].Def == &gSpiderScript_StringType )
 				SpiderScript_DereferenceString(ptr);
 			else
 				;	// Local allocation
@@ -203,7 +208,7 @@ void SpiderScript_DereferenceString(const tSpiderString *_String)
 	// that was easy
 }
 
-tSpiderArray *SpiderScript_CreateArray(int InnerType, int ItemCount)
+tSpiderArray *SpiderScript_CreateArray(tSpiderTypeRef InnerType, int ItemCount)
 {
 	 int	ent_size;
 	tSpiderArray	*ret;
@@ -231,7 +236,7 @@ const void *SpiderScript_GetArrayPtr(const tSpiderArray *Array, int Item)
 	if( SS_ISTYPEOBJECT(Array->Type) ) {
 		return Array->Objects[Item];
 	}
-	switch(Array->Type)
+	switch(Array->Type.Def->Core)
 	{
 	case SS_DATATYPE_STRING:
 		return Array->Strings[Item];
@@ -241,8 +246,9 @@ const void *SpiderScript_GetArrayPtr(const tSpiderArray *Array, int Item)
 		return &Array->Integers[Item];
 	case SS_DATATYPE_REAL:
 		return &Array->Reals[Item];
+	default:
+		return NULL;
 	}
-	return NULL;
 }
 
 void SpiderScript_ReferenceArray(const tSpiderArray *_Array)
@@ -261,15 +267,15 @@ void SpiderScript_DereferenceArray(const tSpiderArray *_Array)
 	if( Array->RefCount > 0 )	return ;
 	
 	// Destruction time
-	if( SS_ISTYPEOBJECT(Array->Type) ) {
-		for( int i = 0; i < Array->Length; i ++ )
-			SpiderScript_DereferenceObject(Array->Objects[i]);
-	}
-	else if( SS_GETARRAYDEPTH(Array->Type) ) {
+	if( SS_GETARRAYDEPTH(Array->Type) ) {
 		for( int i = 0; i < Array->Length; i ++ )
 			SpiderScript_DereferenceArray(Array->Arrays[i]);
 	}
-	else if( Array->Type == SS_DATATYPE_STRING ) {
+	else if( SS_ISTYPEOBJECT(Array->Type) ) {
+		for( int i = 0; i < Array->Length; i ++ )
+			SpiderScript_DereferenceObject(Array->Objects[i]);
+	}
+	else if( Array->Type.Def->Core == SS_DATATYPE_STRING ) {
 		for( int i = 0; i < Array->Length; i ++ )
 			SpiderScript_DereferenceString(Array->Strings[i]);
 	}
@@ -327,7 +333,7 @@ tSpiderString *SpiderScript_StringConcat(const tSpiderString *Str1, const tSpide
 /**
  * \brief Condenses a value down to a boolean
  */
-tSpiderBool SpiderScript_CastValueToBool(int Type, const void *Source)
+tSpiderBool SpiderScript_CastValueToBool(tSpiderTypeRef Type, const void *Source)
 {
 	if( !Source )
 		return 0;
@@ -337,7 +343,7 @@ tSpiderBool SpiderScript_CastValueToBool(int Type, const void *Source)
 	else if( SS_ISTYPEOBJECT(Type) )
 		return !!Source;	// TODO: Objects
 	
-	switch( Type )
+	switch( Type.Def->Core )
 	{
 	case SS_DATATYPE_NOVALUE:
 		return 0;
@@ -359,17 +365,19 @@ tSpiderBool SpiderScript_CastValueToBool(int Type, const void *Source)
  * \brief Type	Destination type
  * \brief Source	Input data
  */
-tSpiderInteger SpiderScript_CastValueToInteger(int Type, const void *Source)
+tSpiderInteger SpiderScript_CastValueToInteger(tSpiderTypeRef Type, const void *Source)
 {
-	if( !Source )
+	if( !Source || !Type.Def )
 		return 0;
 
 	if( SS_GETARRAYDEPTH(Type) )
 		return 0;
 	else if( SS_ISTYPEOBJECT(Type) )
 		return 0;	// TODO: Objects
+	if( Type.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
 	
-	switch( Type )
+	switch( Type.Def->Core )
 	{
 	case SS_DATATYPE_BOOLEAN:
 		return *(const tSpiderBool*)Source;
@@ -384,17 +392,19 @@ tSpiderInteger SpiderScript_CastValueToInteger(int Type, const void *Source)
 	}
 }
 
-tSpiderReal SpiderScript_CastValueToReal(int Type, const void *Source)
+tSpiderReal SpiderScript_CastValueToReal(tSpiderTypeRef Type, const void *Source)
 {
-	if( !Source )
+	if( !Source || !Type.Def )
 		return 0;
 
 	if( SS_GETARRAYDEPTH(Type) )
 		return 0;
-	else if( SS_ISTYPEOBJECT(Type) )
+	if( SS_ISTYPEOBJECT(Type) )
 		return 0;	// TODO: Objects
+	if( Type.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
 	
-	switch( Type )
+	switch( Type.Def->Core )
 	{
 	case SS_DATATYPE_BOOLEAN:
 		return *(tSpiderBool*)Source;
@@ -429,9 +439,19 @@ tSpiderString *SpiderScript_CreateString_Fmt(const char *Format, ...)
 	return ret;
 }
 
-tSpiderString *SpiderScript_CastValueToString(int Type, const void *Source)
+tSpiderString *SpiderScript_CastValueToString(tSpiderTypeRef Type, const void *Source)
 {
-	switch(Type)
+	if(!Source || !Type.Def)
+		return NULL;
+	
+	if( SS_GETARRAYDEPTH(Type) )
+		return 0;
+	if( SS_ISTYPEOBJECT(Type) )
+		return 0;	// TODO: Objects
+	if( Type.Def->Class != SS_TYPECLASS_CORE )
+		return 0;
+	
+	switch(Type.Def->Core)
 	{
 	case SS_DATATYPE_BOOLEAN:
 		return SpiderScript_CreateString_Fmt("%s", *(const tSpiderBool*)Source ? "True" : "False");

@@ -18,7 +18,8 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 
 	// TODO: Prepend namespace?
 
-	if( SpiderScript_GetTypeCode(Parser->Script, Name) != -1 ) {
+	// Check if there is already a class/type of this name
+	if( SpiderScript_GetType(Parser->Script, Name) != ERRPTR ) {
 		return NULL;
 	}
 	
@@ -31,18 +32,19 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 	ret->nProperties = 0;
 	strcpy(ret->Name, Name);
 
+	ret->TypeInfo.Class = SS_TYPECLASS_SCLASS;
+	ret->TypeInfo.SClass = ret;
+
 	if( Parser->Script->FirstClass )
 		Parser->Script->LastClass->Next = ret;
 	else
 		Parser->Script->FirstClass = ret;
 	Parser->Script->LastClass = ret;
-	// TODO: is this too expensive?
-	ret->TypeCode = SpiderScript_GetTypeCode(Parser->Script, Name);
 	
 	return ret;
 }
 
-int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, int Type)
+int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type)
 {
 	tScript_Var	*p;
 
@@ -57,6 +59,7 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 	if(!p)	return -1;
 	p->Next = NULL;
 	p->Type = Type;
+	p->Name = (char*)(p + 1);
 	strcpy(p->Name, Name);
 	
 	// Append
@@ -70,7 +73,7 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 	return 0;
 }
 
-tScript_Function *AST_int_MakeFunction(const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
 {
 	tScript_Function	*fcn;
 	 int	arg_count = 0, arg_bytes = 0;
@@ -110,7 +113,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, int ReturnType, tAST_No
 	return fcn;
 }
 
-int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, int ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
 {
 	tScript_Function	*method;
 	
@@ -120,7 +123,8 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, in
 			return 1;
 	}
 
-	tAST_Node *this_def = AST_NewDefineVar(Parser, Class->TypeCode, "this");
+	tSpiderTypeRef	ref = {.Def = &Class->TypeInfo, .ArrayDepth = 0};
+	tAST_Node *this_def = AST_NewDefineVar(Parser, ref, "this");
 	this_def->NextSibling = FirstArg;
 
 	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code);
@@ -140,7 +144,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, in
 /**
  * \brief Append a function to a script
  */
-int AST_AppendFunction(tParser *Parser, const char *Name, int ReturnType, tAST_Node *Args, tAST_Node *Code)
+int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *Args, tAST_Node *Code)
 {
 	tScript_Function	*fcn;
 
@@ -397,7 +401,7 @@ tAST_Node *AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_N
 	return ret;
 }
 
-tAST_Node *AST_NewCast(tParser *Parser, int Target, tAST_Node *Value)
+tAST_Node *AST_NewCast(tParser *Parser, tSpiderTypeRef Target, tAST_Node *Value)
 {
 	if( !Value ) {
 		return NULL;
@@ -517,7 +521,7 @@ tAST_Node *AST_NewVariable(tParser *Parser, const char *Name)
 /**
  * \brief Create a new variable definition node
  */
-tAST_Node *AST_NewDefineVar(tParser *Parser, int Type, const char *Name)
+tAST_Node *AST_NewDefineVar(tParser *Parser, tSpiderTypeRef Type, const char *Name)
 {
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_DEFVAR, strlen(Name) + 1 );
 	
@@ -613,7 +617,7 @@ void AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg)
 /*
  * \brief Insert an "Allocate Array" meta-op
  */
-tAST_Node *AST_NewCreateArray(tParser *Parser, int Type, tAST_Node *Size)
+tAST_Node *AST_NewCreateArray(tParser *Parser, tSpiderTypeRef Type, tAST_Node *Size)
 {
 	if( !Size ) {
 		return NULL;

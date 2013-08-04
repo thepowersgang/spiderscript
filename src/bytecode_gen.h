@@ -38,7 +38,7 @@ extern void	Bytecode_DeleteFunction(tBC_Function *Fcn);
 
 extern char *Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStringList *Strings);
 extern int	StringList_GetString(tStringList *List, const char *String, int Length);
-extern tBC_Function	*Bytecode_CreateFunction(tScript_Function *Fcn);
+extern tBC_Function	*Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *Fcn);
 
 extern int	Bytecode_AllocateLabel(tBC_Function *Handle);
 extern void	Bytecode_SetLabel(tBC_Function *Handle, int Label);
@@ -55,30 +55,30 @@ extern void	Bytecode_AppendSaveVar(tBC_Function *Handle, const char *Name);	// (
 extern void	Bytecode_AppendConstInt(tBC_Function *Handle, uint64_t Value);
 extern void	Bytecode_AppendConstReal(tBC_Function *Handle, double Value);
 extern void	Bytecode_AppendConstString(tBC_Function *Handle, const void *Data, size_t Length);
-extern void	Bytecode_AppendConstNull(tBC_Function *Handle, int Type);
+extern void	Bytecode_AppendConstNull(tBC_Function *Handle, tSpiderTypeRef Type);
 //  > Scoping
 extern void	Bytecode_AppendElement(tBC_Function *Handle, const char *Name);	// Obj->SubObj
 extern void	Bytecode_AppendSetElement(tBC_Function *Handle, const char *Name);	// Set an object member
 extern void	Bytecode_AppendIndex(tBC_Function *Handle);	// Index into an array
 extern void	Bytecode_AppendSetIndex(tBC_Function *Handle);	// Write an array element
 //  > Function Calls
-extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, int Type, int ArgumentCount);
+extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderTypeRef Type, int ArgumentCount);
 extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, int Index, int ArgumentCount);
 extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount);
 //  > Manipulation
 extern void	Bytecode_AppendBinOp(tBC_Function *Handle, int Operation);
 extern void	Bytecode_AppendUniOp(tBC_Function *Handle, int Operation);
-extern void	Bytecode_AppendCast(tBC_Function *Handlde, int Type);
+extern void	Bytecode_AppendCast(tBC_Function *Handlde, tSpiderScript_CoreType CoreType);
 extern void	Bytecode_AppendDuplicate(tBC_Function *Handlde);
 extern void	Bytecode_AppendDelete(tBC_Function *Handle);
-extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, int DataType);
+extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, tSpiderTypeRef DataType);
 // - Context
 //   TODO: Are contexts needed? Should variables be allocated like labels?
 extern void	Bytecode_AppendEnterContext(tBC_Function *Handle);
 extern void	Bytecode_AppendLeaveContext(tBC_Function *Handle);
 //extern void	Bytecode_AppendImportNamespace(tBC_Function *Handle, const char *Name);
-extern void	Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, int Type);
-extern void	Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, int Type);
+extern void	Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type);
+extern void	Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type);
 
 #endif
 
