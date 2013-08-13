@@ -134,6 +134,7 @@ tSpiderTypeRef Bytecode_int_GetSpiderValue(tSpiderScript *Script, tBC_StackEnt *
 	if(Ent->Type.Def == &gBytecodeFcnStart) {
 		tSpiderTypeRef	ret = {0,0};
 		SpiderScript_RuntimeError(Script, "_GetSpiderValue on ET_FUNCTION_START");
+		*(int*)0 = 0;
 		return ret;
 	}
 	if( Ent->Type.ArrayDepth ) {
@@ -383,6 +384,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	for( int i = 0; i < arg_count; i ++ )
 	{
 		int stack_ofs = (Stack->EntryCount - 1) - (arg_count-1 - i);
+		DEBUG_F("- stack_ofs = %i\n", stack_ofs);
 		// Arg 0 is at top of stack (EntryCount-1)
 		arg_types[i] = Bytecode_int_GetSpiderValue(Script, &Stack->Entries[stack_ofs], (void**)&args[i]);
 		if( arg_types[i].Def == NULL ) {
@@ -1276,8 +1278,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, t
 	{
 		 int	n_rolled = 1;
 		GET_STACKVAL(val1);
-		while( Stack->EntryCount && Stack->Entries[ --Stack->EntryCount ].Type.Def == &gBytecodeFcnStart )
+		while( Stack->EntryCount && Stack->Entries[ --Stack->EntryCount ].Type.Def != &gBytecodeFcnStart )
 		{
+			DEBUG_F("+ Deref "); PRINT_STACKVAL(Stack->Entries[Stack->EntryCount]); DEBUG_F("\n");
 			DEREF_STACKVAL( Stack->Entries[Stack->EntryCount] );
 			n_rolled ++;
 		}
