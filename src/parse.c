@@ -112,7 +112,12 @@ int Parse_IncludeFile(tParser *Parser, const char *NewFile, int NewFileLen, tAST
 	fseek(fp, 0, SEEK_SET);
 	
 	char	*data = malloc(flen+1);
-	fread(data, 1, flen, fp);
+	if( fread(data, 1, flen, fp) != flen ) {
+		free(data);
+		free(path);
+		fclose(fp);
+		return -1;
+	}
 	data[flen] = 0;
 	fclose(fp);
 	
@@ -835,6 +840,7 @@ tAST_Node *Parse_DoExpr0(tParser *Parser)
 
 tAST_Node *Parse_DoExprTernary(tParser *Parser)
 {
+	#define _cur	Parse_DoExprTernary
 	#define _next	Parse_DoExpr1
 	tAST_Node	*ret = _next(Parser);
 	
@@ -842,19 +848,21 @@ tAST_Node *Parse_DoExprTernary(tParser *Parser)
 	{
 	case TOK_QUESTIONMARK: {
 		tAST_Node	*trueval = _next(Parser);
-		SyntaxAssert(Parser, TOK_COLON);
-		tAST_Node	*falseval = Parse_DoExprTernary(Parser);
-		ret = AST_NewTernary(ret, trueval, falseval);
+		SyntaxAssert(Parser, GetToken(Parser), TOK_COLON);
+		tAST_Node	*falseval = _cur(Parser);
+		ret = AST_NewTernary(Parser, ret, trueval, falseval);
 		break; }
 	case TOK_QMARKCOLON: {
-		tAST_Node	*nullval = Parse_DoExprTernary(Parser);
-		ret = AST_NewTernary(ret, NULL, nullval);
+		tAST_Node	*nullval = _cur(Parser);
+		ret = AST_NewTernary(Parser, ret, NULL, nullval);
 		break; }
 	default:
 		PutBack(Parser);
 		break;
 	}
 	return ret;
+	#undef _next
+	#undef _cur
 }
 
 /**

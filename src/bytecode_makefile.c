@@ -63,7 +63,8 @@ tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 static inline uint8_t _get8(t_loadstate *State)
 {
 	uint8_t	rv;
-	fread(&rv, 1, 1, State->FP);
+	if( fread(&rv, 1, 1, State->FP) != 1 )
+		return 0;
 	return rv;
 }
 static inline uint16_t _get16(t_loadstate *State)
@@ -81,7 +82,8 @@ size_t _get_str(t_loadstate *State, char *Dest, int StringID)
 	{
 		off_t saved_pos = ftell(State->FP);
 		fseek(State->FP, State->Strings[StringID].Offset, SEEK_SET);
-		fread(Dest, State->Strings[StringID].Length, 1, State->FP);
+		size_t len = fread(Dest, State->Strings[StringID].Length, 1, State->FP);
+		_ASSERT(len, ==, State->Strings[StringID].Length, -1);
 		Dest[ State->Strings[StringID].Length ] = '\0';
 		fseek(State->FP, saved_pos, SEEK_SET);
 //		printf("String '%s' read\n", Dest);
@@ -154,7 +156,10 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	off_t old_pos = ftell(State->FP);
 	void *code = malloc(code_len);
 	fseek(State->FP, code_ofs, SEEK_SET);
-	fread(code, code_len, 1, State->FP);
+	if( fread(code, code_len, 1, State->FP) != code_len ) {
+		free(code);
+		return NULL;
+	}
 	fseek(State->FP, old_pos, SEEK_SET);
 
 	// Parse back into bytecode
@@ -207,9 +212,11 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	_ASSERT(file_size, >, MAGIC_STR_LEN + 5*2+4, 1);
 	{
 		char magic[MAGIC_STR_LEN];
-		fread(magic, MAGIC_STR_LEN, 1, fp);
-		if( memcmp(magic, MAGIC_STR, sizeof(magic)) != 0 )
+		if( fread(magic, MAGIC_STR_LEN, 1, fp) != MAGIC_STR_LEN
+		 || memcmp(magic, MAGIC_STR, sizeof(magic)) != 0 )
+		{
 			return -1;
+		}
 	}
 	
 	

@@ -212,8 +212,9 @@ void AST_FreeNode(tAST_Node *Node)
 		}
 		break;
 	
-	// If node
+	// If/Ternary node
 	case NODETYPE_IF:
+	case NODETYPE_TERNARY:
 		AST_FreeNode(Node->If.Condition);
 		AST_FreeNode(Node->If.True);
 		AST_FreeNode(Node->If.False);
@@ -353,6 +354,15 @@ void AST_AppendNode(tAST_Node *Parent, tAST_Node *Child)
 tAST_Node *AST_NewIf(tParser *Parser, tAST_Node *Condition, tAST_Node *True, tAST_Node *False)
 {
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_IF, 0);
+	ret->If.Condition = Condition;
+	ret->If.True = True;
+	ret->If.False = False;
+	return ret;
+}
+
+tAST_Node *AST_NewTernary(tParser *Parser, tAST_Node *Condition, tAST_Node *True, tAST_Node *False)
+{
+	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_TERNARY, 0);
 	ret->If.Condition = Condition;
 	ret->If.True = True;
 	ret->If.False = False;

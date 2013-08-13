@@ -449,7 +449,28 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		// End
 		Bytecode_SetLabel(Block->Handle, if_end);
 		} break;
-	
+
+	// Ternary
+	case NODETYPE_TERNARY: {
+		 int	if_end;
+		ret = AST_ConvertNode(Block, Node->If.Condition, 1);
+		if(ret)	return ret;
+
+		// Note: Technically should be boolean, but there's logic in execution to handle it
+		ret = _StackPop(Block, Node->If.Condition, POP_UNDEF, NULL, NULL);
+		if(ret < 0)	return -1;
+		
+		if( Node->If.True )
+		{
+			// Actual Ternary
+		}
+		else
+		{
+			// Null
+		}
+
+		} break;	
+
 	// Loop
 	case NODETYPE_LOOP: {
 		 int	loop_start, loop_end, code_end;
