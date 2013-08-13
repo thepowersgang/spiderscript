@@ -833,6 +833,30 @@ tAST_Node *Parse_DoExpr0(tParser *Parser)
 	#undef _next
 }
 
+tAST_Node *Parse_DoExprTernary(tParser *Parser)
+{
+	#define _next	Parse_DoExpr1
+	tAST_Node	*ret = _next(Parser);
+	
+	switch( GetToken(Parser) )
+	{
+	case TOK_QUESTIONMARK: {
+		tAST_Node	*trueval = _next(Parser);
+		SyntaxAssert(Parser, TOK_COLON);
+		tAST_Node	*falseval = Parse_DoExprTernary(Parser);
+		ret = AST_NewTernary(ret, trueval, falseval);
+		break; }
+	case TOK_QMARKCOLON: {
+		tAST_Node	*nullval = Parse_DoExprTernary(Parser);
+		ret = AST_NewTernary(ret, NULL, nullval);
+		break; }
+	default:
+		PutBack(Parser);
+		break;
+	}
+	return ret;
+}
+
 /**
  * \brief Logical/Boolean Operators
  */

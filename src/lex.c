@@ -244,6 +244,15 @@ int GetToken(tParser *File)
 	// Core symbols
 	case ';':	ret = TOK_SEMICOLON;	break;
 	case ',':	ret = TOK_COMMA;	break;
+	case ':':	ret = TOK_COLON;	break;
+	case '?':
+		if( *File->CurPos == ':' ) {
+			File->CurPos ++;
+			ret = TOK_QMARKCOLON;
+		}
+		else
+			ret = TOK_QUESTIONMARK;
+		break;
 	#if USE_SCOPE_CHAR
 	case '.':	ret = TOK_SCOPE;	break;
 	#endif
