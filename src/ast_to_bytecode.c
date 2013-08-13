@@ -59,6 +59,8 @@ typedef struct sAST_BlockInfo
 	 int	BreakTarget;
 	 int	ContinueTarget;
 
+	tSpiderTypeRef	NullType;	// Type used for `null`
+
 	 int	StackDepth;
 	struct {
 		tSpiderTypeRef	Type;
@@ -452,22 +454,48 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 	// Ternary
 	case NODETYPE_TERNARY: {
-		 int	if_end;
 		ret = AST_ConvertNode(Block, Node->If.Condition, 1);
 		if(ret)	return ret;
 
-		// Note: Technically should be boolean, but there's logic in execution to handle it
-		ret = _StackPop(Block, Node->If.Condition, POP_UNDEF, NULL, NULL);
+		ret = _StackPop(Block, Node->If.Condition, POP_UNDEF, &type, NULL);
 		if(ret < 0)	return -1;
+		
+		int if_end = Bytecode_AllocateLabel(Block->Handle);
 		
 		if( Node->If.True )
 		{
+			int if_false = Bytecode_AllocateLabel(Block->Handle);
 			// Actual Ternary
+			Bytecode_AppendCondJumpNot(Block->Handle, if_false);
+			
+			ret = AST_ConvertNode(Block, Node->If.True, 1);
+			if(ret)	return ret;
+			ret = _StackPop(Block, Node, POP_UNDEF, &type, NULL);
+			if(ret < 0)	return -1;
+			Bytecode_AppendJump(Block->Handle, if_end);
+			
+			Bytecode_SetLabel(Block->Handle, if_false);
+			ret = AST_ConvertNode(Block, Node->If.False, 1);
+			if(ret)	return ret;
+			ret = _StackPop(Block, Node, type, NULL, NULL);
+			if(ret < 0)	return -1;
 		}
 		else
 		{
-			// Null
+			Block->NullType = type;
+			// Null-Coalescing
+			Bytecode_AppendDuplicate(Block->Handle);
+			Bytecode_AppendCondJump(Block->Handle, if_end);
+			
+			ret = AST_ConvertNode(Block, Node->If.False, 1);
+			if(ret)	return ret;
+			ret = _StackPop(Block, Node, type, NULL, NULL);
+			if(ret < 0)	return -1;
 		}
+		Bytecode_SetLabel(Block->Handle, if_end);
+		// No pop, as the ternary operator generates a result
+		ret = _StackPush(Block, Node, type, NULL);
+		if(ret < 0)	return -1;
 
 		} break;	
 
@@ -738,15 +766,27 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		return -1;
 	
 	// Constant Values
-	case NODETYPE_STRING:
-		Bytecode_AppendConstString(Block->Handle, Node->ConstString->Data, Node->ConstString->Length);
-		ret = _StackPush(Block, Node, POP_STRING, NULL);
+	case NODETYPE_NULL:
+		Bytecode_AppendConstNull(Block->Handle, Block->NullType);
+		ret = _StackPush(Block, Node, Block->NullType, NULL);
+		if(ret < 0)	return -1;
+		CHECK_IF_NEEDED(1);
+		break;
+	case NODETYPE_BOOLEAN:
+		Bytecode_AppendConstInt(Block->Handle, 0);
+		ret = _StackPush(Block, Node, POP_BOOLEAN, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
 	case NODETYPE_INTEGER:
 		Bytecode_AppendConstInt(Block->Handle, Node->ConstInt);
 		ret = _StackPush(Block, Node, POP_INTEGER, NULL);
+		if(ret < 0)	return -1;
+		CHECK_IF_NEEDED(1);
+		break;
+	case NODETYPE_STRING:
+		Bytecode_AppendConstString(Block->Handle, Node->ConstString->Data, Node->ConstString->Length);
+		ret = _StackPush(Block, Node, POP_STRING, NULL);
 		if(ret < 0)	return -1;
 		CHECK_IF_NEEDED(1);
 		break;
@@ -1002,6 +1042,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		AST_RuntimeError(Node, "BUG - SpiderScript AST_ConvertNode Unimplemented %i", Node->Type);
 		return -1;
 	}
+	
+	Block->NullType = POP_UNDEF;
 
 	DEBUGS1("Left NT%i", Node->Type);
 	return 0;

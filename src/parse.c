@@ -50,6 +50,7 @@ tAST_Node	*Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 tAST_Node	*Parse_GetVarDef(tParser *Parser, tSpiderTypeRef Type, tScript_Class *Class);
 
 tAST_Node	*Parse_DoExpr0(tParser *Parser);	// Assignment
+tAST_Node	*Parse_DoExprTernary(tParser *Parser);	// Ternary + Null-Coalescing
 tAST_Node	*Parse_DoExpr1(tParser *Parser);	// Boolean Operators
 tAST_Node	*Parse_DoExpr2(tParser *Parser);	// Comparison Operators
 tAST_Node	*Parse_DoExpr3(tParser *Parser);	// Bitwise Operators
@@ -802,7 +803,7 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, tSpiderTypeRef Type, tScript_Class *
  */
 tAST_Node *Parse_DoExpr0(tParser *Parser)
 {
-	#define _next	Parse_DoExpr1
+	#define _next	Parse_DoExprTernary
 	tAST_Node	*ret = _next(Parser);
 	 int	cont = 1;
 
