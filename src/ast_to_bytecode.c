@@ -499,6 +499,66 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 		} break;	
 
+	// Switch construct
+	case NODETYPE_SWITCH: {
+		ret = AST_ConvertNode(Block, Node->BinOp.Left, 1);
+		if(ret)	return ret;
+		ret = _StackPop(Block, Node, POP_UNDEF, &type, NULL);
+		if(ret<0)	return ret;
+
+		 int	saved_break = Block->BreakTarget;
+		const char	*saved_tag = Block->Tag;
+		 int	switch_end = Bytecode_AllocateLabel(Block->Handle);
+		Block->BreakTarget = switch_end;
+		Block->Tag = "";
+	
+		// Count cases	
+		 int	nCases = 0;
+		for( tAST_Node *node = Node->BinOp.Right; node; node = node->NextSibling )
+			nCases ++;
+		
+		// Insert condition checks
+		 int	case_labels[nCases];
+		 int	i = 0, default_index = -1;
+		for( tAST_Node *node = Node->BinOp.Right; node; node = node->NextSibling, i++ )
+		{
+			case_labels[i] = Bytecode_AllocateLabel(Block->Handle);
+			if( node->BinOp.Left ) {
+				Bytecode_AppendDuplicate(Block->Handle);
+				ret = AST_ConvertNode(Block, node->BinOp.Left, 1);
+				if(ret)	return ret;
+				ret = _StackPop(Block, Node, type, NULL, NULL);
+				if(ret < 0)	return ret;
+				Bytecode_AppendBinOp(Block->Handle, BC_OP_EQUALS);
+				Bytecode_AppendCondJump(Block->Handle, case_labels[i]);
+			}
+			else {
+				if( default_index != -1 ) {
+					AST_RuntimeError(node, "Multiple 'default' labels in switch");
+					return -1;
+				}
+				default_index = i;
+			}
+		}
+		if( default_index == -1 )
+			Bytecode_AppendJump(Block->Handle, switch_end);
+		else
+			Bytecode_AppendJump(Block->Handle, default_index);
+	
+		// Code	
+		i = 0;
+		for( tAST_Node *node = Node->BinOp.Right; node; node = node->NextSibling, i++ )
+		{
+			Bytecode_SetLabel(Block->Handle, case_labels[i]);
+			ret = AST_ConvertNode(Block, node->BinOp.Right, 0);
+			if(ret)	return ret;
+		}
+		Bytecode_SetLabel(Block->Handle, switch_end);
+		
+		Block->BreakTarget = saved_break;
+		Block->Tag = saved_tag;
+		break; }
+
 	// Loop
 	case NODETYPE_LOOP: {
 		 int	loop_start, loop_end, code_end;

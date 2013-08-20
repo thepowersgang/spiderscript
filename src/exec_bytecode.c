@@ -430,7 +430,8 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Stack *Stack, tBC
 	else if( op->Operation == BC_OP_CALLMETHOD )
 	{
 		if( arg_count <= 0 || !SS_ISTYPEOBJECT(arg_types[0]) ) {
-			SpiderScript_RuntimeError(Script, "OP_CALLMETHOD on non object");
+			SpiderScript_RuntimeError(Script, "OP_CALLMETHOD(%i)+%i on non object (%s)",
+				id, arg_count, SpiderScript_GetTypeName(Script, arg_types[0]));
 			rv = -1;
 		}
 		else

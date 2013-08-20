@@ -45,9 +45,13 @@ const struct {
 	
 	{TOK_RWD_IF, "if"},
 	{TOK_RWD_ELSE, "else"},
+	{TOK_RWD_ELSEIF, "elseif"},
 	{TOK_RWD_DO, "do"},
 	{TOK_RWD_WHILE, "while"},
 	{TOK_RWD_FOR, "for"},
+	{TOK_RWD_SWITCH, "switch"},
+	{TOK_RWD_CASE, "case"},
+	{TOK_RWD_DEFAULT, "default"},
 	
 	{TOK_RWD_NULL, "null"},
 	{TOK_RWD_TRUE, "true"},

@@ -11,6 +11,7 @@
 #include "tokens.h"
 #include "ast.h"
 #include "common.h"
+#include <assert.h>
 
 #define DEBUG	0
 #define	SUPPORT_BREAK_TAGS	1
@@ -228,6 +229,9 @@ error_return:
 
 int Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename)
 {
+	#if WANT_TOKEN_STRINGS
+	assert( sizeof(csaTOKEN_NAMES)/sizeof(csaTOKEN_NAMES[0]) == TOK_LAST+1 );
+	#endif
 	return Parse_BufferInt(Script, Buffer, Filename, NULL, 0);
 }
 
@@ -479,7 +483,21 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			goto _if_err_ret;
 		if( !(true = Parse_DoCodeBlock(Parser, CodeNode)) )
 			goto _if_err_ret;
-		
+
+#if 0
+		while( LookAhead(Parser) == TOK_RWD_ELSEIF ) {
+			GetToken();
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_OPEN) )
+				goto _if_err_ret;
+			if( !(cond2 = Parse_DoExpr0(Parser)) )
+				goto _if_err_ret;
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
+				goto _if_err_ret;
+			if( !(eliftrue = Parse_DoCodeBlock(Parser, CodeNode)) )
+				goto _if_err_ret;
+		}
+#endif
+	
 		if( LookAhead(Parser) == TOK_RWD_ELSE ) {
 			GetToken(Parser);
 			false = Parse_DoCodeBlock(Parser, CodeNode);
@@ -647,6 +665,55 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		if(tag)	free(tag);
 		if(cond)	AST_FreeNode(cond);
 		if(code)	AST_FreeNode(code);
+		return NULL;
+		}
+
+	// Switch statement
+	case TOK_RWD_SWITCH:
+		{
+		GetToken(Parser);	// Eat the 'switch'
+		tAST_Node	*val = NULL;
+		if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_OPEN) )
+			return NULL;
+		if( !(val = Parse_DoExpr0(Parser)) )
+			return NULL;
+		ret = AST_NewBinOpN(Parser, NODETYPE_SWITCH, val, NULL);
+		if( SyntaxAssert( Parser, GetToken(Parser), TOK_PAREN_CLOSE ) )
+			goto _switch_err_ret;
+		if( SyntaxAssert( Parser, GetToken(Parser), TOK_BRACE_OPEN ) )
+			goto _switch_err_ret;
+
+		while( LookAhead(Parser) != TOK_BRACE_CLOSE )
+		{
+			GetToken(Parser);
+			tAST_Node *caseval = NULL;
+			if( Parser->Token == TOK_RWD_CASE ) {
+				caseval = Parse_DoValue(Parser);
+				if( !caseval )
+					goto _switch_err_ret;
+			}
+			else if( Parser->Token == TOK_RWD_DEFAULT )
+				caseval = NULL;
+			else {
+				SyntaxAssert(Parser, Parser->Token, TOK_RWD_CASE);
+				goto _switch_err_ret;
+			}
+			SyntaxAssert(Parser, GetToken(Parser), TOK_COLON);
+			tAST_Node *code = AST_NewCodeBlock(Parser);
+			while( LookAhead(Parser) != TOK_RWD_CASE
+			    && LookAhead(Parser) != TOK_BRACE_CLOSE
+			    && LookAhead(Parser) != TOK_RWD_DEFAULT
+				)
+			{
+				AST_AppendNode(code, Parse_DoBlockLine(Parser, code));
+			}
+			AST_AppendNode(ret, AST_NewBinOpN(Parser, NODETYPE_CASE, caseval, code));
+		}
+		GetToken(Parser);
+
+		return ret;
+	_switch_err_ret:
+		if(ret)	AST_FreeNode(ret);
 		return NULL;
 		}
 

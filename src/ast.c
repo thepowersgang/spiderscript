@@ -239,6 +239,20 @@ void AST_FreeNode(tAST_Node *Node)
 	case NODETYPE_CREATEARRAY:
 		AST_FreeNode(Node->Cast.Value);
 		break;
+
+	case NODETYPE_SWITCH:
+		AST_FreeNode(Node->BinOp.Left);
+		for( node = Node->BinOp.Right; node; )
+		{
+			tAST_Node	*next = node->NextSibling;
+			AST_FreeNode(node);
+			node = next;
+		}
+		break;
+	case NODETYPE_CASE:
+		AST_FreeNode(Node->BinOp.Left);
+		AST_FreeNode(Node->BinOp.Right);
+		break;
 	
 	case NODETYPE_ELEMENT:
 		AST_FreeNode(Node->Scope.Element);
@@ -345,6 +359,13 @@ void AST_AppendNode(tAST_Node *Parent, tAST_Node *Child)
 			Parent->Block.LastChild = Child;
 		}
 		break;
+	case NODETYPE_SWITCH: {
+		tAST_Node	**prevnptr = &Parent->BinOp.Right;
+		for( tAST_Node *prev = *prevnptr; prev; prevnptr = &prev->NextSibling, prev = *prevnptr )
+			;
+		*prevnptr = Child;
+		Child->NextSibling = NULL;
+		break; }
 	default:
 		fprintf(stderr, "BUG REPORT: AST_AppendNode on an invalid node type (%i)\n", Parent->Type);
 		break;
@@ -425,18 +446,25 @@ tAST_Node *AST_NewCast(tParser *Parser, tSpiderTypeRef Target, tAST_Node *Value)
 	return ret;
 }
 
-tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right)
+tAST_Node *AST_NewBinOpN(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right)
 {
-	if( !Left || !Right ) {
-		AST_FreeNode(Left);
-		AST_FreeNode(Right);
-	}
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, Operation, 0);
 	
 	ret->BinOp.Left = Left;
 	ret->BinOp.Right = Right;
 	
 	return ret;
+}
+
+tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right)
+{
+	if( !Left || !Right ) {
+		SyntaxError_(Parser, -__LINE__, "NULL passed to _NewBinOp");
+		AST_FreeNode(Left);
+		AST_FreeNode(Right);
+		return NULL;
+	}
+	return AST_NewBinOpN(Parser, Operation, Left, Right);
 }
 
 /**
