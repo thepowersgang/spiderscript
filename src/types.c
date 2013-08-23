@@ -187,7 +187,7 @@ const tSpiderScript_TypeDef *SpiderScript_GetTypeEx(tSpiderScript *Script, const
 	}
 
 //	printf("Type '%.*s' undefined\n", NameLen, Name);
-	return ERRPTR;
+	return SS_ERRPTR;
 }
 
 #if 0

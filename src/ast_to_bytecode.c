@@ -36,18 +36,7 @@
 # define DEBUGS1(...)	do{}while(0)
 #endif
 
-// === IMPORTS ===
-// TODO: These should not be here
-extern tSpiderFunction	*gpExports_First;
-extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1);
-
 // === TYPES ===
-//typedef struct sAST_ImpGlobal
-//{
-//	struct sAST_ImpGlobal	*Next;
-//	tScript_Var	*Entry;
-//} tAST_ImpGlobal;
-
 typedef struct sAST_BlockInfo
 {
 	struct sAST_BlockInfo	*Parent;

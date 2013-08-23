@@ -185,7 +185,7 @@ if( $gMode =~ /^mkhdr/ )
 		my $typename = "TYPE_".$gClasses[$index];
 		$typename =~ s/@/_z_/g;
 		my $symname = "gExports_class_".make_sym($gClasses[$index]);
-		print OUTFILE ( $gMode =~ /lang$/ ? "EXPORT " : ""),"extern tSpiderClass $symname;\n";
+		print OUTFILE ( $gMode =~ /lang$/ ? "SS_EXPORT " : ""),"extern tSpiderClass $symname;\n";
 		print OUTFILE "#define $typename &$symname.TypeDef\n";
 	}
 	close(OUTFILE);

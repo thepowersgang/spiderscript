@@ -125,5 +125,8 @@ extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format,
 
 extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 extern int	SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size);
+
+extern tSpiderFunction	*gpExports_First;
+extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1);
 #endif
 
