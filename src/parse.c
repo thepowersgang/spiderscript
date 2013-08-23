@@ -199,7 +199,7 @@ int Parse_BufferInt(tSpiderScript *Script, const char *Buffer, const char *Filen
 			node = Parse_DoBlockLine(Parser, MainCode);
 			if(!node)
 				goto error_return;
-			if(node != ERRPTR)
+			if(node != SS_ERRPTR)
 				AST_AppendNode( MainCode, node );
 			break;
 		}
@@ -404,7 +404,7 @@ tAST_Node *Parse_DoCodeBlock(tParser *Parser, tAST_Node *CodeNode)
 			AST_FreeNode(ret);
 			return NULL;
 		}
-		if( node && node != ERRPTR )
+		if( node && node != SS_ERRPTR )
 			AST_AppendNode( ret, node );
 	}
 	GetToken(Parser);	// Omnomnom
@@ -723,7 +723,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		if( SyntaxAssert(Parser, LookAhead(Parser), TOK_IDENT) )
 			return NULL;
 		ret = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
-		if( !ret || ret == ERRPTR )
+		if( !ret || ret == SS_ERRPTR )
 			return ret;
 		if( ret->Type != NODETYPE_DEFVAR ) {
 			// Oops?
@@ -739,7 +739,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 	// Define Variables / Functions / Call functions
 	case TOK_IDENT:
 		ret = Parse_VarDefList(Parser, CodeNode, NULL);
-		if(ret == ERRPTR)
+		if(ret == SS_ERRPTR)
 			return ret;	// Early return to avoid the semicolon check
 		break;
 	// Default
@@ -762,7 +762,7 @@ tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 	tSpiderTypeRef	type;
 	
 	ret = Parse_GetIdent(Parser, Class ? GETIDENTMODE_CLASS : GETIDENTMODE_EXPRROOT, Class);
-	if( !ret || ret == ERRPTR || ret->Type != NODETYPE_DEFVAR ) {
+	if( !ret || ret == SS_ERRPTR || ret->Type != NODETYPE_DEFVAR ) {
 		// Either an error, class attribute, or a function call/definition
 		return ret;
 	}
@@ -856,7 +856,7 @@ tAST_Node *Parse_GetVarDef(tParser *Parser, tSpiderTypeRef Type, tScript_Class *
 		AST_AppendClassProperty(Parser, Class, name, Type);
 		if( SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON) )
 			return NULL;
-		ret = ERRPTR;	// Not an error, but used to avoid returning a non-error NULL
+		ret = SS_ERRPTR;	// Not an error, but used to avoid returning a non-error NULL
 	}
 	else {
 		ret = AST_NewDefineVar(Parser, Type, name);
@@ -1207,7 +1207,7 @@ tAST_Node *Parse_DoParen(tParser *Parser)
 			// Handle casts if the identifer gives a valid type
 			const tSpiderScript_TypeDef *type = SpiderScript_GetTypeEx(Parser->Script,
 				Parser->TokenStr, Parser->TokenLen);
-			if( type != ERRPTR )
+			if( type != SS_ERRPTR )
 			{
 				// TODO: Allow array casts
 				if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
@@ -1519,7 +1519,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		DEBUGS2("Function/variable definition");
 		// Function definition
 		const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
-		if( type == ERRPTR ) {
+		if( type == SS_ERRPTR ) {
 			SyntaxError(Parser, "Unknown type '%s'", name);
 			return NULL;
 		}
@@ -1540,7 +1540,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 			PutBack(Parser);
 			if( Parse_FunctionDefinition(Class, Parser, ref) )
 				return NULL;
-			ret = ERRPTR;	// Not an error
+			ret = SS_ERRPTR;	// Not an error
 		}
 		else
 		{

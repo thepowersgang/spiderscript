@@ -35,13 +35,6 @@
 # define DEBUGS1(...)	do{}while(0)
 #endif
 
-// === CONSTANTS ===
-
-// === IMPORTS ===
-// TODO: These should not be here
-extern tSpiderFunction	*gpExports_First;
-extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1);
-
 // === TYPES ===
 typedef int	tRegister;
 typedef struct sVariable
