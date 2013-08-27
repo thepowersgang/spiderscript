@@ -78,7 +78,11 @@ struct sScript_Class
 	
 	tScript_Var	*FirstProperty;
 	tScript_Var	*LastProperty;
+	
 	 int	nProperties;
+	tScript_Var	**Properties;
+	 int	nFunctions;
+	tScript_Function	**Functions;
 
 	char	Name[];
 };
@@ -128,5 +132,11 @@ extern int	SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *B
 
 extern tSpiderFunction	*gpExports_First;
 extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1);
+
+
+typedef struct sBC_Function	tBC_Function;
+
+extern tBC_Function	*Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *Fcn);
+
 #endif
 

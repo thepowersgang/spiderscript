@@ -7,6 +7,7 @@
  */
 #include <stdlib.h>
 #include <stdint.h>
+#include "common.h"
 #include "bytecode_ops.h"
 #include <stdio.h>
 #include "bytecode_gen.h"
@@ -19,10 +20,15 @@
 // === STRUCTURES ===
 
 // === PROTOTYPES ===
-tBC_Op	*Bytecode_int_AllocateOp(int Operation, int ExtraBytes);
+tBC_Op	*Bytecode_int_AllocateOp(enum eBC_Ops Operation, int ExtraBytes);
  int	Bytecode_int_AddVariable(tBC_Function *Handle, const char *Name);
 
 // === GLOBALS ===
+const enum eOpEncodingType caOpEncodingTypes[] = {
+	[BC_OP_ENTERCONTEXT] = BC_OPENC_NOOPRS,
+	[BC_OP_LEAVECONTEXT] = BC_OPENC_NOOPRS,
+	[BC_OP_EXCEPTION_POP] = BC_OPENC_NOOPRS,
+};
 
 // === CODE ===
 tBC_Function *Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *Fcn)
@@ -52,8 +58,6 @@ void Bytecode_DeleteFunction(tBC_Function *Fcn)
 		free(op);
 		op = nextop;
 	}
-	if( Fcn->VariableNames )
-		free(Fcn->VariableNames);
 	if( Fcn->GlobalNames )
 		free(Fcn->GlobalNames);
 	free(Fcn->Labels);
@@ -103,52 +107,6 @@ void Bytecode_int_AppendOp(tBC_Function *Fcn, tBC_Op *Op)
 	Fcn->OperationsEnd = Op;
 }
 
-int _AddVariable(int *Count, int *Space, int Depth, const char ***NamesBuf, const char *Name, int *MaxVars)
-{
-	if(*Count == *Space) {
-		void	*tmp;
-		*Space += 10;
-		tmp = realloc(*NamesBuf, *Space * sizeof(const char *));
-		if(!tmp)	return -1;	// TODO: Error
-		*NamesBuf = tmp;
-	}
-	(*NamesBuf)[*Count] = Name;
-	(*Count) ++;
-	// Get max count (used when executing to get the frame size)
-	if(*Count - Depth >= *MaxVars)
-		*MaxVars = *Count - Depth;
-//	if( Name )
-//		printf("_AddVariable: %s given %i\n", Name, *Count - Depth - 1);
-	return *Count - Depth - 1;
-	
-}
-
-int Bytecode_int_AddVariable(tBC_Function *Handle, const char *Name)
-{
-	return _AddVariable(&Handle->VariableCount, &Handle->VariableSpace, Handle->CurContextDepth,
-		&Handle->VariableNames, Name, &Handle->MaxVariableCount);
-}
-int Bytecode_int_AddGlobal(tBC_Function *Handle, const char *Name)
-{
-	return _AddVariable(&Handle->GlobalCount, &Handle->GlobalSpace, Handle->CurContextDepth,
-		&Handle->GlobalNames, Name, &Handle->MaxGlobalCount);
-}
-
-int _GetVarIndex(int Count, int Depth, const char **Names, const char *Name)
-{
-	for( int i = Count; i --; )
-	{
-		// Ignore (and account for) Start-of-block markers
-		if( !Names[i] ) {
-			Depth --;
-			continue ;
-		}
-		if( strcmp(Name, Names[i]) == 0 )
-			return i - Depth;
-	}
-	return -1;
-}
-
 int Bytecode_int_GetTypeIdx(tSpiderScript *Script, tSpiderTypeRef Type)
 {
 	for( int i = 0; i < Script->BCTypeCount; i ++ )
@@ -173,67 +131,20 @@ int Bytecode_int_GetTypeIdx(tSpiderScript *Script, tSpiderTypeRef Type)
 	return Script->BCTypeCount++;
 }
 
-int Bytecode_int_GetVarIndex(tBC_Function *Handle, const char *Name)
-{
-	 int	rv;
-	
-	// Locals
-	rv = _GetVarIndex(Handle->VariableCount, Handle->CurContextDepth, Handle->VariableNames, Name);
-	if( rv >= 0 ) {
-//		printf("Variable %s in slot %i\n", Name, rv);
-		return rv;
-	}
-	
-	// Globals
-	rv = _GetVarIndex(Handle->GlobalCount, Handle->CurContextDepth, Handle->GlobalNames, Name);
-	if( rv >= 0 )
-		return rv | 0x80;
-
-	// TODO: Some form of error	
-	return -1;
+int Bytecode_int_OpIsNoOprs(enum eBC_Ops Operation) {
+	return (caOpEncodingTypes[Operation] == BC_OPENC_NOOPRS);
+}
+int Bytecode_int_OpIsRegInt1(enum eBC_Ops Operation) {
+	return (caOpEncodingTypes[Operation] == BC_OPENC_REG1);
+}
+int Bytecode_int_OpIsRegInt2(enum eBC_Ops Operation) {
+	return (caOpEncodingTypes[Operation] == BC_OPENC_REG2);
+}
+int Bytecode_int_OpIsRegInt3(enum eBC_Ops Operation) {
+	return (caOpEncodingTypes[Operation] == BC_OPENC_REG3);
 }
 
-int Bytecode_int_OpUsesString(int Op)
-{
-	switch(Op)
-	{
-	case BC_OP_ELEMENT:
-	case BC_OP_SETELEMENT:
-	case BC_OP_CALLMETHOD:
-	case BC_OP_CALLFUNCTION:
-	case BC_OP_CREATEOBJ:
-	case BC_OP_DEFINEVAR:
-	case BC_OP_IMPGLOBAL:
-		return 1;
-	default:
-		return 0;
-	}
-}
-
-int Bytecode_int_OpUsesInteger(int Op)
-{
-	switch(Op)
-	{
-	case BC_OP_CALLMETHOD:
-	case BC_OP_CALLFUNCTION:
-	case BC_OP_CREATEOBJ:
-	case BC_OP_CREATEARRAY:
-	case BC_OP_JUMP:
-	case BC_OP_JUMPIF:
-	case BC_OP_JUMPIFNOT:
-	case BC_OP_LOADVAR:
-	case BC_OP_SAVEVAR:
-	case BC_OP_CAST:
-	case BC_OP_DEFINEVAR:
-	case BC_OP_IMPGLOBAL:
-	case BC_OP_LOADNULL:
-		return 1;
-	default:
-		return 0;
-	}
-}
-
-tBC_Op *Bytecode_int_AllocateOp(int Operation, int ExtraBytes)
+tBC_Op *Bytecode_int_AllocateOp(enum eBC_Ops Operation, int ExtraBytes)
 {
 	tBC_Op	*ret;
 
@@ -248,176 +159,126 @@ tBC_Op *Bytecode_int_AllocateOp(int Operation, int ExtraBytes)
 }
 
 
-#define DEF_BC_NONE(_op) { \
+#define DEF_BC_NONE(_op) {\
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0); \
-	op->Content.Integer = 0; \
-	if(Bytecode_int_OpUsesString(_op) || Bytecode_int_OpUsesInteger(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
+	if(!Bytecode_int_OpIsNoOprs(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
-
-#define DEF_BC_INT(_op, _int) {\
-	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0);\
-	op->Content.StringInt.Integer = _int;\
-	if(Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op))\
-		printf("%s:%i - op "#_op" not _INT\n",__FILE__,__LINE__); \
+#define DEF_BC_RIn(_op,n,reg1,reg2,reg3) { \
+	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0); \
+	op->DstReg = reg1; \
+	op->Content.RegInt.RegInt2 = reg2; \
+	op->Content.RegInt.RegInt3 = reg3; \
+	if(!Bytecode_int_OpIsRegInt##n(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
-
-#define DEF_BC_STRINT(_op, _str, _int) { \
-	tBC_Op *op = Bytecode_int_AllocateOp(_op, strlen(_str));\
-	op->Content.StringInt.Integer = _int;\
-	strcpy(op->Content.StringInt.String, _str);\
-	if(!Bytecode_int_OpUsesString(_op) || !Bytecode_int_OpUsesInteger(_op))\
-		printf("%s:%i BUG - op "#_op" not _STRINT\n",__FILE__,__LINE__); \
-	Bytecode_int_AppendOp(Handle, op);\
-}
-#define DEF_BC_STR(_op, _str) {\
-	tBC_Op *op = Bytecode_int_AllocateOp(_op, strlen(_str));\
-	strcpy(op->Content.StringInt.String, _str);\
-	if(!Bytecode_int_OpUsesString(_op) || Bytecode_int_OpUsesInteger(_op))\
-		printf("%s:%i BUG - op "#_op" not _STR\n",__FILE__,__LINE__); \
-	Bytecode_int_AppendOp(Handle, op);\
-}
+#define DEF_BC_RI1(_op,reg1)	DEF_BC_RIn(_op,1,reg1,0,0)
+#define DEF_BC_RI2(_op,reg1,reg2)	DEF_BC_RIn(_op,2,reg1,reg2,0)
+#define DEF_BC_RI3(_op,reg1,reg2,reg3)	DEF_BC_RIn(_op,3,reg1,reg2,reg3)
 
 // --- Flow Control
 void Bytecode_AppendJump(tBC_Function *Handle, int Label)
-	DEF_BC_INT(BC_OP_JUMP, Label)
-void Bytecode_AppendCondJump(tBC_Function *Handle, int Label)
-	DEF_BC_INT(BC_OP_JUMPIF, Label)
-void Bytecode_AppendCondJumpNot(tBC_Function *Handle, int Label)
-	DEF_BC_INT(BC_OP_JUMPIFNOT, Label)
-void Bytecode_AppendReturn(tBC_Function *Handle)
-	DEF_BC_NONE(BC_OP_RETURN);
-
-// --- Variables
-void Bytecode_AppendLoadVar(tBC_Function *Handle, const char *Name)
-	DEF_BC_INT(BC_OP_LOADVAR, Bytecode_int_GetVarIndex(Handle, Name))
-void Bytecode_AppendSaveVar(tBC_Function *Handle, const char *Name)	// (Obj->)?var = 
-	DEF_BC_INT(BC_OP_SAVEVAR, Bytecode_int_GetVarIndex(Handle, Name))
+	DEF_BC_RI1(BC_OP_JUMP, Label)
+void Bytecode_AppendCondJump(tBC_Function *Handle, int Label, int CReg)
+	DEF_BC_RI2(BC_OP_JUMPIF, Label, CReg)
+void Bytecode_AppendCondJumpNot(tBC_Function *Handle, int Label, int CReg)
+	DEF_BC_RI2(BC_OP_JUMPIFNOT, Label, CReg)
+void Bytecode_AppendReturn(tBC_Function *Handle, int Reg)
+	DEF_BC_RI1(BC_OP_RETURN, Reg);
 
 // --- Constants
-void Bytecode_AppendConstInt(tBC_Function *Handle, uint64_t Value)
+void Bytecode_AppendConstNull(tBC_Function *Handle, int Dst, tSpiderTypeRef Type)
+	DEF_BC_RI2(BC_OP_LOADNULLREF, Dst, Bytecode_int_GetTypeIdx(Handle->Script, Type))
+void Bytecode_AppendConstInt(tBC_Function *Handle, int Dst, tSpiderInteger Value)
 {
 	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_LOADINT, 0);
+	op->DstReg = Dst;
 	op->Content.Integer = Value;
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendConstReal(tBC_Function *Handle, double Value)
+void Bytecode_AppendConstReal(tBC_Function *Handle, int Dst, double Value)
 {
 	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_LOADREAL, 0);
+	op->DstReg = Dst;
 	op->Content.Real = Value;
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendConstString(tBC_Function *Handle, const void *Data, size_t Length)
+void Bytecode_AppendConstString(tBC_Function *Handle, int Dst, const void *Data, size_t Length)
 {
-	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_LOADSTR, Length+1);
-	op->Content.StringInt.Integer = Length;
-	memcpy(op->Content.StringInt.String, Data, Length);
-	op->Content.StringInt.String[Length] = 0;
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_LOADSTRING, Length+1);
+	op->DstReg = Dst;
+	op->Content.String.Length = Length;
+	memcpy(op->Content.String.Data, Data, Length);
+	op->Content.String.Data[Length] = 0;
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendConstNull(tBC_Function *Handle, tSpiderTypeRef Type)
-	DEF_BC_INT(BC_OP_LOADNULL, Bytecode_int_GetTypeIdx(Handle->Script, Type))
 
 // --- Indexing / Scoping
-void Bytecode_AppendElement(tBC_Function *Handle, const char *Name)
-	DEF_BC_STR(BC_OP_ELEMENT, Name)
-void Bytecode_AppendSetElement(tBC_Function *Handle, const char *Name)
-	DEF_BC_STR(BC_OP_SETELEMENT, Name)
-void Bytecode_AppendIndex(tBC_Function *Handle)
-	DEF_BC_NONE(BC_OP_INDEX)
-void Bytecode_AppendSetIndex(tBC_Function *Handle)
-	DEF_BC_NONE(BC_OP_SETINDEX);
+void Bytecode_AppendElement(tBC_Function *Handle, int Dst, int Obj, int EleIdx)
+	DEF_BC_RI3(BC_OP_GETELEMENT, Dst, Obj, EleIdx)
+void Bytecode_AppendSetElement(tBC_Function *Handle, int Obj, int EleIdx, int SrcReg)
+	DEF_BC_RI3(BC_OP_SETELEMENT, SrcReg, Obj, EleIdx)
+void Bytecode_AppendIndex(tBC_Function *Handle, int Dst, int Array, int Idx)
+	DEF_BC_RI3(BC_OP_GETINDEX, Dst, Array, Idx)
+void Bytecode_AppendSetIndex(tBC_Function *Handle, int Array, int Idx, int Src)
+	DEF_BC_RI3(BC_OP_SETINDEX, Src, Array, Idx);
 
-void Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderTypeRef Type, int ArgumentCount)
+void Bytecode_int_AppendCall(tBC_Function *Handle, enum eBC_Ops Op, int RetReg, int FcnIdx, int ArgC, int ArgRegs[])
 {
-	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CREATEOBJ, 0);
-	op->Content.Function.ID = Bytecode_int_GetTypeIdx(Handle->Script, Type);
-	op->Content.Function.ArgCount = ArgumentCount;
+	tBC_Op *op = Bytecode_int_AllocateOp(Op, sizeof(int)*ArgC);
+	op->DstReg = RetReg;
+	op->Content.Function.ID = FcnIdx;
+	op->Content.Function.ArgCount = ArgC;
+	for( int i = 0; i < ArgC; i ++ )
+		op->Content.Function.ArgRegs[i] = ArgRegs[i];
 	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendMethodCall(tBC_Function *Handle, int Index, int ArgumentCount)
-{
-	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CALLMETHOD, 0);
-	op->Content.Function.ID = Index;
-	op->Content.Function.ArgCount = ArgumentCount;
-	Bytecode_int_AppendOp(Handle, op);
-}
-void Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount)
-{
-	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_CALLFUNCTION, 0);
-	op->Content.Function.ID = ID;
-	op->Content.Function.ArgCount = ArgumentCount;
-	Bytecode_int_AppendOp(Handle, op);
-}
-void Bytecode_AppendCreateArray(tBC_Function *Handle, tSpiderTypeRef Type)
-	DEF_BC_INT(BC_OP_CREATEARRAY, Bytecode_int_GetTypeIdx(Handle->Script, Type))
 
-void Bytecode_AppendBinOp(tBC_Function *Handle, int Operation)
-	DEF_BC_NONE(Operation)
-void Bytecode_AppendUniOp(tBC_Function *Handle, int Operation)
-	DEF_BC_NONE(Operation)
-void Bytecode_AppendCast(tBC_Function *Handle, tSpiderScript_CoreType CoreType)
-	DEF_BC_INT(BC_OP_CAST, CoreType)
-void Bytecode_AppendDuplicate(tBC_Function *Handle)
-	DEF_BC_NONE(BC_OP_DUPSTACK);
-void Bytecode_AppendDelete(tBC_Function *Handle)
-	DEF_BC_NONE(BC_OP_DELSTACK);
+void Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[])
+{
+	tSpiderTypeRef	type = {Def, 0};
+	Bytecode_int_AppendCall(Handle, BC_OP_CREATEOBJ, RetReg, Bytecode_int_GetTypeIdx(Handle->Script, type),
+		NArgs, ArgRegs);
+}
+void Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[])
+{
+	Bytecode_int_AppendCall(Handle, BC_OP_CALLMETHOD, RetReg, ID, NArgs, ArgRegs);
+}
+void Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[])
+{
+	Bytecode_int_AppendCall(Handle, BC_OP_CALLFUNCTION, RetReg, ID, NArgs, ArgRegs);
+}
+void Bytecode_AppendCreateArray(tBC_Function *Handle, int RetReg, tSpiderTypeRef Type, int SizeReg) 
+	DEF_BC_RI3(BC_OP_CREATEARRAY, RetReg, Bytecode_int_GetTypeIdx(Handle->Script, Type), SizeReg)
+
+void Bytecode_AppendCast(tBC_Function *Handle, int DstReg, tSpiderScript_CoreType Type, int SrcReg)
+	DEF_BC_RI3(BC_OP_CAST, DstReg, Type, SrcReg)
+void Bytecode_AppendMov(tBC_Function *Handle, int DstReg, int SrcReg)
+	DEF_BC_RI2(BC_OP_MOV, DstReg, SrcReg)
 
 // Does some bookeeping to allocate variable slots at compile time
 void Bytecode_AppendEnterContext(tBC_Function *Handle)
-{
-//	printf("_EnterContext: %i %i,%i\n", Handle->CurContextDepth, Handle->GlobalCount, Handle->VariableCount);
-	Handle->CurContextDepth ++;
-	Bytecode_int_AddVariable(Handle, NULL);	// NULL to record the extent of this	
-	Bytecode_int_AddGlobal(Handle, NULL);	// NULL to record the extent of this	
-
 	DEF_BC_NONE(BC_OP_ENTERCONTEXT)
-}
 void Bytecode_AppendLeaveContext(tBC_Function *Handle)
+	DEF_BC_NONE(BC_OP_LEAVECONTEXT)
+
+void Bytecode_AppendDefineVar(tBC_Function *Handle, int Reg, const char *Name, tSpiderTypeRef Type)
 {
-	 int	i;
-
-	assert(Handle->CurContextDepth);
-	assert(Handle->VariableCount);
-	assert(Handle->GlobalCount);
-
-	for( i = Handle->VariableCount; i && Handle->VariableNames[i-1] != NULL; i -- );
-	Handle->VariableCount = i-1;
-	for( i = Handle->GlobalCount; i && Handle->GlobalNames[i-1] != NULL; i -- );
-	Handle->GlobalCount = i-1;
-	Handle->CurContextDepth --;
-//	printf("_LeaveContext: %i %i,%i\n", Handle->CurContextDepth, Handle->GlobalCount, Handle->VariableCount);
-
-	DEF_BC_NONE(BC_OP_LEAVECONTEXT);
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_TAGREGISTER, strlen(Name));
+	op->DstReg = Reg;
+	op->Content.String.Length = strlen(Name);
+	strcpy(op->Content.String.Data, Name);
+	Bytecode_int_AppendOp(Handle, op);
 }
-//void Bytecode_AppendImportNamespace(tBC_Function *Handle, const char *Name);
-//	DEF_BC_STRINT(BC_OP_IMPORTNS, Name, 0)
-void Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type)
+void Bytecode_AppendImportGlobal(tBC_Function *Handle, int Slot, const char *Name, tSpiderTypeRef Type)
 {
-	 int	i, typeid;
-	#if 1
-	// Get the start of this context
-	for( i = Handle->VariableCount; i --; )
-	{
-		if( Handle->VariableNames[i] == NULL )	break;
-	}
-	// Check for duplicate allocation
-	for( i ++; i < Handle->VariableCount; i ++ )
-	{
-		if( strcmp(Name, Handle->VariableNames[i]) == 0 )
-			return ;
-	}
-	#endif
-
-	i = Bytecode_int_AddVariable(Handle, Name);
-	typeid = Bytecode_int_GetTypeIdx(Handle->Script, Type);
-
-	DEF_BC_STRINT(BC_OP_DEFINEVAR, Name, (typeid&0xFFFFFF) | (i << 24))
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_TAGREGISTER, strlen(Name));
+	op->DstReg = Slot;
+	op->Content.String.Length = strlen(Name);
+	strcpy(op->Content.String.Data, Name);
+	Bytecode_int_AppendOp(Handle, op);
 }
-void Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type)
-{
-	int i = Bytecode_int_AddGlobal(Handle, Name);
-	int typeid = Bytecode_int_GetTypeIdx(Handle->Script, Type);
-	DEF_BC_STRINT(BC_OP_IMPGLOBAL, Name,  (typeid&0xFFFFFF) | (i << 24))
-}
+void Bytecode_AppendSaveGlobal(tBC_Function *Handle, int Slot, int SrcReg)
+	DEF_BC_RI2(BC_OP_SETGLOBAL, SrcReg, Slot)
+void Bytecode_AppendReadGlobal(tBC_Function *Handle, int Slot, int DstReg)
+	DEF_BC_RI2(BC_OP_GETGLOBAL, DstReg, Slot)

@@ -311,6 +311,8 @@ int Parse_ClassDefinition(tParser *Parser)
 			return -1;
 		}
 	}
+	
+//	AST_FinaliseClass(class);
 	return 0;
 }
 

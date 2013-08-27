@@ -7,7 +7,9 @@
  */
 #include <stdlib.h>
 #include "ast.h"
+#include "bytecode.h"
 #include "bytecode_gen.h"
+#include "bytecode_ops.h"
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -28,6 +30,23 @@
 
 
 // === TYPES ===
+typedef struct sStringList	tStringList;
+typedef struct sString	tString;
+
+struct sString
+{
+	tString	*Next;
+	 int	Length;
+	 int	RefCount;
+	char	Data[];
+};
+
+struct sStringList
+{
+	tString	*Head;
+	tString	*Tail;
+	 int	Count;
+};
 typedef struct
 {
 	uint32_t	Length;
@@ -55,6 +74,8 @@ typedef struct
 // === PROTOTYPES ===
  int	SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp);
  int	SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp);
+ int	StringList_GetString(tStringList *List, const char *String, int Length);
+char	*Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStringList *Strings);
 tBC_Function	*Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State);
 
 // === GLOBALS ===
@@ -716,9 +737,7 @@ int StringList_GetString(tStringList *List, const char *String, int Length)
 
 int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *LabelOffsets, tStringList *Strings)
 {
-	tBC_Op	*op;
 	 int	len = 0, idx = 0;
-	 int	i;
 
 	void _put_byte(uint8_t byte)
 	{
@@ -739,49 +758,27 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 		len += 4;
 	}
 
+	void _put_packedint_u(uint64_t value)
+	{
+		while( value >> 7 )
+		{
+			_put_byte( (value & 0x7F) | 0x80 );
+			value >>= 7;
+		}
+		_put_byte( value );
+	}
+	void _put_packedint_s(int64_t value)
+	{
+		if( value < 0 )
+			_put_packedint_u( ((-value) << 1) | 1 );
+		else
+			_put_packedint_u( value << 1 );
+	}
+
 	void _put_index(uint32_t value)
 	{
-		if( !Output && !value ) {
-			len += 5;
-			return ;
-		}
-		if( value < 0x8000 ) {
-			_put_byte(value >> 8);
-			_put_byte(value & 0xFF);
-		}
-		else if( value < 0x400000 ) {
-			_put_byte( (value >> 16) | 0x80 );
-			_put_byte(value >> 8);
-			_put_byte(value & 0xFF);
-		}
-		else {
-			_put_byte( 0xC0 );
-			_put_byte(value >> 24);
-			_put_byte(value >> 16);
-			_put_byte(value >> 8 );
-			_put_byte(value & 0xFF);
-		}
+		_put_packedint_u(value);
 	}	
-
-	void _put_qword(uint64_t value)
-	{
-		if( value < 0x80 ) {	// 7 bits into 1 byte
-			_put_byte(value);
-		}
-		else if( !(value >> (8+6)) ) {	// 14 bits packed into 2 bytes
-			_put_byte( 0x80 | ((value >> 8) & 0x3F) );
-			_put_byte( value & 0xFF );
-		}
-		else if( !(value >> (32+5)) ) {	// 37 bits into 5 bytes
-			_put_byte( 0xC0 | ((value >> 32) & 0x1F) );
-			_put_dword(value & 0xFFFFFFFF);
-		}
-		else {
-			_put_byte( 0xE0 );	// 64 (actually 68) bits into 9 bytes
-			_put_dword(value & 0xFFFFFFFF);
-			_put_dword(value >> 32);
-		}
-	}
 
 	void _put_double(double value)
 	{
@@ -805,17 +802,20 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 
 //	printf("Function->LabelCount = %i\n", Function->LabelCount);
 	_put_index(Function->LabelCount);
-	for( i = 0; i < Function->LabelCount; i ++ )
+	for( int i = 0; i < Function->LabelCount; i ++ )
 	{
-		_put_dword(LabelOffsets[i]);
+		if( Output )
+			_put_index(LabelOffsets[i]);
+		else
+			len += 4;
 	}
 
-	for( op = Function->Operations; op; op = op->Next, idx ++ )
+	for( tBC_Op *op = Function->Operations; op; op = op->Next, idx ++ )
 	{
 		// If first run, convert labels into instruction offsets
 		if( !Output )
 		{
-			for( i = 0; i < Function->LabelCount; i ++ )
+			for( int i = 0; i < Function->LabelCount; i ++ )
 			{
 				if(LabelOffsets[i])	continue;
 				if(op != Function->Labels[i])	continue;
@@ -824,27 +824,20 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 			}
 		}
 
+		assert(op->Operation < 256);
 		_put_byte(op->Operation);
 		switch(op->Operation)
 		{
-		// Relocate jumps (the value only matters if `Output` is non-NULL)
-		case BC_OP_JUMP:
-		case BC_OP_JUMPIF:
-		case BC_OP_JUMPIFNOT:
-			// TODO: Relocations?
-			_put_index( Output ? op->Content.StringInt.Integer : Function->LabelCount );
-			break;
 		// Special case for inline values
 		case BC_OP_LOADINT:
-			_put_qword(op->Content.Integer);
+			_put_index(op->DstReg);
+			_put_packedint_s(op->Content.Integer);
 			break;
 		case BC_OP_LOADREAL:
+			_put_index(op->DstReg);
 			_put_double(op->Content.Real);
 			break;
-		case BC_OP_LOADSTR:
-			_put_string(op->Content.StringInt.String, op->Content.StringInt.Integer);
-			break;
-		// Function calls are specail
+		// Function calls are special
 		case BC_OP_CALLFUNCTION:
 		case BC_OP_CREATEOBJ:
 		case BC_OP_CALLMETHOD:
@@ -853,10 +846,30 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 			break;
 		// Everthing else just gets handled nicely
 		default:
-			if( Bytecode_int_OpUsesString(op->Operation) )
-				_put_string(op->Content.StringInt.String, strlen(op->Content.StringInt.String));
-			if( Bytecode_int_OpUsesInteger(op->Operation) )
-				_put_index(op->Content.StringInt.Integer);
+			switch( caOpEncodingTypes[op->Operation] )
+			{
+			case BC_OPENC_UNK:
+				assert( op->Operation != BC_OPENC_UNK );
+				break;
+			case BC_OPENC_NOOPRS:
+				break;
+			case BC_OPENC_REG1:
+				_put_index(op->DstReg);
+				break;
+			case BC_OPENC_REG2:
+				_put_index(op->DstReg);
+				_put_index(op->Content.RegInt.RegInt2);
+				break;
+			case BC_OPENC_REG3:
+				_put_index(op->DstReg);
+				_put_index(op->Content.RegInt.RegInt2);
+				_put_index(op->Content.RegInt.RegInt3);
+				break;
+			case BC_OPENC_STRING:
+				_put_index(op->DstReg);
+				_put_string(op->Content.String.Data, op->Content.String.Length);
+				break;
+			}
 			break;
 		}
 	}
@@ -903,57 +916,32 @@ static inline uint8_t buf_get8(t_bi *Bi)
 	return rv;
 }
 
-static inline uint32_t buf_get32(t_bi *Bi)
+static inline uint64_t buf_get_packed(t_bi *Bi)
 {
-	uint32_t rv = buf_get8(Bi);
-	rv |= (uint32_t)buf_get8(Bi) << 8;
-	rv |= (uint32_t)buf_get8(Bi) << 16;
-	rv |= (uint32_t)buf_get8(Bi) << 24;
+	uint8_t	b = buf_get8(Bi);
+	uint64_t rv = 0;
+	 int	shift = 0;
+	while( (b & 0x80) )
+	{
+		rv |= (uint64_t)(b & 0x7F) << shift;
+		b = buf_get8(Bi);
+		shift += 7;
+	}
+	rv |= (uint64_t)(b & 0x7F) << shift;
 	return rv;
 }
 static inline uint32_t buf_get_index(t_bi *Bi)
 {
-	uint8_t	b = buf_get8(Bi);
-	uint32_t rv = 0;
-	if( b < 0x80 ) {
-		rv |= (uint32_t)(b & 0x7F) << 8;
-		rv |= buf_get8(Bi);
-	}
-	else if( b < 0xC0 ) {
-		rv |= (uint32_t)(b & 0x3F) << 16;
-		rv |= (uint32_t)buf_get8(Bi) << 8;
-		rv |= (uint32_t)buf_get8(Bi) << 0;
-	}
-	else {
-//			rv |= (uint32_t)(b & 0x3F) << 32;
-		rv |= (uint32_t)buf_get8(Bi) << 24;
-		rv |= (uint32_t)buf_get8(Bi) << 16;
-		rv |= (uint32_t)buf_get8(Bi) << 8;
-		rv |= (uint32_t)buf_get8(Bi) << 0;
-	}
-	return rv;
-}	
+	return buf_get_packed(Bi);
+}
 
-static inline uint64_t buf_get_qword(t_bi *Bi)
+static inline int64_t buf_get_signed(t_bi *Bi)
 {
-	uint8_t	b = buf_get8(Bi);
-	uint64_t rv = 0;
-	if( b < 0x80 ) {	// 7 bits into 1 byte
-		rv = b;
-	}
-	else if( b < 0xC0 ) {	// 14 bits packed into 2 bytes
-		rv |= (uint32_t)(b & 0x3F) << 8;
-		rv |= (uint32_t)buf_get8(Bi) << 0;
-	}
-	else if( b < 0xD0 ) {	// 37 bits into 5 bytes
-		rv |= (uint64_t)(b & 0x1F) << 32;
-		rv |= buf_get32(Bi);
-	}
-	else {
-		rv |= buf_get32(Bi);
-		rv |= (uint64_t)buf_get32(Bi) << 32;
-	}
-	return rv;
+	uint64_t u = buf_get_packed(Bi);
+	if(u & 1)
+		return -(u >> 1);
+	else
+		return (u >> 1);
 }
 
 double buf_get_double(t_bi *Bi)
@@ -967,132 +955,115 @@ double buf_get_double(t_bi *Bi)
 
 tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_loadstate *State)
 {
-	tBC_Function	*ret;
 	tBC_Op	*op;
-	 int	sidx;
-	size_t	slen;
 	t_bi	bi, *Bi = &bi;
 	bi.Data = Data;
 	bi.Ofs = 0;
 	bi.Length = Length;
 
-	ret = malloc( sizeof(tBC_Function) );
+	tBC_Function	*ret = malloc( sizeof(tBC_Function) );
 	ret->LabelCount = buf_get_index(Bi);
 	ret->Labels = malloc( sizeof(ret->Labels[0]) * ret->LabelCount );
 	ret->Operations = NULL;
 	ret->OperationsEnd = NULL;
-	ret->VariableNames = NULL;
-	ret->GlobalNames = NULL;
-	ret->MaxVariableCount = 0;
-	ret->MaxGlobalCount = 0;
 //	printf("%i labels\n", ret->LabelCount);
 	for( int i = 0; i < ret->LabelCount; i ++ )
 	{
 		// HACK - Save integer label offsets until second pass
-		ret->Labels[i] = (void*) (intptr_t) buf_get32(Bi);
+		ret->Labels[i] = (void*) (intptr_t) buf_get_index(Bi);
 	}
 
 	while( bi.Ofs < Length )
 	{
 		 int	ot = buf_get8(Bi);
+		if( ot > BC_OP_EXCEPTION_POP ) {
+			// Oops?
+			continue ;
+		}
+		op = NULL;
 		switch( ot )
 		{
 		// Special case for inline values
 		case BC_OP_LOADINT:
 			op = malloc(sizeof(tBC_Op));
-			op->Content.Integer = buf_get_qword(Bi);
-//			printf("LOADINT 0x%lx\n", op->Content.Integer);
+			op->DstReg = buf_get_index(Bi);
+			op->Content.Integer = buf_get_signed(Bi);
 			break;
 		case BC_OP_LOADREAL:
 			op = malloc(sizeof(tBC_Op));
+			op->DstReg = buf_get_index(Bi);
 			op->Content.Real = buf_get_double(Bi);
-//			printf("LOADREAL %lf\n", op->Content.Real);
-			break;
-		case BC_OP_LOADSTR:
-			sidx = buf_get_index(Bi);
-			slen = _get_str(State, NULL, sidx);
-			// TODO: Error check length
-			op = malloc(sizeof(tBC_Op) + slen);
-			op->Content.StringInt.Integer = slen;
-			_get_str(State, op->Content.StringInt.String, sidx);
-//			printf("LOADSTR %i bytes\n", op->Content.StringInt.Integer);
 			break;
 		// Function calls are specail
 		case BC_OP_CALLFUNCTION:
 		case BC_OP_CREATEOBJ:
-		case BC_OP_CALLMETHOD:
-			op = malloc( sizeof(tBC_Op) );
-			op->Content.Function.ID = buf_get_index(Bi);
-			op->Content.Function.ArgCount = buf_get_index(Bi);
-			break;
+		case BC_OP_CALLMETHOD: {
+			 int	dstreg = buf_get_index(Bi);
+			 int	fcnid = buf_get_index(Bi);
+			 int	argc = buf_get_index(Bi);
+			op = malloc( sizeof(tBC_Op) + (argc * sizeof(int)) );
+			op->DstReg = dstreg;
+			op->Content.Function.ID = fcnid;
+			op->Content.Function.ArgCount = argc;
+			for( int i = 0; i < argc; i ++ )
+				op->Content.Function.ArgRegs[i] = buf_get_index(Bi);
+			} break;
 		// Everthing else just gets handled nicely
-		case BC_OP_JUMP:
-		case BC_OP_JUMPIF:
-		case BC_OP_JUMPIFNOT:
 		default:
-			if( Bytecode_int_OpUsesString(ot) ) {
-				sidx = buf_get_index(Bi);
-				slen = _get_str(State, NULL, sidx);
+			switch( caOpEncodingTypes[ot] )
+			{
+			case BC_OPENC_UNK:
+				break;
+			case BC_OPENC_NOOPRS:
+				op = malloc( sizeof(tBC_Op) );
+				break;
+			case BC_OPENC_REG1:
+				op = malloc( sizeof(tBC_Op) );
+				op->DstReg = buf_get_index(Bi);
+				break;
+			case BC_OPENC_REG2:
+				op = malloc( sizeof(tBC_Op) );
+				op->DstReg = buf_get_index(Bi);
+				op->Content.RegInt.RegInt2 = buf_get_index(Bi);
+				break;
+			case BC_OPENC_REG3:
+				op = malloc( sizeof(tBC_Op) );
+				op->DstReg = buf_get_index(Bi);
+				op->Content.RegInt.RegInt2 = buf_get_index(Bi);
+				op->Content.RegInt.RegInt3 = buf_get_index(Bi);
+				break;
+			case BC_OPENC_STRING: {
+				 int	dreg = buf_get_index(Bi);
+				 int	sidx = buf_get_index(Bi);
+				size_t	slen = _get_str(State, NULL, sidx);
 				op = malloc(sizeof(tBC_Op) + slen + 1);
-				_get_str(State, op->Content.StringInt.String, sidx);
-				op->Content.StringInt.String[slen] = 0;
+				op->DstReg = dreg;
+				op->Content.String.Length = slen;
+				_get_str(State, op->Content.String.Data, sidx);
+				} break;
 			}
-			else {
-				slen = 0;
-				op = malloc(sizeof(tBC_Op));
-			}
-			if( Bytecode_int_OpUsesInteger(ot) ) {
-				op->Content.StringInt.Integer = buf_get_index(Bi);
-			}
-//			if( slen )
-//				printf("%i '%s' %i\n",ot,op->Content.StringInt.String,op->Content.StringInt.Integer);
-//			else
-//				printf("%i %i\n",ot,op->Content.StringInt.Integer);
-				
 			break;
 		}
-
-		// Maintain MaxVariableCount
-		if( ot == BC_OP_LOADVAR || ot == BC_OP_SAVEVAR ) {
-			 int	s = op->Content.StringInt.Integer;
-			if( s + 1 > ret->MaxVariableCount )
-				ret->MaxVariableCount = s + 1;
-		}
-		if( ot == BC_OP_DEFINEVAR ) {
-			 int	s = (op->Content.StringInt.Integer >> 24);
-			if( s + 1 > ret->MaxVariableCount )
-				ret->MaxVariableCount = s + 1;
-		}
-		// .. and MaxGlobalCount
-		if( ot == BC_OP_IMPGLOBAL ) {
-			 int	s = (op->Content.StringInt.Integer >> 24);
-			if( s + 1 > ret->MaxGlobalCount )
-				ret->MaxGlobalCount = s + 1;
-		}
+		assert(op);
 		
 		// Convert types
-		int t;
-		switch(ot)
+		// - Allows a bytecode file to be merged with another script
 		{
-		case BC_OP_IMPGLOBAL:
-		case BC_OP_DEFINEVAR:
-			t = op->Content.StringInt.Integer & 0xFFFFFF;
-			_ASSERT(t, <, State->NTypes, NULL);
-			t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
-			op->Content.StringInt.Integer &= ~0xFFFFFF;
-			op->Content.StringInt.Integer |= t;
-			break;
-		case BC_OP_LOADNULL:
-			t = op->Content.StringInt.Integer & 0xFFFFFF;
-			_ASSERT(t, <, State->NTypes, NULL);
-			t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
-			op->Content.StringInt.Integer = t;
-			break;
-		case BC_OP_CREATEOBJ:
-			t = op->Content.Function.ID;
-			_ASSERT(t, <, State->NTypes, NULL);
-			op->Content.Function.ID = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
-			break;
+			 int	t;
+			switch(ot)
+			{
+			case BC_OP_LOADNULLREF:
+				t = op->Content.RegInt.RegInt2;
+				_ASSERT(t, <, State->NTypes, NULL);
+				t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
+				op->Content.RegInt.RegInt2 = t;
+				break;
+			case BC_OP_CREATEOBJ:
+				t = op->Content.Function.ID;
+				_ASSERT(t, <, State->NTypes, NULL);
+				op->Content.Function.ID = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
+				break;
+			}
 		}
 	
 		op->Operation = ot;

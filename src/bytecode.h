@@ -8,27 +8,32 @@
 #include "bytecode_ops.h"
 
 typedef struct sBC_Op	tBC_Op;
-typedef struct sBC_Function	tBC_Function;
 
 struct sBC_Op
 {
 	tBC_Op	*Next;
-	 int	Operation;
+	enum eBC_Ops	Operation;
 
 	void	*CacheEnt;	// Used to runtime cache function calls
 
+	 int	DstReg;
 	union {
 		struct {
-			 int	Integer;
-			char	String[];
-		} StringInt;
+			 int	RegInt2;	// Src/Destination
+			 int	RegInt3;	// Src
+		} RegInt;
 		struct {
 			 int	ID;
 			 int	ArgCount;
+			 int	ArgRegs[];
 		} Function;
 		
-		uint64_t	Integer;
 		double	Real;
+		uint64_t	Integer;
+		struct {
+			size_t	Length;
+			char	Data[];
+		} String;
 	} Content;
 };
 
@@ -40,17 +45,11 @@ struct sBC_Function
 	 int	LabelSpace;
 	tBC_Op	**Labels;
 
-	 int	MaxVariableCount;
 	 int	MaxGlobalCount;
 	// NOTE: These fields are invalid after compilation
-	 int	VariableCount;
-	 int	VariableSpace;
-	const char	**VariableNames;	
 	 int	GlobalCount;
 	 int	GlobalSpace;
 	const char	**GlobalNames;
-
-	 int	CurContextDepth;	// Used to get the real var count
 
 	 int	OperationCount;
 	tBC_Op	*Operations;

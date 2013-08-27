@@ -255,6 +255,6 @@ extern int	AST_ExecuteNode_BinOp_String (tSpiderScript *Script, void *Dest,
 extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest,
 	tSpiderArray *Array, int Index, tSpiderTypeRef NewType, void *NewValue);
 extern tSpiderTypeRef	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest,
-	tSpiderObject *Object, const char *Element, tSpiderTypeRef NewType, void *NewValue);
+	tSpiderObject *Object, int ElementIndex, tSpiderTypeRef NewType, void *NewValue);
 
 #endif

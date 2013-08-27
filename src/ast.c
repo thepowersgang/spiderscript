@@ -30,6 +30,7 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 	ret->FirstFunction = NULL;
 	ret->FirstProperty = NULL;
 	ret->nProperties = 0;
+	ret->nFunctions = 0;
 	strcpy(ret->Name, Name);
 
 	ret->TypeInfo.Class = SS_TYPECLASS_SCLASS;
@@ -42,6 +43,23 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 	Parser->Script->LastClass = ret;
 	
 	return ret;
+}
+
+int AST_FinaliseClass(tParser *Parser, tScript_Class *Class)
+{
+	 int	i;
+	tScript_Var	**properties = malloc(sizeof(void*) + Class->nProperties);
+	i = 0;
+	for( tScript_Var *prop = Class->FirstProperty; prop; prop = prop->Next )
+		properties[i++] = prop;
+	Class->Properties = properties;
+	
+	tScript_Function	**functions = malloc(sizeof(void*) + Class->nFunctions);
+	i = 0;
+	for( tScript_Function *func = Class->FirstFunction; func; func = func->Next )
+		functions[i++] = func;
+	Class->Functions = functions;
+	return 0;
 }
 
 int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type)
@@ -137,6 +155,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 	else
 		Class->FirstFunction = method;
 	Class->LastFunction = method;
+	Class->nFunctions ++;
 	
 	return 0;
 }

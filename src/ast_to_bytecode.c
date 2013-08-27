@@ -52,7 +52,7 @@ typedef struct sAST_FuncInfo
 	
 	 int	MaxRegisters;
 	 int	NumAllocatedRegs;
-	struct {
+	struct sRegInfo {
 		tSpiderTypeRef	Type;
 		void	*Info;
 	}	Registers[MAX_REGISTERS];	// Stores types of stack values
@@ -80,11 +80,11 @@ typedef struct sAST_BlockInfo
 } tAST_BlockInfo;
 
 // === PROTOTYPES ===
-tBC_Function	*Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *Fcn);
 // Node Traversal
  int	AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result);
  int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[]);
  int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[]);
+ int	BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef ObjType, const char *Name, tSpiderTypeRef *EleType);
  int	BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister Register);
  int	BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType, tRegister SrcReg, tRegister *Result);
 
@@ -95,6 +95,7 @@ const tVariable	*BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
  int	BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name);
  int	BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister Register);
  int	BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister *Result);
+void	BC_Variable_Delete(tAST_BlockInfo *Block, tVariable *Var);
 void	BC_Variable_Clear(tAST_BlockInfo *Block);
  int	BC_BinOp(tAST_BlockInfo *Block, int Operation, tRegister RegOut, tRegister RegL, tRegister RegR);
 // - Errors
@@ -103,7 +104,7 @@ void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 // - Type stack
  int	_AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, int *RegPtr);
  int	_GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, void **Info);
- int	_AssertRegType(tAST_BlockInfo *Block, int Register, tSpiderTypeRef Type);
+ int	_AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, int Register, tSpiderTypeRef Type);
  int	_ReleaseRegister(tAST_BlockInfo *Block, int Register);
 // - Helpers
 tSpiderTypeRef	_GetCoreType(tSpiderScript_CoreType CoreType);
@@ -203,8 +204,6 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	tSpiderTypeRef	type, type2;
 	 int	i, op = 0;
 	void	*ident;	// used for classes
-	tScript_Class	*sc;
-	tSpiderClass *nc;
 	
 	tRegister	rreg, reg1, reg2, vreg;
 
@@ -303,7 +302,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		ret = AST_ConvertNode(Block, Node->UniOp.Value, &vreg);
 		if(ret)	return ret;
 		// TODO: Support post inc/dec on objects
-		ret = _AssertRegType(Block, vreg, TYPE_INTEGER);
+		ret = _AssertRegType(Block, Node, vreg, TYPE_INTEGER);
 		if(ret)	return ret;
 		
 		// If the result is being used, allocate a reg for it
@@ -396,7 +395,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// - Size
 		ret = AST_ConvertNode(Block, Node->Cast.Value, &vreg);
 		if(ret)	return ret;
-		_AssertRegType(Block, vreg, TYPE_INTEGER);
+		_AssertRegType(Block, Node->Cast.Value, vreg, TYPE_INTEGER);
 
 		ret = _AllocateRegister(Block, Node, Node->Cast.DataType, NULL, &rreg);
 		if(ret)	return ret;
@@ -476,7 +475,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			Bytecode_SetLabel(Block->Func->Handle, if_false);
 			ret = AST_ConvertNode(Block, Node->If.False, &falseval_reg);
 			if(ret)	return ret;
-			ret = _AssertRegType(Block, falseval_reg, type);
+			ret = _AssertRegType(Block, Node->If.False, falseval_reg, type);
 			if(ret)	return ret;
 			Bytecode_AppendMov(Block->Func->Handle, result_reg, falseval_reg);
 
@@ -494,7 +493,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			
 			ret = AST_ConvertNode(Block, Node->If.False, &rreg);
 			if(ret)	return ret;
-			ret = _AssertRegType(Block, rreg, type);
+			ret = _AssertRegType(Block, Node->If.False, rreg, type);
 			Bytecode_AppendMov(Block->Func->Handle, result_reg, rreg);
 		}
 		Bytecode_SetLabel(Block->Func->Handle, if_end);
@@ -567,7 +566,45 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		Block->Tag = saved_tag;
 		NO_RESULT();
 		} break;
+
+	// Try/catch block
+#if 0
+	case NODETYPE_TRY: {
+		 int	handler = Bytecode_AllocateLabel(Block->Func->Handle);
+		 int	post_handler = Bytecode_AllocateLabel(Block->Func->Handle);
+		
+
+		Bytecode_AppendPushExceptHandler(Block->Func->Handle, handler);
+		ret = AST_ConvertNode(Block, Node->TryCatch.Code, NULL);
+		if(ret)	return ret;
+
+		Bytecode_AppendJump(Block->Func->Handle, post_handler);
+		Bytecode_SetLabel(Block->Func->Handle, handler);
+
+		for( tAST_Node *cnode = Node->TryCatch.FirstCatch; cnode; cnode = cnode->NextSibling )
+		{
+			ret = _AllocateRegister(Block, cnode->Catch.Type, NULL, &reg1);
+			if(ret)	return ret;
+			int next = Bytecode_AllocateLabel(Block->Func->Handle);
+			Bytecode_AppendCheckException(Block->Func->Handle, cnode->Catch.Type, reg1, next);
+			ret = BC_Variable_Define(Block, cnode, cnode->Catch.Type, cnode->Catch.Name);
+			if(ret)	return ret;
+
+			ret = AST_ConvertNode(Block, cnode->Catch.Code, NULL);
+			if(ret)	return ret;
+
+			BC_Variable_Delete(Block, BC_Variable_Lookup(Block, cnode, cnode->Catch.Name, TYPE_VOID));
+
+			Bytecode_AppendJump(Block->Func->Handle, post_handler);
+			Bytecode_SetLabel(Block->Func->Handle, next);
+		}
 	
+		Bytecode_SetLabel(Block->Func->Handle, post_handler);
+		Bytecode_AppendPopExecptHandler(Block->Func->Handle);
+
+		} break;
+#endif
+
 	// Return
 	case NODETYPE_RETURN:
 		// Special case for `return null;`
@@ -575,7 +612,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		
 		ret = AST_ConvertNode(Block, Node->UniOp.Value, &vreg);
 		if(ret)	return ret;
-		ret = _AssertRegType(Block, vreg, Block->Func->Function->ReturnType);
+		ret = _AssertRegType(Block, Node->UniOp.Value, vreg, Block->Func->Function->ReturnType);
 		if(ret)	return ret;
 		
 		Bytecode_AppendReturn(Block->Func->Handle, vreg);
@@ -625,7 +662,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		{
 			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
 			if(ret)	return ret;
-			ret = _AssertRegType(Block, vreg, Node->DefVar.DataType);
+			ret = _AssertRegType(Block, Node->DefVar.InitialValue, vreg, Node->DefVar.DataType);
 			if(ret < 0)	return -1;
 			
 			const tVariable *var = BC_Variable_Lookup(Block, Node, Node->DefVar.Name, TYPE_VOID);
@@ -642,7 +679,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		{
 			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
 			if(ret)	return ret;
-			ret = _AssertRegType(Block, vreg, Node->DefVar.DataType);
+			ret = _AssertRegType(Block, Node->DefVar.InitialValue, vreg, Node->DefVar.DataType);
 			if(ret < 0)	return -1;
 			
 			 int	slot;
@@ -662,53 +699,25 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		break;
 	
 	// Element of an Object
-	case NODETYPE_ELEMENT:
+	case NODETYPE_ELEMENT: {
 		ret = AST_ConvertNode( Block, Node->Scope.Element, &rreg );
 		if(ret)	return ret;
 
 		ret = _GetRegisterInfo(Block, rreg, &type, &ident);
 		if(ret)	return ret;
 
-		if( type.ArrayDepth || type.Def == NULL ) {
-			AST_RuntimeError(Node, "NT_ELEMENT on Array/void");
-			return -1;
-		}
-		else if( type.Def->Class == SS_TYPECLASS_NCLASS ) {
-			nc = type.Def->NClass;
-			for( i = 0; i < nc->NAttributes; i ++ ) {
-				if( strcmp(Node->Scope.Name, nc->AttributeDefs[i].Name) == 0 )
-					break;
-			}
-			if( i == nc->NAttributes )
-				AST_RuntimeError(Node, "Class %s does not have an attribute '%s'",
-					nc->Name, Node->Scope.Name);
-			type2 = nc->AttributeDefs[i].Type;
-		}
-		else if( type.Def->Class == SS_TYPECLASS_SCLASS ) {
-			sc = type.Def->SClass;
-			tScript_Var *at;
-			for( at = sc->FirstProperty; at; at = at->Next )
-			{
-				if( strcmp(Node->Scope.Name, at->Name) == 0 )
-					break;
-			}
-			if( !at )
-				AST_RuntimeError(Node, "Class %s does not have an attribute '%s'",
-					sc->Name, Node->Scope.Name);
-			type2 = at->Type;
-		}
-		else {
-			AST_RuntimeError(Node, "Getting element of non-class type %i", ret);
-		}
+		// Find type of the element
+		int index = BC_int_GetElement(Block, Node, type, Node->Scope.Name, &type2);
+		if(index < 0)	return index;
 
 		ret = _AllocateRegister(Block, Node, type2, NULL, &vreg);
 		if(ret)	return ret;
-		// TODO: Don't save the element name, instead store the index into the attribute array
-		Bytecode_AppendElement(Block->Func->Handle, vreg, rreg, Node->Scope.Name);
+		
+		Bytecode_AppendElement(Block->Func->Handle, vreg, rreg, index);
 		_ReleaseRegister(Block, rreg);
 		
 		SET_RESULT(vreg, 1);
-		break;
+		break; }
 
 	// Cast a value to another
 	case NODETYPE_CAST:
@@ -732,7 +741,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// - Offset
 		ret = AST_ConvertNode(Block, Node->BinOp.Right, &reg2);
 		if(ret)	return ret;
-		ret = _AssertRegType(Block, reg2, TYPE_INTEGER);
+		ret = _AssertRegType(Block, Node->BinOp.Right, reg2, TYPE_INTEGER);
 		if(ret)	return ret;
 
 		if(SS_GETARRAYDEPTH(type) != 0)
@@ -917,7 +926,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		Block->NullType = type;
 		ret = AST_ConvertNode(Block, Node->BinOp.Right, &reg2);
 		if(ret)	return ret;
-		ret = _AssertRegType(Block, reg2, type);
+		ret = _AssertRegType(Block, Node->BinOp.Right, reg2, type);
 		if(ret)	return ret;
 		
 		ret = _AllocateRegister(Block, Node, TYPE_BOOLEAN, NULL, &rreg);
@@ -1024,7 +1033,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 					// Cast into temp register
 					tRegister	casted_reg;
 					BC_CastValue(Block, Node, tgt_type, reg2, &casted_reg);
-					ret = _AssertRegType(Block, casted_reg, tgt_type);
+					ret = _AssertRegType(Block, Node, casted_reg, tgt_type);
 					if(ret)	return ret;
 					// Release old righthand reg and replace with casted
 					_ReleaseRegister(Block, reg2);
@@ -1393,16 +1402,16 @@ int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tReg
 	switch(type.Def->Core)
 	{
 	case SS_DATATYPE_BOOLEAN:
-		Bytecode_AppendBinOpInt(Block, Op, rreg, reg1, reg2);
+		Bytecode_AppendBinOpInt(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	case SS_DATATYPE_INTEGER:
-		Bytecode_AppendBinOpInt(Block, Op, rreg, reg1, reg2);
+		Bytecode_AppendBinOpInt(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	case SS_DATATYPE_REAL:
-		Bytecode_AppendBinOpReal(Block, Op, rreg, reg1, reg2);
+		Bytecode_AppendBinOpReal(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	case SS_DATATYPE_STRING:
-		Bytecode_AppendBinOpString(Block, Op, rreg, reg1, reg2);
+		Bytecode_AppendBinOpString(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	default:
 		assert(0);
@@ -1410,9 +1419,50 @@ int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tReg
 	return 0;
 }
 
+int BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef ObjType, const char *Name, tSpiderTypeRef *EleType)
+{
+	if(!ObjType.Def)
+	{
+		AST_RuntimeError(Node, "BUG Accessing element of void");
+		return -2;
+	}
+	else if(ObjType.Def->Class == SS_TYPECLASS_NCLASS)
+	{
+		tSpiderClass *nc = ObjType.Def->NClass;
+		for( int i = 0; i < nc->NAttributes; i ++ )
+		{
+			if( strcmp(Name, nc->AttributeDefs[i].Name) == 0 ) {
+				*EleType = nc->AttributeDefs[i].Type;
+				return i;
+			}
+		}
+		AST_RuntimeError(Node, "Class %s does not have an attribute %s", nc->Name, Name);
+		return -2;
+	}
+	else if(ObjType.Def->Class == SS_TYPECLASS_SCLASS)
+	{
+		tScript_Class	*sc  = ObjType.Def->SClass;
+		for( int i = 0; i < sc->nProperties; i ++ )
+		{
+			if( strcmp(Name, sc->Properties[i]->Name) == 0 ) {
+				*EleType = sc->Properties[i]->Type;
+				return i;
+			}
+		}
+		AST_RuntimeError(Node, "Class %s does not have an attribute %s", sc->Name, Name);
+		return -2;
+	}
+	else {
+		AST_RuntimeError(Node, "Setting element of non-class type %s",
+			SpiderScript_GetTypeName(Block->Func->Script, ObjType) );
+		return -2;
+	}
+	
+}
+
 int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister ValReg)
 {
-	 int	ret, i;
+	 int	ret;
 	tSpiderTypeRef	type;
 	tRegister	objreg, idxreg;
 
@@ -1442,11 +1492,11 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister ValReg)
 		// Offset/index
 		ret = AST_ConvertNode(Block, DestNode->BinOp.Right, &idxreg);
 		if(ret)	return ret;
-		ret = _AssertRegType(Block, idxreg, TYPE_INTEGER);
+		ret = _AssertRegType(Block, DestNode->BinOp.Right, idxreg, TYPE_INTEGER);
 		if(ret)	return ret;
 
 		// Assignment value
-		ret = _AssertRegType(Block, ValReg, type);
+		ret = _AssertRegType(Block, DestNode, ValReg, type);
 		if(ret)	return ret;
 		// TODO: If `ValReg` is void, then it may have been `null`
 		
@@ -1455,69 +1505,23 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister ValReg)
 		_ReleaseRegister(Block, idxreg);
 		break;
 	// Object element
-	case NODETYPE_ELEMENT:
+	case NODETYPE_ELEMENT: {
 		ret = AST_ConvertNode(Block, DestNode->Scope.Element, &objreg);
 		if(ret)	return ret;
 		ret = _GetRegisterInfo(Block, objreg, &type, NULL);
 		if(ret)	return ret;
 
-		if(type.ArrayDepth)
-		{
-			AST_RuntimeError(DestNode, "Attempting to access object element of array");
-			return -2;
-		}
-		if(!type.Def)
-		{
-			AST_RuntimeError(DestNode, "BUG Accessing element of undefined object");
-			return -2;
-		}
-
 		// Find type of the element
-		if(type.Def->Class == SS_TYPECLASS_NCLASS)
-		{
-			tSpiderClass *nc = type.Def->NClass;
-			for( i = 0; i < nc->NAttributes; i ++ ) {
-				if( strcmp(DestNode->Scope.Name, nc->AttributeDefs[i].Name) == 0 )
-					break;
-			}
-			if( i == nc->NAttributes ) {
-				AST_RuntimeError(DestNode, "Class %s does not have an attribute %s",
-					nc->Name, DestNode->Scope.Name);
-				return -2;
-			}
-			type = nc->AttributeDefs[i].Type;
-		}
-		else if(type.Def->Class == SS_TYPECLASS_SCLASS)
-		{
-			tScript_Class	*sc  = type.Def->SClass;
-			tScript_Var *at;
-			for( at = sc->FirstProperty; at; at = at->Next )
-			{
-				if( strcmp(DestNode->Scope.Name, at->Name) == 0 )
-					break;
-			}
-			if( !at ) {
-				AST_RuntimeError(DestNode, "Class %s does not have an attribute %s",
-					sc->Name, DestNode->Scope.Name);
-				return -2;
-			}
-			type = at->Type;
-		}
-		else {
-			AST_RuntimeError(DestNode, "Setting element of non-class type %s",
-				SpiderScript_GetTypeName(Block->Func->Script, type) );
-			return -2;
-		}
-
-		// Assignment
-		ret = _AssertRegType(Block, ValReg, type);
+		int index = BC_int_GetElement(Block, DestNode, type, DestNode->Scope.Name, &type);
+		if(index<0)	return index;
+		// Check types
+		ret = _AssertRegType(Block, DestNode, ValReg, type);
 		if(ret)	return ret;
 		// TODO: Same as before, may need to handle `null`
 		
-		// TODO: Resolve .Name now instead of later
-		Bytecode_AppendSetElement( Block->Func->Handle, objreg, DestNode->Scope.Name, ValReg );
+		Bytecode_AppendSetElement( Block->Func->Handle, objreg, index, ValReg );
 		_ReleaseRegister(Block, objreg);
-		break;
+		break; }
 	// Anything else
 	default:
 		AST_RuntimeError(DestNode, "Assignment target is not a LValue");
@@ -1630,7 +1634,7 @@ const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
 		//		Name, SpiderScript_GetTypeName(Block->Func->Script, CreateType));
 		//	#endif
 		//}
-		if( Node->Type != NODETYPE_DEFGLOBAL )
+		if( Node->Type != NODETYPE_DEFGLOBAL && Node->Type != NODETYPE_DEFVAR )
 		{
 			AST_RuntimeError(Node, "Variable '%s' is undefined", Name);
 		}
@@ -1680,7 +1684,11 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 	var->Next = Block->FirstVar;
 	Block->FirstVar = var;
 	
-	Bytecode_AppendDefineVar(Block->Func->Handle, reg, Name, Type);
+	Bytecode_AppendDefineVar(Block->Func->Handle, reg, Name, Type);	
+
+	printf("Defined variable %s as type %s\n",
+		Name, SpiderScript_GetTypeName(Block->Func->Script, Type));
+
 	return 0;
 }
 
@@ -1753,7 +1761,7 @@ int BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister Va
 		const tScript_Var *global = BC_Variable_LookupGlobal(Block, VarNode, VarNode->Variable.Name, &index);
 		if( global )
 		{
-			ret = _AssertRegType(Block, ValReg, global->Type);
+			ret = _AssertRegType(Block, VarNode, ValReg, global->Type);
 			if(ret)	return ret;
 			Bytecode_AppendSaveGlobal(Block->Func->Handle, index, ValReg);
 			return 0;
@@ -1799,6 +1807,23 @@ int BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister *V
 	return 0;
 }
 
+void BC_Variable_Delete(tAST_BlockInfo *Block, tVariable *Var)
+{
+	if( Var == Block->FirstVar ) {
+		Block->FirstVar = Var->Next;
+	}
+	else {
+		for( tVariable *prev = Block->FirstVar; prev; prev = prev->Next )
+		{
+			if( prev->Next == Var ) {
+				prev->Next = Var->Next;
+			}
+		}
+	}
+	_ReleaseRegister(Block, Var->Register);
+	free(Var);
+}
+
 void BC_Variable_Clear(tAST_BlockInfo *Block)
 {
 	for( tVariable *var = Block->FirstVar; var; )
@@ -1842,19 +1867,51 @@ void AST_RuntimeError(tAST_Node *Node, const char *Format, ...)
 
 int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, int *RegPtr)
 {
+	for( int i = 0; i < MAX_REGISTERS; i ++ )
+	{
+		struct sRegInfo	*ri = &Block->Func->Registers[i];
+		if( ri->Type.Def == NULL )
+		{
+			ri->Type = Type;
+			ri->Info = Info;
+			*RegPtr = i;
+			return 0;
+		}
+	}
+	AST_RuntimeError(Node, "Out of avaliable registers");
 	return 1;
 }
 int _GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, void **Info)
 {
-	return 1;
+	assert(Register >= 0);
+	assert(Register < MAX_REGISTERS);
+	struct sRegInfo	*ri = &Block->Func->Registers[Register];
+	*Type = ri->Type;
+	*Info = ri->Info;
+	return 0;
 }
-int _AssertRegType(tAST_BlockInfo *Block, int Register, tSpiderTypeRef Type)
+int _AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, int Register, tSpiderTypeRef Type)
 {
-	return 1;
+	struct sRegInfo	*ri = &Block->Func->Registers[Register];
+	if( !SS_TYPESEQUAL(ri->Type, Type) ) {
+		AST_RuntimeError(Node, "Type mismatch, expected %s got %s",
+			SpiderScript_GetTypeName(Block->Func->Script, Type),
+			SpiderScript_GetTypeName(Block->Func->Script, ri->Type)
+			);
+		return 1;
+	}
+	return 0;
 }
 int _ReleaseRegister(tAST_BlockInfo *Block, int Register)
 {
-	return 1;
+	assert(Register >= 0);
+	assert(Register < MAX_REGISTERS);
+	struct sRegInfo	*ri = &Block->Func->Registers[Register];
+	if( SS_ISTYPEREFERENCE(ri->Type) ) {
+		// TODO: Emit dereference
+	}
+	ri->Type.Def = NULL;
+	return 0;
 }
 
 tSpiderTypeRef _GetCoreType(tSpiderScript_CoreType CoreType)
