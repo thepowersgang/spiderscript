@@ -50,12 +50,14 @@ typedef struct sAST_FuncInfo
 	void	*Handle;
 	tSpiderScript	*Script;
 	
+	 int	MaxRegisters;
 	 int	NumAllocatedRegs;
 	struct {
 		tSpiderTypeRef	Type;
 		void	*Info;
 	}	Registers[MAX_REGISTERS];	// Stores types of stack values
 
+	 int	MaxGlobals;
 	 int	NumGlobals;	
 	tScript_Var	*ImportedGlobals[MAX_GLOBALS];	
 } tAST_FuncInfo;
@@ -64,8 +66,8 @@ typedef struct sAST_BlockInfo
 	struct sAST_BlockInfo	*Parent;
 	tAST_FuncInfo	*Func;
 	 int	Level;
-	 int	GlobalLevel;	// Number of globals in-scope when block was entered
-	 int	RegisterLevel;	// Same for registers (sanity check)
+	 int	OrigNumGlobals;	// Number of globals in-scope when block was entered
+	 int	OrigNumAllocatedRegs;	// Same for registers (sanity check)
 	const char	*Tag;
 
 	 int	BreakTarget;
@@ -221,8 +223,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			tAST_BlockInfo	blockInfo = {0};
 			blockInfo.Parent = Block;
 			blockInfo.Func = Block->Func;
-			blockInfo.GlobalLevel = Block->Func->NumGlobals;
-			blockInfo.NumAllocatedRegs = Block->Func->NumAllocatedRegs;
+			blockInfo.OrigNumGlobals = Block->Func->NumGlobals;
+			blockInfo.OrigNumAllocatedRegs = Block->Func->NumAllocatedRegs;
 			// Loop over all nodes, or until the return value is set
 			for(node = Node->Block.FirstChild;
 				node;
@@ -236,12 +238,12 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 			
 			BC_Variable_Clear(&blockInfo);
-			if(blockInfo.NumAllocatedRegs != Block->Func->NumAllocatedRegs) {
+			if(blockInfo.OrigNumAllocatedRegs != Block->Func->NumAllocatedRegs) {
 				AST_RuntimeMessage(Node, "bug", "Leaked registers");
 			}
 			// Clean up imported globals
-			assert(Block->Func->NumGlobals >= blockInfo.GlobalLevel);
-			for( int i = blockInfo.GlobalLevel; i < Block->Func->NumGlobals; i ++ )
+			assert(Block->Func->NumGlobals >= blockInfo.OrigNumGlobals);
+			for( int i = blockInfo.OrigNumGlobals; i < Block->Func->NumGlobals; i ++ )
 				Block->Func->ImportedGlobals[i] = NULL;
 		}
 		Bytecode_AppendLeaveContext(Block->Func->Handle);	// Leave this context
@@ -1378,8 +1380,12 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 
 int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tRegister reg2)
 {
+	 int	ret;
 	tSpiderTypeRef	type;
 
+	ret = _GetRegisterInfo(Block, reg1, &type, NULL);
+	if(ret)	return ret;
+	
 	assert(type.ArrayDepth == 0);
 	assert(type.Def);
 	assert(type.Def->Class == SS_TYPECLASS_CORE);
@@ -1690,14 +1696,16 @@ int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpid
 		return -1;
 	}
 
-	// Find a free slot
-	 int	slot;
-	for( slot = 0; slot < MAX_GLOBALS && Block->Func->ImportedGlobals[slot]; slot ++ )
-		;
-	if( slot == MAX_GLOBALS ) {
+	// Globals cannot be de-scoped except by a block closing
+	// - This allows a simple allocation scheme (and simplifies cleanup)
+	if( Block->Func->NumGlobals == MAX_GLOBALS ) {
 		AST_RuntimeError(DefNode, "Too many globals in function, %i max", MAX_GLOBALS);
 		return -1;
 	}
+	int slot = Block->Func->NumGlobals;
+	Block->Func->NumGlobals ++;
+	if( Block->Func->MaxGlobals < Block->Func->NumGlobals )
+		Block->Func->MaxGlobals = Block->Func->NumGlobals;
 
 	tSpiderScript	*const script = Block->Func->Script;
 	// Locate the global in the script
@@ -1831,6 +1839,23 @@ void AST_RuntimeError(tAST_Node *Node, const char *Format, ...)
 	fprintf(stderr, "\n");
 }
 #endif
+
+int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, int *RegPtr)
+{
+	return 1;
+}
+int _GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, void **Info)
+{
+	return 1;
+}
+int _AssertRegType(tAST_BlockInfo *Block, int Register, tSpiderTypeRef Type)
+{
+	return 1;
+}
+int _ReleaseRegister(tAST_BlockInfo *Block, int Register)
+{
+	return 1;
+}
 
 tSpiderTypeRef _GetCoreType(tSpiderScript_CoreType CoreType)
 {

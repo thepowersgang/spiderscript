@@ -28,32 +28,19 @@ tBC_Op	*Bytecode_int_AllocateOp(int Operation, int ExtraBytes);
 tBC_Function *Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *Fcn)
 {
 	tBC_Function *ret;
-	 int	i;
 
 	ret = calloc(sizeof(tBC_Function), 1);
 	if(!ret)	return NULL;
 	ret->Script = Script;
-	
-#if 0
-	ret->LabelSpace = ret->LabelCount = 0;
-	ret->Labels = NULL;
-
-	ret->MaxVariableCount = 0;
-	ret->CurContextDepth = 0;	
-	ret->VariableCount = ret->VariableSpace = 0;
-	ret->VariableNames = NULL;
-
-	ret->OperationCount = 0;
-	ret->Operations = NULL;
-#endif
 	ret->OperationsEnd = (void*)&ret->Operations;
 
-	for( i = 0; i < Fcn->ArgumentCount; i ++ )
-	{
-		Bytecode_int_AddVariable(ret, Fcn->Arguments[i].Name);
-	}
-
 	return ret;
+}
+
+int Bytecode_CommitFunction(tBC_Function *Fcn)
+{
+	
+	return 0;
 }
 
 void Bytecode_DeleteFunction(tBC_Function *Fcn)
