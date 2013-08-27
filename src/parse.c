@@ -1252,7 +1252,7 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 		return Parse_GetNumeric(Parser);
 	case TOK_REAL:
 		GetToken(Parser);
-		return AST_NewReal( Parser, atof(Parser->TokenStr) );
+		return AST_NewReal( Parser, strtod(Parser->TokenStr, NULL) );
 
 	case TOK_RWD_TRUE:
 		GetToken(Parser);
