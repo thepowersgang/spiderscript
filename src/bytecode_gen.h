@@ -8,27 +8,28 @@
 #ifndef _BYTECODE_V2_H
 #define _BYTECODE_V2_H
 
-enum {
+enum eBC_UniOp {
 	UNIOP_LOGICNOT,
 	UNIOP_BITNOT,
 	UNIOP_NEG
 };
-enum {
+enum eBC_BinOp {
 	BINOP_LOGICAND,
 	BINOP_LOGICOR,
 	BINOP_LOGICXOR,
-	BINOP_EQUALS,
-	BINOP_NOTEQUALS,
-	BINOP_LESSTHAN,
-	BINOP_LESSTHANOREQUAL,
-	BINOP_GREATERTHAN,
-	BINOP_GREATERTHANOREQUAL,
+	
+	BINOP_EQ,
+	BINOP_NE,
+	BINOP_LT,
+	BINOP_LE,
+	BINOP_GT,
+	BINOP_GE,
 	
 	BINOP_ADD,
-	BINOP_SUBTRACT,
-	BINOP_MULTIPLY,
-	BINOP_DIVIDE,
-	BINOP_MODULO,
+	BINOP_SUB,
+	BINOP_MUL,
+	BINOP_DIV,
+	BINOP_MOD,
 	BINOP_BITAND,
 	BINOP_BITOR,
 	BINOP_BITXOR,
@@ -40,7 +41,7 @@ enum {
 extern int	Bytecode_int_GetTypeIdx(tSpiderScript *Script, tSpiderTypeRef Type);
 
 extern tBC_Function	*Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *ScriptFcn);
-extern  int	Bytecode_CommitFunction(tBC_Function *Handle);
+extern  int	Bytecode_CommitFunction(tBC_Function *Handle, int MaxReg, int MaxGlobal);
 extern void	Bytecode_DeleteFunction(tBC_Function *Handle);
 
 extern void	Bytecode_AppendEnterContext(tBC_Function *Handle);

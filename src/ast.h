@@ -201,6 +201,7 @@ extern size_t	AST_WriteScript(void *Buffer, tSpiderScript *Script);
 extern size_t	AST_WriteNode(void *Buffer, size_t Offset, tAST_Node *Node);
 
 extern tScript_Class	*AST_AppendClass(tParser *Parser, const char *Name);
+extern int	AST_FinaliseClass(tParser *Parser, tScript_Class *Class);
 extern int	AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type);
 extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
 extern int	AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);

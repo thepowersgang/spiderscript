@@ -15,6 +15,8 @@
 #include "bytecode.h"
 #include <assert.h>
 
+#define BUG(str, v...)	fprintf(stderr, "BUG %s:%i: "str"\n", __FILE__,__LINE__,## v)
+
 // === IMPORTS ===
 
 // === STRUCTURES ===
@@ -25,8 +27,86 @@ tBC_Op	*Bytecode_int_AllocateOp(enum eBC_Ops Operation, int ExtraBytes);
 
 // === GLOBALS ===
 const enum eOpEncodingType caOpEncodingTypes[] = {
+	[BC_OP_NOP] = BC_OPENC_NOOPRS,
 	[BC_OP_ENTERCONTEXT] = BC_OPENC_NOOPRS,
 	[BC_OP_LEAVECONTEXT] = BC_OPENC_NOOPRS,
+
+	[BC_OP_TAGREGISTER] = BC_OPENC_STRING,
+	[BC_OP_IMPORTGLOBAL] = BC_OPENC_STRING,
+	[BC_OP_GETGLOBAL] = BC_OPENC_REG2,
+	[BC_OP_SETGLOBAL] = BC_OPENC_REG2,
+
+	[BC_OP_LOADNULLREF] = BC_OPENC_REG2,
+	[BC_OP_LOADINT] = BC_OPENC_UNK,
+	[BC_OP_LOADREAL] = BC_OPENC_UNK,
+	[BC_OP_LOADSTRING] = BC_OPENC_STRING,
+
+	[BC_OP_RETURN] = BC_OPENC_REG1,
+	[BC_OP_MOV] = BC_OPENC_REG2,
+	[BC_OP_REFEQ]  = BC_OPENC_REG3,
+	[BC_OP_REFNEQ] = BC_OPENC_REG3,
+	
+	[BC_OP_JUMP]      = BC_OPENC_REG1,
+	[BC_OP_JUMPIF]    = BC_OPENC_REG2,
+	[BC_OP_JUMPIFNOT] = BC_OPENC_REG2,
+
+	[BC_OP_CREATEARRAY] = BC_OPENC_REG3,
+	[BC_OP_CREATEOBJ]    = BC_OPENC_UNK,
+	[BC_OP_CALLFUNCTION] = BC_OPENC_UNK,
+	[BC_OP_CALLMETHOD]   = BC_OPENC_UNK,
+
+	[BC_OP_GETINDEX] = BC_OPENC_REG3,
+	[BC_OP_SETINDEX] = BC_OPENC_REG3,
+	[BC_OP_GETELEMENT] = BC_OPENC_REG3,
+	[BC_OP_SETELEMENT] = BC_OPENC_REG3,
+
+	[BC_OP_CAST] = BC_OPENC_REG3,
+
+	[BC_OP_INT_NEG]    = BC_OPENC_REG2,
+	[BC_OP_INT_BITNOT] = BC_OPENC_REG2,
+	
+	[BC_OP_INT_BITAND] = BC_OPENC_REG3,
+	[BC_OP_INT_BITOR] = BC_OPENC_REG3,
+	[BC_OP_INT_BITXOR] = BC_OPENC_REG3,
+
+	[BC_OP_INT_BITSHIFTLEFT] = BC_OPENC_REG3,
+	[BC_OP_INT_BITSHIFTRIGHT] = BC_OPENC_REG3,
+	[BC_OP_INT_BITROTATELEFT] = BC_OPENC_REG3,
+	[BC_OP_INT_ADD] = BC_OPENC_REG3,
+	[BC_OP_INT_SUBTRACT] = BC_OPENC_REG3,
+	[BC_OP_INT_MULTIPLY] = BC_OPENC_REG3,
+	[BC_OP_INT_DIVIDE] = BC_OPENC_REG3,
+	[BC_OP_INT_MODULO] = BC_OPENC_REG3,
+
+	[BC_OP_INT_EQUALS] = BC_OPENC_REG3,
+	[BC_OP_INT_NOTEQUALS] = BC_OPENC_REG3,
+	[BC_OP_INT_LESSTHAN] = BC_OPENC_REG3,
+	[BC_OP_INT_LESSTHANEQ] = BC_OPENC_REG3,
+	[BC_OP_INT_GREATERTHAN] = BC_OPENC_REG3,
+	[BC_OP_INT_GREATERTHANEQ] = BC_OPENC_REG3,
+
+	[BC_OP_REAL_NEG] = BC_OPENC_REG2,
+	
+	[BC_OP_REAL_ADD]      = BC_OPENC_REG3,
+	[BC_OP_REAL_SUBTRACT] = BC_OPENC_REG3,
+	[BC_OP_REAL_MULTIPLY] = BC_OPENC_REG3,
+	[BC_OP_REAL_DIVIDE]   = BC_OPENC_REG3,
+	[BC_OP_REAL_EQUALS] = BC_OPENC_REG3,
+	[BC_OP_REAL_NOTEQUALS] = BC_OPENC_REG3,
+	[BC_OP_REAL_LESSTHAN] = BC_OPENC_REG3,
+	[BC_OP_REAL_LESSTHANEQ] = BC_OPENC_REG3,
+	[BC_OP_REAL_GREATERTHAN] = BC_OPENC_REG3,
+	[BC_OP_REAL_GREATERTHANEQ] = BC_OPENC_REG3,
+
+	[BC_OP_STR_EQUALS] = BC_OPENC_REG3,
+	[BC_OP_STR_NOTEQUALS] = BC_OPENC_REG3,
+	[BC_OP_STR_LESSTHAN] = BC_OPENC_REG3,
+	[BC_OP_STR_LESSTHANEQ] = BC_OPENC_REG3,
+	[BC_OP_STR_GREATERTHAN] = BC_OPENC_REG3,
+	[BC_OP_STR_GREATERTHANEQ] = BC_OPENC_REG3,
+	
+	[BC_OP_STR_ADD] = BC_OPENC_REG3,
+
 	[BC_OP_EXCEPTION_POP] = BC_OPENC_NOOPRS,
 };
 
@@ -43,9 +123,10 @@ tBC_Function *Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *F
 	return ret;
 }
 
-int Bytecode_CommitFunction(tBC_Function *Fcn)
+int Bytecode_CommitFunction(tBC_Function *Fcn, int MaxReg, int MaxGlobal)
 {
-	
+	Fcn->MaxRegisters = MaxReg;
+	Fcn->MaxGlobalCount = MaxGlobal;
 	return 0;
 }
 
@@ -58,8 +139,6 @@ void Bytecode_DeleteFunction(tBC_Function *Fcn)
 		free(op);
 		op = nextop;
 	}
-	if( Fcn->GlobalNames )
-		free(Fcn->GlobalNames);
 	free(Fcn->Labels);
 	free(Fcn);
 }
@@ -161,7 +240,7 @@ tBC_Op *Bytecode_int_AllocateOp(enum eBC_Ops Operation, int ExtraBytes)
 
 #define DEF_BC_NONE(_op) {\
 	tBC_Op *op = Bytecode_int_AllocateOp(_op, 0); \
-	if(!Bytecode_int_OpIsNoOprs(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
+	if(!Bytecode_int_OpIsNoOprs(_op)) BUG("Encoding of %s not 'NOOPR'",#_op); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 #define DEF_BC_RIn(_op,n,reg1,reg2,reg3) { \
@@ -169,7 +248,7 @@ tBC_Op *Bytecode_int_AllocateOp(enum eBC_Ops Operation, int ExtraBytes)
 	op->DstReg = reg1; \
 	op->Content.RegInt.RegInt2 = reg2; \
 	op->Content.RegInt.RegInt3 = reg3; \
-	if(!Bytecode_int_OpIsRegInt##n(_op)) printf("%s:%i - op BUG\n",__FILE__,__LINE__); \
+	if(!Bytecode_int_OpIsRegInt##n(_op)) BUG("Encoding of %s not 'RI"#n"'",#_op); \
 	Bytecode_int_AppendOp(Handle, op);\
 }
 #define DEF_BC_RI1(_op,reg1)	DEF_BC_RIn(_op,1,reg1,0,0)
@@ -255,8 +334,87 @@ void Bytecode_AppendCast(tBC_Function *Handle, int DstReg, tSpiderScript_CoreTyp
 	DEF_BC_RI3(BC_OP_CAST, DstReg, Type, SrcReg)
 void Bytecode_AppendMov(tBC_Function *Handle, int DstReg, int SrcReg)
 	DEF_BC_RI2(BC_OP_MOV, DstReg, SrcReg)
+//void Bytecode_AppendDeref(tBC_Function *Handle, int Reg)
+//	DEF_BC_RI1(BC_OP_DEREF, Reg)
+enum eBC_Ops Bytecode_int_GetBinOpInt(enum eBC_BinOp Op)
+{
+	switch(Op)
+	{
+	case BINOP_EQ:	return BC_OP_INT_EQUALS;
+	case BINOP_NE:	return BC_OP_INT_NOTEQUALS;
+	case BINOP_LT:	return BC_OP_INT_LESSTHAN;
+	case BINOP_LE:	return BC_OP_INT_LESSTHANEQ;
+	case BINOP_GT:	return BC_OP_INT_GREATERTHAN;
+	case BINOP_GE:	return BC_OP_INT_GREATERTHANEQ;
+	
+	case BINOP_ADD: 	return BC_OP_INT_ADD;
+	case BINOP_SUB: 	return BC_OP_INT_SUBTRACT;
+	case BINOP_MUL: 	return BC_OP_INT_MULTIPLY;
+	case BINOP_DIV: 	return BC_OP_INT_DIVIDE;
+	case BINOP_MOD: 	return BC_OP_INT_MODULO;
+	default:
+		BUG("BinOpInt %i unhandled", Op);
+		return BC_OP_NOP;
+	}
+}
+void Bytecode_AppendBinOpInt(tBC_Function *Handle, int Op, int DstReg, int Reg1, int Reg2)
+	DEF_BC_RI3(Bytecode_int_GetBinOpInt(Op), DstReg, Reg1, Reg2)
+enum eBC_Ops Bytecode_int_GetBinOpReal(enum eBC_BinOp Op)
+{
+	switch(Op)
+	{
+	case BINOP_ADD: return BC_OP_REAL_ADD;
+	case BINOP_SUB:	return BC_OP_REAL_SUBTRACT;
+	case BINOP_MUL:	return BC_OP_REAL_MULTIPLY;
+	case BINOP_DIV:	return BC_OP_REAL_DIVIDE;
+	default:
+		BUG("BinOpReal %i unhandled", Op);
+		return BC_OP_NOP;
+	}
+}
+void Bytecode_AppendBinOpReal(tBC_Function *Handle, int Op, int DstReg, int Reg1, int Reg2)
+	DEF_BC_RI3(Bytecode_int_GetBinOpReal(Op), DstReg, Reg1, Reg2)
+enum eBC_Ops Bytecode_int_GetBinOpStr(enum eBC_BinOp Op)
+{
+	switch(Op)
+	{
+	case BINOP_ADD:	return BC_OP_STR_ADD;
+	default:
+		BUG("BinOpStr %i unhandled", Op);
+		return BC_OP_NOP;
+	}
+}
+void Bytecode_AppendBinOpString(tBC_Function *Handle, int Op, int DstReg, int Reg1, int Reg2)
+	DEF_BC_RI3(Bytecode_int_GetBinOpStr(Op), DstReg, Reg1, Reg2)
+enum eBC_Ops Bytecode_int_GetBinOpRef(enum eBC_BinOp Op)
+{
+	switch(Op)
+	{
+	case BINOP_EQ:	return BC_OP_REFEQ;
+	case BINOP_NE:	return BC_OP_REFNEQ;
+	default:
+		BUG("BinOpRef %i unhandled", Op);
+		return BC_OP_NOP;
+	}
+}
+void Bytecode_AppendBinOpRef(tBC_Function *Handle, int Op, int DstReg, int Reg1, int Reg2)
+	DEF_BC_RI3(Bytecode_int_GetBinOpRef(Op), DstReg, Reg1, Reg2)
 
-// Does some bookeeping to allocate variable slots at compile time
+void Bytecode_AppendFloatNegate(tBC_Function *Handle, int DstReg, int SrcReg)
+	DEF_BC_RI2(BC_OP_REAL_NEG, DstReg, SrcReg)
+enum eBC_Ops Bytecode_int_GetUniOpInt(enum eBC_UniOp Op)
+{
+	switch(Op)
+	{
+	case UNIOP_BITNOT:	return BC_OP_INT_BITNOT;
+	case UNIOP_NEG: 	return BC_OP_INT_NEG;
+	default:
+		BUG("UniOpInt %i unhandled", Op);
+		return BC_OP_NOP;
+	}
+}
+void Bytecode_AppendUniInt(tBC_Function *Handle, int Op, int DstReg, int SrcReg)
+	DEF_BC_RI2(Bytecode_int_GetUniOpInt(Op), DstReg, SrcReg)
 void Bytecode_AppendEnterContext(tBC_Function *Handle)
 	DEF_BC_NONE(BC_OP_ENTERCONTEXT)
 void Bytecode_AppendLeaveContext(tBC_Function *Handle)
@@ -264,7 +422,7 @@ void Bytecode_AppendLeaveContext(tBC_Function *Handle)
 
 void Bytecode_AppendDefineVar(tBC_Function *Handle, int Reg, const char *Name, tSpiderTypeRef Type)
 {
-	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_TAGREGISTER, strlen(Name));
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_TAGREGISTER, strlen(Name)+1);
 	op->DstReg = Reg;
 	op->Content.String.Length = strlen(Name);
 	strcpy(op->Content.String.Data, Name);
@@ -272,7 +430,7 @@ void Bytecode_AppendDefineVar(tBC_Function *Handle, int Reg, const char *Name, t
 }
 void Bytecode_AppendImportGlobal(tBC_Function *Handle, int Slot, const char *Name, tSpiderTypeRef Type)
 {
-	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_TAGREGISTER, strlen(Name));
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_IMPORTGLOBAL, strlen(Name)+1);
 	op->DstReg = Slot;
 	op->Content.String.Length = strlen(Name);
 	strcpy(op->Content.String.Data, Name);

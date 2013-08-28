@@ -82,6 +82,8 @@ typedef struct sAST_BlockInfo
 // === PROTOTYPES ===
 // Node Traversal
  int	AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result);
+ int	BC_PrepareBlock(tAST_BlockInfo *ParentBlock, tAST_BlockInfo *ChildBlock);
+ int	BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInfo *ChildBlock);
  int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[]);
  int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[]);
  int	BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef ObjType, const char *Name, tSpiderTypeRef *EleType);
@@ -168,6 +170,8 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	}
 	BC_Variable_Clear(&bi);
 
+	Bytecode_CommitFunction(ret, fi.MaxRegisters+1, fi.MaxGlobals+1);
+
 	// TODO: Detect reaching the end of non-void
 //	Bytecode_AppendConstInt(ret, 0);
 //	Bytecode_AppendReturn(ret);
@@ -184,7 +188,9 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	} \
 } while(0)
 #define SET_RESULT(reg, b_warn)	do { \
-	if(ResultRegister) *ResultRegister = reg; \
+	if(ResultRegister) {\
+		*ResultRegister = reg; \
+	} \
 	else { \
 		if(b_warn)	AST_RuntimeMessage(Node, "Bytecode", "Result of operation unused"); \
 		_ReleaseRegister(Block, reg); \
@@ -216,38 +222,21 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		break;
 	
 	// Code block
-	case NODETYPE_BLOCK:
-		Bytecode_AppendEnterContext(Block->Func->Handle);	// Create a new block
+	case NODETYPE_BLOCK: {
+		tAST_BlockInfo	blockInfo = {0};
+		BC_PrepareBlock(Block, &blockInfo);
+		// Loop over all nodes, or until the return value is set
+		for(node = Node->Block.FirstChild; node; node = node->NextSibling )
 		{
-			tAST_BlockInfo	blockInfo = {0};
-			blockInfo.Parent = Block;
-			blockInfo.Func = Block->Func;
-			blockInfo.OrigNumGlobals = Block->Func->NumGlobals;
-			blockInfo.OrigNumAllocatedRegs = Block->Func->NumAllocatedRegs;
-			// Loop over all nodes, or until the return value is set
-			for(node = Node->Block.FirstChild;
-				node;
-				node = node->NextSibling )
-			{
-				ret = AST_ConvertNode(&blockInfo, node, 0);
-				if(ret) {
-					BC_Variable_Clear(&blockInfo);
-					return ret;
-				}
+			ret = AST_ConvertNode(&blockInfo, node, 0);
+			if(ret) {
+				BC_Variable_Clear(&blockInfo);
+				return ret;
 			}
-			
-			BC_Variable_Clear(&blockInfo);
-			if(blockInfo.OrigNumAllocatedRegs != Block->Func->NumAllocatedRegs) {
-				AST_RuntimeMessage(Node, "bug", "Leaked registers");
-			}
-			// Clean up imported globals
-			assert(Block->Func->NumGlobals >= blockInfo.OrigNumGlobals);
-			for( int i = blockInfo.OrigNumGlobals; i < Block->Func->NumGlobals; i ++ )
-				Block->Func->ImportedGlobals[i] = NULL;
 		}
-		Bytecode_AppendLeaveContext(Block->Func->Handle);	// Leave this context
+		BC_FinaliseBlock(Block, Node, &blockInfo);	
 		NO_RESULT();
-		break;
+		} break;
 	
 	// Assignment
 	case NODETYPE_ASSIGN:
@@ -265,10 +254,10 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			{
 			// General Binary Operations
 			case NODETYPE_ADD:	op = BINOP_ADD;	break;
-			case NODETYPE_SUBTRACT:	op = BINOP_SUBTRACT;	break;
-			case NODETYPE_MULTIPLY:	op = BINOP_MULTIPLY;	break;
-			case NODETYPE_DIVIDE:	op = BINOP_DIVIDE;	break;
-			case NODETYPE_MODULO:	op = BINOP_MODULO;	break;
+			case NODETYPE_SUBTRACT:	op = BINOP_SUB;	break;
+			case NODETYPE_MULTIPLY:	op = BINOP_MUL;	break;
+			case NODETYPE_DIVIDE:	op = BINOP_DIV;	break;
+			case NODETYPE_MODULO:	op = BINOP_MOD;	break;
 			case NODETYPE_BWAND:	op = BINOP_BITAND;	break;
 			case NODETYPE_BWOR:	op = BINOP_BITOR;	break;
 			case NODETYPE_BWXOR:	op = BINOP_BITXOR;	break;
@@ -282,7 +271,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 			// TODO: Check if this operation is valid
 			BC_BinOp(Block, op, reg1, reg1, reg2);
-			_ReleaseRegister(Block, rreg);
+			_ReleaseRegister(Block, reg2);
 		}
 		else
 		{
@@ -316,12 +305,12 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		}
 	
 		// Constant 1
-		ret = _AllocateRegister(Block, Node, TYPE_INTEGER, &rreg, NULL);
+		ret = _AllocateRegister(Block, Node, TYPE_INTEGER, NULL, &rreg);
 		if(ret)	return ret;
 		Bytecode_AppendConstInt(Block->Func->Handle, rreg, 1);
 
 		// Operation
-		BC_BinOp(Block, (Node->Type == NODETYPE_POSTDEC ? BINOP_SUBTRACT : BINOP_ADD),
+		BC_BinOp(Block, (Node->Type == NODETYPE_POSTDEC ? BINOP_SUB : BINOP_ADD),
 			vreg, vreg, rreg);
 
 		// Wrieback
@@ -373,6 +362,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		for( int i = 0; i < nargs; i ++ )
 			_ReleaseRegister(Block, argregs[i]);		
 
+		_GetRegisterInfo(Block, vreg, &type, NULL);
 		if( ResultRegister ) {
 			if( type.Def == NULL ) {
 				AST_RuntimeError(Node, "void value not ignored as it aught to be");
@@ -504,9 +494,13 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 
 	// Loop
 	case NODETYPE_LOOP: {
+		
+		tAST_BlockInfo	blockInfo = {0};
+		tAST_BlockInfo	*parentBlock = Block;
+		BC_PrepareBlock(parentBlock, &blockInfo);
+		Block = &blockInfo;
+		
 		 int	loop_start, loop_end, code_end;
-		 int	saved_break, saved_continue;
-		const char	*saved_tag;
 
 		// Initialise
 		ret = AST_ConvertNode(Block, Node->For.Init, NULL);
@@ -516,9 +510,6 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		code_end = Bytecode_AllocateLabel(Block->Func->Handle);
 		loop_end = Bytecode_AllocateLabel(Block->Func->Handle);
 
-		saved_break = Block->BreakTarget;
-		saved_continue = Block->ContinueTarget;
-		saved_tag = Block->Tag;
 		Block->BreakTarget = loop_end;
 		Block->ContinueTarget = code_end;
 		Block->Tag = Node->For.Tag;
@@ -561,9 +552,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 
 		Bytecode_SetLabel(Block->Func->Handle, loop_end);
 
-		Block->BreakTarget = saved_break;
-		Block->ContinueTarget = saved_continue;
-		Block->Tag = saved_tag;
+		Block = parentBlock;
+		BC_FinaliseBlock(Block, Node, &blockInfo);
 		NO_RESULT();
 		} break;
 
@@ -670,6 +660,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			_ReleaseRegister(Block, vreg);
 		}
 		NO_RESULT();
+		break;
 	// Define/Import a global variable
 	case NODETYPE_DEFGLOBAL:
 		ret = BC_Variable_DefImportGlobal(Block, Node, Node->DefVar.DataType, Node->DefVar.Name);
@@ -785,25 +776,26 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	case NODETYPE_BOOLEAN:
 		ret = _AllocateRegister(Block, Node, TYPE_BOOLEAN, NULL, &rreg);
 		if(ret)	return ret;
-		Bytecode_AppendConstInt(Block->Func->Handle, Node->ConstBoolean, rreg);
+		Bytecode_AppendConstInt(Block->Func->Handle, rreg, Node->ConstBoolean);
 		SET_RESULT(rreg, 1);
 		break;
 	case NODETYPE_INTEGER:
 		ret = _AllocateRegister(Block, Node, TYPE_INTEGER, NULL, &rreg);
 		if(ret)	return ret;
-		Bytecode_AppendConstInt(Block->Func->Handle, Node->ConstInt, rreg);
+		Bytecode_AppendConstInt(Block->Func->Handle, rreg, Node->ConstInt);
 		SET_RESULT(rreg, 1);
 		break;
 	case NODETYPE_REAL:
 		ret = _AllocateRegister(Block, Node, TYPE_REAL, NULL, &rreg);
 		if(ret)	return ret;
-		Bytecode_AppendConstReal(Block->Func->Handle, Node->ConstReal, rreg);
+		Bytecode_AppendConstReal(Block->Func->Handle, rreg, Node->ConstReal);
 		SET_RESULT(rreg, 1);
 		break;
 	case NODETYPE_STRING:
 		ret = _AllocateRegister(Block, Node, TYPE_STRING, NULL, &rreg);
 		if(ret)	return ret;
-		Bytecode_AppendConstString(Block->Func->Handle, rreg, Node->ConstString->Data, Node->ConstString->Length);
+		Bytecode_AppendConstString(Block->Func->Handle, rreg,
+			Node->ConstString->Data, Node->ConstString->Length);
 		SET_RESULT(rreg, 1);
 		break;
 	
@@ -892,8 +884,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		break;
 
 	// Reference Stuff
-	case NODETYPE_REFEQUALS:	if(!op)	op = BINOP_EQUALS;
-	case NODETYPE_REFNOTEQUALS:	if(!op)	op = BINOP_NOTEQUALS;
+	case NODETYPE_REFEQUALS:	if(!op)	op = BINOP_EQ;
+	case NODETYPE_REFNOTEQUALS:	if(!op)	op = BINOP_NE;
 
 		// If the left node is NULL, then swap
 		// - Allows "null != FunctionCall()" to work
@@ -940,18 +932,18 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	case NODETYPE_LOGICALOR:	if(!op)	op = BINOP_LOGICOR;
 	case NODETYPE_LOGICALXOR:	if(!op)	op = BINOP_LOGICXOR;
 	// Comparisons
-	case NODETYPE_EQUALS:   	if(!op)	op = BINOP_EQUALS;
-	case NODETYPE_NOTEQUALS:	if(!op)	op = BINOP_NOTEQUALS;
-	case NODETYPE_LESSTHAN: 	if(!op)	op = BINOP_LESSTHAN;
-	case NODETYPE_GREATERTHAN:	if(!op)	op = BINOP_GREATERTHAN;
-	case NODETYPE_LESSTHANEQUAL:	if(!op)	op = BINOP_LESSTHANOREQUAL;
-	case NODETYPE_GREATERTHANEQUAL:	if(!op)	op = BINOP_GREATERTHANOREQUAL;
+	case NODETYPE_EQUALS:   	if(!op)	op = BINOP_EQ;
+	case NODETYPE_NOTEQUALS:	if(!op)	op = BINOP_NE;
+	case NODETYPE_LESSTHAN: 	if(!op)	op = BINOP_LT;
+	case NODETYPE_GREATERTHAN:	if(!op)	op = BINOP_GT;
+	case NODETYPE_LESSTHANEQUAL:	if(!op)	op = BINOP_LE;
+	case NODETYPE_GREATERTHANEQUAL:	if(!op)	op = BINOP_GE;
 	// General Binary Operations
 	case NODETYPE_ADD:	if(!op)	op = BINOP_ADD;
-	case NODETYPE_SUBTRACT:	if(!op)	op = BINOP_SUBTRACT;
-	case NODETYPE_MULTIPLY:	if(!op)	op = BINOP_MULTIPLY;
-	case NODETYPE_DIVIDE:	if(!op)	op = BINOP_DIVIDE;
-	case NODETYPE_MODULO:	if(!op)	op = BINOP_MODULO;
+	case NODETYPE_SUBTRACT:	if(!op)	op = BINOP_SUB;
+	case NODETYPE_MULTIPLY:	if(!op)	op = BINOP_MUL;
+	case NODETYPE_DIVIDE:	if(!op)	op = BINOP_DIV;
+	case NODETYPE_MODULO:	if(!op)	op = BINOP_MOD;
 	case NODETYPE_BWAND:	if(!op)	op = BINOP_BITAND;
 	case NODETYPE_BWOR:	if(!op)	op = BINOP_BITOR;
 	case NODETYPE_BWXOR:	if(!op)	op = BINOP_BITXOR;
@@ -967,7 +959,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// Right
 		ret = AST_ConvertNode(Block, Node->BinOp.Right, &reg2);
 		if(ret)	return ret;
-		ret = _GetRegisterInfo(Block, reg1, &type2, NULL);
+		ret = _GetRegisterInfo(Block, reg2, &type2, NULL);
 		if(ret)	return ret;
 		
 		if( SS_GETARRAYDEPTH(type) != 0 ) {
@@ -1032,7 +1024,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 				{
 					// Cast into temp register
 					tRegister	casted_reg;
-					BC_CastValue(Block, Node, tgt_type, reg2, &casted_reg);
+					ret = BC_CastValue(Block, Node, tgt_type, reg2, &casted_reg);
+					if(ret)	return ret;
 					ret = _AssertRegType(Block, Node, casted_reg, tgt_type);
 					if(ret)	return ret;
 					// Release old righthand reg and replace with casted
@@ -1083,6 +1076,30 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	Block->NullType = TYPE_VOID;
 
 	DEBUGS1("Left NT%i", Node->Type);
+	return 0;
+}
+
+int BC_PrepareBlock(tAST_BlockInfo *Block, tAST_BlockInfo *ChildBlock)
+{
+	Bytecode_AppendEnterContext(Block->Func->Handle);	// Create a new block
+	ChildBlock->Parent = Block;
+	ChildBlock->Func = Block->Func;
+	ChildBlock->OrigNumGlobals = Block->Func->NumGlobals;
+	ChildBlock->OrigNumAllocatedRegs = Block->Func->NumAllocatedRegs;
+	return 0;
+}
+
+int BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInfo *ChildBlock)
+{
+	BC_Variable_Clear(ChildBlock);
+	if(ChildBlock->OrigNumAllocatedRegs != ParentBlock->Func->NumAllocatedRegs) {
+		AST_RuntimeMessage(Node, "bug", "Leaked registers");
+	}
+	// Clean up imported globals
+	assert(ParentBlock->Func->NumGlobals >= ChildBlock->OrigNumGlobals);
+	for( int i = ChildBlock->OrigNumGlobals; i < ParentBlock->Func->NumGlobals; i ++ )
+		ParentBlock->Func->ImportedGlobals[i] = NULL;
+	Bytecode_AppendLeaveContext(ParentBlock->Func->Handle);	// Leave this context
 	return 0;
 }
 
@@ -1558,6 +1575,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 			);
 		return -1;
 	}
+	#if 0
 	// Cast to a string invokes a function call
 	else if( DestType.Def->Core == SS_DATATYPE_STRING ) {
 		const char	*nss[] = {"", NULL};
@@ -1572,6 +1590,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 		free(name);
 		if(ret)	return ret;
 	}
+	#endif
 	else {
 		assert(DstReg);
 		ret = _AllocateRegister(Block, Node, DestType, NULL, DstReg);
@@ -1634,7 +1653,7 @@ const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
 		//		Name, SpiderScript_GetTypeName(Block->Func->Script, CreateType));
 		//	#endif
 		//}
-		if( Node->Type != NODETYPE_DEFGLOBAL && Node->Type != NODETYPE_DEFVAR )
+		if( Node && Node->Type != NODETYPE_DEFGLOBAL && Node->Type != NODETYPE_DEFVAR )
 		{
 			AST_RuntimeError(Node, "Variable '%s' is undefined", Name);
 		}
@@ -1663,7 +1682,7 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 		return -1;
 	}
 
-	if( BC_Variable_Lookup(Block, Node, Name, TYPE_VOID) ) {
+	if( BC_Variable_Lookup(Block, NULL, Name, TYPE_VOID) ) {
 		AST_RuntimeError(Node, "Redefinition of variable '%s'", Name);
 		return -1;
 	}
@@ -1686,8 +1705,8 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 	
 	Bytecode_AppendDefineVar(Block->Func->Handle, reg, Name, Type);	
 
-	printf("Defined variable %s as type %s\n",
-		Name, SpiderScript_GetTypeName(Block->Func->Script, Type));
+//	printf("Defined variable %s as type %s\n",
+//		Name, SpiderScript_GetTypeName(Block->Func->Script, Type));
 
 	return 0;
 }
@@ -1695,7 +1714,7 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name)
 {
 	if( BC_Variable_Lookup(Block, DefNode, Name, TYPE_VOID) ) {
-		AST_RuntimeError(DefNode, "Global %s collides with exising name", Name);
+		AST_RuntimeError(DefNode, "Global '%s' collides with exising name", Name);
 		return -1;
 	}
 	
@@ -1867,6 +1886,7 @@ void AST_RuntimeError(tAST_Node *Node, const char *Format, ...)
 
 int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, int *RegPtr)
 {
+	assert(RegPtr);
 	for( int i = 0; i < MAX_REGISTERS; i ++ )
 	{
 		struct sRegInfo	*ri = &Block->Func->Registers[i];
@@ -1875,6 +1895,8 @@ int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Typ
 			ri->Type = Type;
 			ri->Info = Info;
 			*RegPtr = i;
+			if( i > Block->Func->MaxRegisters )
+				Block->Func->MaxRegisters = i;
 			return 0;
 		}
 	}
@@ -1886,8 +1908,10 @@ int _GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, 
 	assert(Register >= 0);
 	assert(Register < MAX_REGISTERS);
 	struct sRegInfo	*ri = &Block->Func->Registers[Register];
-	*Type = ri->Type;
-	*Info = ri->Info;
+	if( Type )
+		*Type = ri->Type;
+	if( Info )
+		*Info = ri->Info;
 	return 0;
 }
 int _AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, int Register, tSpiderTypeRef Type)

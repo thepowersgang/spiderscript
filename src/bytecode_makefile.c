@@ -14,7 +14,7 @@
 #include <string.h>
 #include <assert.h>
 
-#define MAGIC_STR	"SSBC\r\n\xBC\x56"
+#define MAGIC_STR	"SSBC\r\n\xBC\x57"
 #define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
 
 #define DEBUG	0
@@ -103,7 +103,7 @@ size_t _get_str(t_loadstate *State, char *Dest, int StringID)
 	{
 		off_t saved_pos = ftell(State->FP);
 		fseek(State->FP, State->Strings[StringID].Offset, SEEK_SET);
-		size_t len = fread(Dest, State->Strings[StringID].Length, 1, State->FP);
+		size_t len = fread(Dest, 1, State->Strings[StringID].Length, State->FP);
 		_ASSERT(len, ==, State->Strings[StringID].Length, -1);
 		Dest[ State->Strings[StringID].Length ] = '\0';
 		fseek(State->FP, saved_pos, SEEK_SET);
@@ -148,12 +148,16 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	 int	datasize = 0;
 	datasize += sizeof(tScript_Function);
 	datasize += n_args * sizeof(ret->Arguments[0]);
-	datasize += _get_str(State, NULL, namestr) + 1;
+	size_t	len = _get_str(State, NULL, namestr) + 1;
+	_ASSERT(len, !=, -1, NULL);
+	datasize += len;
 	for( int i = 0; i < n_args; i ++ )
 	{
 		args[i].Name = _get16(State);
 		args[i].Type = _get16(State);
-		datasize += _get_str(State, NULL, args[i].Name) + 1;
+		len = _get_str(State, NULL, args[i].Name) + 1;
+		_ASSERT(len, !=, -1, NULL);
+		datasize += len;
 	}
 
 	// Create and populate metadata structure
@@ -177,9 +181,10 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	off_t old_pos = ftell(State->FP);
 	void *code = malloc(code_len);
 	fseek(State->FP, code_ofs, SEEK_SET);
-	if( fread(code, code_len, 1, State->FP) != code_len ) {
+	len = fread(code, 1, code_len, State->FP);
+	if( len != code_len ) {
 		free(code);
-		return NULL;
+		_ASSERT(len, ==, code_len, NULL);
 	}
 	fseek(State->FP, old_pos, SEEK_SET);
 
@@ -233,9 +238,13 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	_ASSERT(file_size, >, MAGIC_STR_LEN + 5*2+4, 1);
 	{
 		char magic[MAGIC_STR_LEN];
-		if( fread(magic, MAGIC_STR_LEN, 1, fp) != MAGIC_STR_LEN
-		 || memcmp(magic, MAGIC_STR, sizeof(magic)) != 0 )
+		if( fread(magic, MAGIC_STR_LEN, 1, fp) != 1 ) {
+			TRACE("Failed to read magic");
+			return -1;
+		}
+		if( memcmp(magic, MAGIC_STR, sizeof(magic)) != 0 )
 		{
+			TRACE("Magic mismatch %.*s", (int)MAGIC_STR_LEN, magic);
 			return -1;
 		}
 	}
@@ -290,8 +299,11 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		sc->FirstFunction = NULL;
 		sc->FirstProperty = NULL;
 		sc->nProperties = n_attrib;
+		sc->nFunctions  = n_method;
 		sc->TypeInfo.Class = SS_TYPECLASS_SCLASS;
 		sc->TypeInfo.SClass = sc;
+		sc->Properties = malloc( n_attrib * sizeof(void*) );
+		sc->Functions = malloc( n_method * sizeof(void*) );
 
 		State->Classes[i].Class = sc;
 		State->Classes[i].NMethods = n_method;
@@ -384,6 +396,8 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		fcn = _get_fcn(State);
 		_ASSERT(fcn, !=, NULL, -1);
 
+		TRACE("Fcn %i done", i);
+
 		if( Script->Functions )
 			Script->LastFunction->Next = fcn;
 		else
@@ -398,17 +412,19 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		// Attributes
 		for( int j = 0; j < State->Classes[i].NAttribs; j ++ )
 		{
-			tScript_Var *at;
 			int name = _get16(State);
 			int type = _get16(State);
-		
-			at = malloc( sizeof(*at) + _get_str(State, NULL, name) + 1 );
+			
+			size_t	namelen = _get_str(State, NULL, name);
+			_ASSERT(namelen, !=, -1, -1);
+			tScript_Var *at = malloc( sizeof(*at) + namelen + 1 );
 			at->Next = NULL;
 			at->Type = _get_type(State, type);
 			at->Name = (void*)(at + 1);
 			_get_str(State, at->Name, name);
 			TRACE("%s->%s : %s", sc->Name, at->Name, SpiderScript_GetTypeName(Script, at->Type));
 
+			sc->Properties[j] = at;
 			if( sc->FirstProperty )
 				sc->LastProperty->Next = at;
 			else
@@ -419,11 +435,10 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		// Functions
 		for( int j = 0; j < State->Classes[i].NMethods; j ++ )
 		{
-			tScript_Function *fcn;
-			
-			fcn = _get_fcn(State);
+			tScript_Function *fcn = _get_fcn(State);
 			_ASSERT(fcn, !=, NULL, -1);
 //			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
+			sc->Functions[j] = fcn;
 			if( sc->FirstFunction )
 				sc->LastFunction->Next = fcn;
 			else
@@ -802,6 +817,8 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 
 //	printf("Function->LabelCount = %i\n", Function->LabelCount);
 	_put_index(Function->LabelCount);
+	_put_index(Function->MaxRegisters);
+	_put_index(Function->MaxGlobalCount);
 	for( int i = 0; i < Function->LabelCount; i ++ )
 	{
 		if( Output )
@@ -841,15 +858,18 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 		case BC_OP_CALLFUNCTION:
 		case BC_OP_CREATEOBJ:
 		case BC_OP_CALLMETHOD:
+			_put_index(op->DstReg);
 			_put_index(op->Content.Function.ID);
 			_put_index(op->Content.Function.ArgCount);
+			for( int i = 0; i < op->Content.Function.ArgCount; i ++ )
+				_put_index(op->Content.Function.ArgRegs[i]);
 			break;
 		// Everthing else just gets handled nicely
 		default:
 			switch( caOpEncodingTypes[op->Operation] )
 			{
 			case BC_OPENC_UNK:
-				assert( op->Operation != BC_OPENC_UNK );
+				assert( caOpEncodingTypes[op->Operation] != BC_OPENC_UNK );
 				break;
 			case BC_OPENC_NOOPRS:
 				break;
@@ -963,6 +983,8 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 
 	tBC_Function	*ret = malloc( sizeof(tBC_Function) );
 	ret->LabelCount = buf_get_index(Bi);
+	ret->MaxRegisters = buf_get_index(Bi);
+	ret->MaxGlobalCount = buf_get_index(Bi);
 	ret->Labels = malloc( sizeof(ret->Labels[0]) * ret->LabelCount );
 	ret->Operations = NULL;
 	ret->OperationsEnd = NULL;
@@ -975,7 +997,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 
 	while( bi.Ofs < Length )
 	{
-		 int	ot = buf_get8(Bi);
+		unsigned int	ot = buf_get8(Bi);
 		if( ot > BC_OP_EXCEPTION_POP ) {
 			// Oops?
 			continue ;
@@ -1013,6 +1035,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			switch( caOpEncodingTypes[ot] )
 			{
 			case BC_OPENC_UNK:
+				_ASSERT(caOpEncodingTypes[ot], !=, BC_OPENC_UNK, NULL);
 				break;
 			case BC_OPENC_NOOPRS:
 				op = malloc( sizeof(tBC_Op) );
@@ -1036,6 +1059,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 				 int	dreg = buf_get_index(Bi);
 				 int	sidx = buf_get_index(Bi);
 				size_t	slen = _get_str(State, NULL, sidx);
+				_ASSERT(slen, !=, -1, NULL);
 				op = malloc(sizeof(tBC_Op) + slen + 1);
 				op->DstReg = dreg;
 				op->Content.String.Length = slen;

@@ -46,11 +46,8 @@ struct sBC_Function
 	tBC_Op	**Labels;
 
 	 int	MaxGlobalCount;
-	// NOTE: These fields are invalid after compilation
-	 int	GlobalCount;
-	 int	GlobalSpace;
-	const char	**GlobalNames;
-
+	 int	MaxRegisters;
+	
 	 int	OperationCount;
 	tBC_Op	*Operations;
 	tBC_Op	*OperationsEnd;

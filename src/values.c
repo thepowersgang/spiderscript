@@ -318,15 +318,16 @@ tSpiderString *SpiderScript_StringConcat(const tSpiderString *Str1, const tSpide
 	ret = malloc( sizeof(tSpiderString) + newLen + 1 );
 	ret->RefCount = 1;
 	ret->Length = newLen;
-	if(Str1)
+	size_t	ofs = 0;
+	if(Str1) {
 		memcpy(ret->Data, Str1->Data, Str1->Length);
-	if(Str2) {
-		if(Str1)
-			memcpy(ret->Data+Str1->Length, Str2->Data, Str2->Length);
-		else
-			memcpy(ret->Data, Str2->Data, Str2->Length);
+		ofs += Str1->Length;
 	}
-	ret->Data[ newLen ] = '\0';
+	if(Str2) {
+		memcpy(ret->Data+ofs, Str2->Data, Str2->Length);
+		ofs += Str2->Length;
+	}
+	ret->Data[ ofs ] = '\0';
 	return ret;
 }
 

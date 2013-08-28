@@ -48,13 +48,13 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 int AST_FinaliseClass(tParser *Parser, tScript_Class *Class)
 {
 	 int	i;
-	tScript_Var	**properties = malloc(sizeof(void*) + Class->nProperties);
+	tScript_Var	**properties = malloc(sizeof(void*) * Class->nProperties);
 	i = 0;
 	for( tScript_Var *prop = Class->FirstProperty; prop; prop = prop->Next )
 		properties[i++] = prop;
 	Class->Properties = properties;
 	
-	tScript_Function	**functions = malloc(sizeof(void*) + Class->nFunctions);
+	tScript_Function	**functions = malloc(sizeof(void*) * Class->nFunctions);
 	i = 0;
 	for( tScript_Function *func = Class->FirstFunction; func; func = func->Next )
 		functions[i++] = func;
