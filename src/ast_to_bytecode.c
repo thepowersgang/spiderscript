@@ -64,6 +64,8 @@ typedef struct sAST_BlockInfo
 // === PROTOTYPES ===
 // Node Traversal
  int	AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue);
+ int	BC_EnterBlock(tAST_BlockInfo *Block, tAST_BlockInfo *Child);
+ int	BC_LeaveBlock(tAST_BlockInfo *Block, tAST_BlockInfo *Child);
  int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[]);
  int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef *RetType, const char *Namespaces[], const char *Name, int NArgs, tSpiderTypeRef ArgTypes[]);
  int	BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode);
@@ -182,34 +184,25 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 		break;
 	
 	// Code block
-	case NODETYPE_BLOCK:
-		Bytecode_AppendEnterContext(Block->Handle);	// Create a new block
+	case NODETYPE_BLOCK: {
+		tAST_BlockInfo	blockInfo = {0};
+		BC_EnterBlock(Block, &blockInfo);
+		// Loop over all nodes, or until the return value is set
+		for(node = Node->Block.FirstChild; node; node = node->NextSibling )
 		{
-			tAST_BlockInfo	blockInfo = {0};
-			blockInfo.Parent = Block;
-			blockInfo.Script = Block->Script;
-			blockInfo.Function = Block->Function;
-			blockInfo.Handle = Block->Handle;
-			// Loop over all nodes, or until the return value is set
-			for(node = Node->Block.FirstChild;
-				node;
-				node = node->NextSibling )
-			{
-				ret = AST_ConvertNode(&blockInfo, node, 0);
-				if(ret) {
-					BC_Variable_Clear(&blockInfo);
-					return ret;
-				}
-				if( blockInfo.StackDepth != 0 ) {
-					AST_RuntimeError(node, "Stack not reset at end of node");
-					blockInfo.StackDepth = 0;
-				}
+			ret = AST_ConvertNode(&blockInfo, node, 0);
+			if(ret) {
+				BC_Variable_Clear(&blockInfo);
+				return ret;
 			}
-			
-			BC_Variable_Clear(&blockInfo);
+			if( blockInfo.StackDepth != 0 ) {
+				AST_RuntimeError(node, "Stack not reset at end of node");
+				blockInfo.StackDepth = 0;
+			}
 		}
-		Bytecode_AppendLeaveContext(Block->Handle);	// Leave this context
-		break;
+			
+		BC_LeaveBlock(Block, &blockInfo);
+		} break;
 	
 	// Assignment
 	case NODETYPE_ASSIGN:
@@ -550,24 +543,21 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 	// Loop
 	case NODETYPE_LOOP: {
-		 int	loop_start, loop_end, code_end;
-		 int	saved_break, saved_continue;
-		const char	*saved_tag;
+		tAST_BlockInfo	blockInfo = {0};
+		
+		int loop_start = Bytecode_AllocateLabel(Block->Handle);
+		int code_end = Bytecode_AllocateLabel(Block->Handle);
+		int loop_end = Bytecode_AllocateLabel(Block->Handle);
+
+		BC_EnterBlock(Block, &blockInfo);
+		Block = &blockInfo;
+		Block->BreakTarget = loop_end;
+		Block->ContinueTarget = code_end;
+		Block->Tag = Node->For.Tag;
 
 		// Initialise
 		ret = AST_ConvertNode(Block, Node->For.Init, 0);
 		if(ret)	return ret;
-		
-		loop_start = Bytecode_AllocateLabel(Block->Handle);
-		code_end = Bytecode_AllocateLabel(Block->Handle);
-		loop_end = Bytecode_AllocateLabel(Block->Handle);
-
-		saved_break = Block->BreakTarget;
-		saved_continue = Block->ContinueTarget;
-		saved_tag = Block->Tag;
-		Block->BreakTarget = loop_end;
-		Block->ContinueTarget = code_end;
-		Block->Tag = Node->For.Tag;
 
 		Bytecode_SetLabel(Block->Handle, loop_start);
 
@@ -610,9 +600,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 
 		Bytecode_SetLabel(Block->Handle, loop_end);
 
-		Block->BreakTarget = saved_break;
-		Block->ContinueTarget = saved_continue;
-		Block->Tag = saved_tag;
+		BC_LeaveBlock(Block->Parent, Block);
 		} break;
 	
 	// Return
@@ -1095,6 +1083,22 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, int bKeepValue)
 	Block->NullType = POP_UNDEF;
 
 	DEBUGS1("Left NT%i", Node->Type);
+	return 0;
+}
+
+int BC_EnterBlock(tAST_BlockInfo *Block, tAST_BlockInfo *Child)
+{
+	Bytecode_AppendEnterContext(Block->Handle);	// Create a new block
+	Child->Parent = Block;
+	Child->Script = Block->Script;
+	Child->Function = Block->Function;
+	Child->Handle = Block->Handle;
+	return 0;
+}
+int BC_LeaveBlock(tAST_BlockInfo *Block, tAST_BlockInfo *Child)
+{
+	BC_Variable_Clear(Child);
+	Bytecode_AppendLeaveContext(Block->Handle);	// Leave this context
 	return 0;
 }
 
