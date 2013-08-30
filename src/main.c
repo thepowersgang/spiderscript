@@ -139,6 +139,8 @@ void SpiderScript_Free(tSpiderScript *Script)
 			n = fcn->Next;
 			free(fcn);
 		}
+		if(sc->Functions)	free(sc->Functions);
+		if(sc->Properties)	free(sc->Properties);
 		n = sc->Next;
 		free(sc);
 	}	

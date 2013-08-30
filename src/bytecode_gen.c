@@ -42,6 +42,7 @@ const enum eOpEncodingType caOpEncodingTypes[] = {
 	[BC_OP_LOADSTRING] = BC_OPENC_STRING,
 
 	[BC_OP_RETURN] = BC_OPENC_REG1,
+	[BC_OP_CLEARREG] = BC_OPENC_REG1,
 	[BC_OP_MOV] = BC_OPENC_REG2,
 	[BC_OP_REFEQ]  = BC_OPENC_REG3,
 	[BC_OP_REFNEQ] = BC_OPENC_REG3,
@@ -332,6 +333,8 @@ void Bytecode_AppendCreateArray(tBC_Function *Handle, int RetReg, tSpiderTypeRef
 
 void Bytecode_AppendCast(tBC_Function *Handle, int DstReg, tSpiderScript_CoreType Type, int SrcReg)
 	DEF_BC_RI3(BC_OP_CAST, DstReg, Type, SrcReg)
+void Bytecode_AppendClearReg(tBC_Function *Handle, int Reg)
+	DEF_BC_RI1(BC_OP_CLEARREG, Reg)
 void Bytecode_AppendMov(tBC_Function *Handle, int DstReg, int SrcReg)
 	DEF_BC_RI2(BC_OP_MOV, DstReg, SrcReg)
 //void Bytecode_AppendDeref(tBC_Function *Handle, int Reg)

@@ -65,6 +65,7 @@ extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int Ret
 
 extern void	Bytecode_AppendReturn(tBC_Function *Handle, int ReturnReg);
 
+extern void	Bytecode_AppendClearReg(tBC_Function *Handle, int Reg);
 extern void	Bytecode_AppendMov(tBC_Function *Handle, int DstReg, int SrcReg);
 extern void	Bytecode_AppendBinOpInt(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);
 extern void	Bytecode_AppendBinOpReal(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);

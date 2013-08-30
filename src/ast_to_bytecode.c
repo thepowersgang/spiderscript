@@ -1932,7 +1932,8 @@ int _ReleaseRegister(tAST_BlockInfo *Block, int Register)
 	assert(Register < MAX_REGISTERS);
 	struct sRegInfo	*ri = &Block->Func->Registers[Register];
 	if( SS_ISTYPEREFERENCE(ri->Type) ) {
-		// TODO: Emit dereference
+		// Emit dereference
+		Bytecode_AppendClearReg(Block->Func->Handle, Register);
 	}
 	ri->Type.Def = NULL;
 	return 0;

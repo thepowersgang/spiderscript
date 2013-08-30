@@ -19,6 +19,8 @@
 // 2: Register trace
 #define TRACE	0
 
+#define DEREF_BEFORE_SET	1
+
 #if TRACE
 # define DEBUG_F(v...)	printf(v)
 # define DEBUGS1(f,a...)	printf("%s:%i - "f"\n", __func__, __LINE__,## a)
@@ -27,11 +29,10 @@
 # define DEBUGS1(f,a...)	do{}while(0)
 #endif
 
+#define TODO(str)	SpiderScript_RuntimeError(Script, "TODO: Impliment bytecode"str); bError = 1; break
+
 // === TYPES ===
 typedef struct sBC_StackEnt	tBC_StackEnt;
-typedef struct sBC_Stack	tBC_Stack;
-
-#define ET_FUNCTION_START	-2
 
 struct sBC_StackEnt
 {
@@ -44,13 +45,6 @@ struct sBC_StackEnt
 		tSpiderArray	*Array;
 		tSpiderObject	*Object;
 	};
-};
-
-struct sBC_Stack
-{
-	 int	EntrySpace;
-	 int	EntryCount;
-	tBC_StackEnt	Entries[];
 };
 
 // === PROTOTYPES ===
@@ -69,29 +63,6 @@ struct sBC_Stack
 tSpiderScript_TypeDef	gBytecodeFcnStart;
 
 // === CODE ===
-int Bytecode_int_StackPop(tSpiderScript *Script, tBC_Stack *Stack, tBC_StackEnt *Dest)
-{
-	if( Stack->EntryCount == 0 ) {
-		SpiderScript_RuntimeError(Script, "Popping an empty stack");
-		return 1;
-	}
-	Stack->EntryCount --;
-	*Dest = Stack->Entries[Stack->EntryCount];
-	return 0;
-}
-
-int Bytecode_int_StackPush(tSpiderScript *Script, tBC_Stack *Stack, tBC_StackEnt *Src)
-{
-//	if( Src->Type == -1 ) {
-//		SpiderScript_RuntimeError(Script, "Pushing type -1 to stack");
-//		return 1;
-//	}
-	if( Stack->EntryCount == Stack->EntrySpace )	return 1;
-	Stack->Entries[Stack->EntryCount] = *Src;
-	Stack->EntryCount ++;
-	return 0;
-}
-
 int Bytecode_int_IsStackEntTrue(tSpiderScript *Script, tBC_StackEnt *Ent)
 {
 	if( Ent->Type.Def == NULL ) {
@@ -288,6 +259,27 @@ void Bytecode_int_RefStackValue(tSpiderScript *Script, tBC_StackEnt *Ent)
 	}
 }
 
+static int Bytecode_int_PrintEscapedString(size_t len, const char *src)
+{
+	for( size_t i = 0; i < len; i ++ )
+	{
+		switch(src[i])
+		{
+		case '\n':	printf("\\n");	break;
+		case '\r':	printf("\\r");	break;
+		case '"':	printf("\"");	break;
+		case '\t':	printf("\t");	break;
+		default:
+			if(src[i] < ' ')
+				printf("\\0%o", src[i]);
+			else
+				printf("%c", src[i]);
+			break;
+		}
+	}
+	return 0;
+}
+
 void Bytecode_int_PrintStackValue(tSpiderScript *Script, const tBC_StackEnt *Ent)
 {
 	if( SS_GETARRAYDEPTH(Ent->Type) )
@@ -314,11 +306,11 @@ void Bytecode_int_PrintStackValue(tSpiderScript *Script, const tBC_StackEnt *Ent
 			printf("%lf", Ent->Real);
 			break;
 		case SS_DATATYPE_STRING:
-			if( Ent->String )
-				printf("String (%zu \"%.*s\")",
-					Ent->String->Length,
-					(int)Ent->String->Length,
-					Ent->String->Data);
+			if( Ent->String ) {
+				printf("String (%zu \"", Ent->String->Length);
+				Bytecode_int_PrintEscapedString( Ent->String->Length, Ent->String->Data );
+				printf("\")");
+			}
 			else
 				printf("String (null)");
 			break;
@@ -332,11 +324,21 @@ void Bytecode_int_PrintStackValue(tSpiderScript *Script, const tBC_StackEnt *Ent
 
 #if TRACE
 # define PRINT_STACKVAL(val)	Bytecode_int_PrintStackValue(Script, &val)
+# define PRINT_STR(len, ptr)	Bytecode_int_PrintEscapedString(len, ptr);
 #else
 # define PRINT_STACKVAL(val)
+# define PRINT_STR(len, ptr)	
+#endif
+
+// TODO: Emit notice if a reference type is lost?
+#if DEREF_BEFORE_SET
+# define PRESET_DEREF(reg)	Bytecode_int_DerefStackValue(Script, &reg)
+#else
+# define PRESET_DEREF(reg)	do{}while(0)
 #endif
 
 #define DEREF_STACKVAL(val)	Bytecode_int_DerefStackValue(Script, &val)
+#define REF_STACKVAL(val)	Bytecode_int_RefStackValue(Script, &val)
 #define _BC_ASSERTTYPE(have, exp, name) \
 	if(!SS_TYPESEQUAL(have,exp)) {\
 		SpiderScript_RuntimeError(Script, "Type mismatch expected %s, got %s for "name, \
@@ -365,6 +367,10 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	tBC_StackEnt	retval;
 	// Call
 	int ret = Bytecode_int_ExecuteFunction(Script, Fcn, NArguments, argps, &retval);
+
+	// Clean up
+	for( int i = 0; i < NArguments; i ++ )
+		Bytecode_int_DerefStackValue(Script, &args[i]);
 
 	if( ret == 0 && Fcn->ReturnType.Def != NULL )
 	{
@@ -405,8 +411,6 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const tBC
 	tSpiderTypeRef	rettype = {0,0};
 	tBC_StackEnt	ret;
 	tSpiderObject	*obj = NULL;
-
-	DEBUG_F("CALL (general) 0x%x %i args\n", id, arg_count);
 
 	// Read arguments
 	for( int i = 0; i < arg_count; i ++ )
@@ -560,6 +564,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	for( i = 0; i < Fcn->ArgumentCount; i ++ )
 	{
 		DEBUG_F("Arg %i = ",i); PRINT_STACKVAL(registers[i]); DEBUG_F("\n");
+		REF_STACKVAL(registers[i]);
 	}
 
 	// Execute!
@@ -656,6 +661,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				bError = 1;
 				break;
 			}
+			
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type = Script->BCTypes[i];
 			if( reg_dst->Type.ArrayDepth == 0 ) {
 				SpiderScript_RuntimeError(Script, "Invalid type when creating an array");
@@ -704,6 +711,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			}
 			DEBUG_F("GETGLOBAL R%i = #%i %s [", op->DstReg, slot, globals[slot]->Name);
 			
+			PRESET_DEREF(*reg_dst);
 			Bytecode_int_SetFromSpiderValue(Script, reg_dst, globals[slot]->Type, globals[slot]->Ptr);
 			PRINT_STACKVAL(*reg_dst);
 			DEBUG_F("]\n");
@@ -772,6 +780,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			else {
 				tSpiderArray	*array = reg1->Array;
 				DEBUG_F("INDEX %li ", reg2->Integer);
+				PRESET_DEREF(*reg_dst);
 				rv = AST_ExecuteNode_Index(Script, &reg_dst->Boolean, array, reg2->Integer,
 					TYPE_VOID, NULL);
 				if( rv < 0 ) { bError = 1; break; }
@@ -793,6 +802,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				bError = 1;
 				break;
 			}
+			PRESET_DEREF(*reg_dst);
 			type = AST_ExecuteNode_Element(Script, &reg_dst->Boolean,
 				reg1->Object, OP_REG3(op), TYPE_VOID, NULL);
 			if( type.Def == NULL ) {
@@ -827,28 +837,31 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_LOADINT:
 			STATE_HDR();
 			DEBUG_F("LOADINT R%i = 0x%lx\n", op->DstReg, op->Content.Integer);
-			REG(op->DstReg).Type = TYPE_INTEGER;
-			REG(op->DstReg).Integer = op->Content.Integer;
+			PRESET_DEREF(*reg_dst);
+			reg_dst->Type = TYPE_INTEGER;
+			reg_dst->Integer = op->Content.Integer;
 			break;
 		case BC_OP_LOADREAL:
 			STATE_HDR();
 			DEBUG_F("LOADREAL R%i = %lf\n", op->DstReg, op->Content.Real);
-			REG(op->DstReg).Type = TYPE_REAL;
-			REG(op->DstReg).Real = op->Content.Real;
+			PRESET_DEREF(*reg_dst);
+			reg_dst->Type = TYPE_REAL;
+			reg_dst->Real = op->Content.Real;
 			break;
 		case BC_OP_LOADSTRING:
 			STATE_HDR();
-			DEBUG_F("LOADSTR R%i = %zi \"%s\"\n",
-				op->DstReg,
-				op->Content.String.Length, op->Content.String.Data);
-			REG(op->DstReg).Type = TYPE_STRING;
-			REG(op->DstReg).String = SpiderScript_CreateString(
+			DEBUG_F("LOADSTR R%i = %zi \"", op->DstReg, op->Content.String.Length);
+			PRINT_STR(op->Content.String.Length, op->Content.String.Data);
+			DEBUG_F("\"\n");
+			PRESET_DEREF(*reg_dst);
+			reg_dst->Type = TYPE_STRING;
+			reg_dst->String = SpiderScript_CreateString(
 				op->Content.String.Length, op->Content.String.Data);
 			break;
 		case BC_OP_LOADNULLREF:
 			STATE_HDR();
 			type = Script->BCTypes[OP_REG2(op)];
-			DEBUG_F("LOADNULL %s\n", SpiderScript_GetTypeName(Script, type));
+			DEBUG_F("LOADNULL R%i = %s\n", op->DstReg, SpiderScript_GetTypeName(Script, type));
 			if( SS_ISTYPEREFERENCE( type ) )
 				;
 			else {
@@ -857,19 +870,32 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				bError = 1;
 				break;
 			}
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type = type;
 			reg_dst->String = NULL;
 			break;
 
+		case BC_OP_CLEARREG:
+			STATE_HDR();
+			DEBUG_F("CLEAR R%i [", op->DstReg); PRINT_STACKVAL(*reg_dst); DEBUG_F("]\n");
+			DEREF_STACKVAL(*reg_dst);
+			reg_dst->Type = TYPE_VOID;
+			reg_dst->Integer = 0;
+			break;
 		case BC_OP_MOV:
 			STATE_HDR();
 			DEBUG_F("MOV R%i := R%i\n", op->DstReg, OP_REG2(op));
-			*reg_dst = *reg1;
+			if( op->DstReg != OP_REG2(op) ) {
+				PRESET_DEREF(*reg_dst);
+				*reg_dst = *reg1;
+				REF_STACKVAL(*reg_dst);
+			}
 			break;
 
 		case BC_OP_CAST:
 			STATE_HDR();
 			itype = OP_REG2(op);
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type.ArrayDepth = 0;
 			reg_dst->Type.Def = SpiderScript_GetCoreType(itype);
 			DEBUG_F("CAST R%i(%s) = R%i(%s)\n",
@@ -921,8 +947,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_BOOL_LOGICNOT:
 			STATE_HDR();
 			DEBUG_F("BC_OP_BOOL_LOGICNOT R%i := R%i", op->DstReg, OP_REG2(op));
-			reg_dst = &REG(op->DstReg);
-			reg1 = &REG(OP_REG2(op));
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type = TYPE_BOOLEAN;
 			reg_dst->Boolean = !Bytecode_int_IsStackEntTrue(Script, reg1);
 			break;
@@ -930,20 +955,18 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_INT_BITNOT:
 			STATE_HDR();
 			DEBUG_F("BC_OP_INT_BITNOT R%i := R%i", op->DstReg, OP_REG2(op));
-			reg_dst = &REG(op->DstReg);
-			reg1 = &REG(OP_REG2(op));
 			_BC_ASSERTTYPE(reg1->Type, TYPE_INTEGER, "reg1");
 			
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type = TYPE_INTEGER;
 			reg_dst->Integer = ~reg1->Integer;
 			break;
 		case BC_OP_INT_NEG:
 			STATE_HDR();
 			DEBUG_F("BC_OP_INT_NEG R%i := R%i", op->DstReg, OP_REG2(op));
-			reg_dst = &REG(op->DstReg);
-			reg1 = &REG(OP_REG2(op));
 			_BC_ASSERTTYPE(reg1->Type, TYPE_INTEGER, "reg1");
 			
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type = TYPE_INTEGER;
 			reg_dst->Integer = -reg1->Integer;
 			break;
@@ -951,10 +974,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_REAL_NEG:
 			STATE_HDR();
 			DEBUG_F("BC_OP_REAL_NEG R%i := R%i", op->DstReg, OP_REG2(op));
-			reg_dst = &REG(op->DstReg);
-			reg1 = &REG(OP_REG2(op));
 			_BC_ASSERTTYPE(reg1->Type, TYPE_REAL, "reg1");
 			
+			PRESET_DEREF(*reg_dst);
 			reg_dst->Type = TYPE_REAL;
 			reg_dst->Real = -reg1->Real;
 			break;
@@ -971,6 +993,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			BINOPHDR(opcode) \
 			_BC_ASSERTTYPE(reg1->Type, srctype, "reg1");\
 			_BC_ASSERTTYPE(reg2->Type, srctype, "reg2");\
+			PRESET_DEREF(*reg_dst); \
 			reg_dst->Type = dsttype;
 #define BINOPI(opcode, opr, dsttype, dstfld) \
 			BINOPHDR_TYPE(opcode, TYPE_INTEGER, dsttype)\
@@ -1081,7 +1104,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			DEBUG_F("R%i [", OP_REG2(op)); PRINT_STACKVAL(*reg1); DEBUG_F("] ");
 			DEBUG_F("R%i [", OP_REG3(op)); PRINT_STACKVAL(*reg2); DEBUG_F("]\n");
 
+			// Get RVal
 			Bytecode_int_GetSpiderValue(Script, reg2, &ptr);
+			
+			PRESET_DEREF(*reg_dst);
 			itype = AST_ExecuteNode_BinOp_String(Script, &reg_dst->Boolean, ast_op,
 				reg1->String, reg2->Type.Def->Core, ptr);
 			if( itype == -1 ) {
@@ -1099,9 +1125,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			break;
 
 		// Functions etc
-		case BC_OP_CREATEOBJ:
-		case BC_OP_CALLFUNCTION:
-		case BC_OP_CALLMETHOD: {
+		case BC_OP_CREATEOBJ:    opstr = "CREATEOBJ"; if(0)
+		case BC_OP_CALLFUNCTION: opstr = "CALLFCN"; if(0)
+		case BC_OP_CALLMETHOD:   opstr = "CALLMETHOD";
+			{
 			STATE_HDR();
 			
 			tScript_Function	*fcn = NULL;
@@ -1151,6 +1178,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			}
 			
 			// Either a local call, or a remote call
+			PRESET_DEREF(*reg_dst);
 			if( fcn )
 			{
 				if( !fcn->BCFcn ) {
@@ -1166,6 +1194,11 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			}
 			else
 			{
+				DEBUG_F("%s.G R%i, 0x%x,", opstr, op->DstReg, id);
+				for(int i = 0; i < arg_count; i ++ ) {
+					DEBUG_F(" R%i", op->Content.Function.ArgRegs[i]);
+				}
+				DEBUG_F("\n");
 				if( Bytecode_int_CallExternFunction( Script, op, args, reg_dst ) ) {
 					bError = 1;
 					break;
@@ -1188,14 +1221,17 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_EXCEPTION_PUSH:
 			STATE_HDR();
 			DEBUG_F("EXCEPTION PUSH %i\n", op->DstReg);
+			TODO("BC_OP_EXCEPTION_PUSH");
 			break;
 		case BC_OP_EXCEPTION_CHECK:
 			STATE_HDR();
 			DEBUG_F("EXCEPTION CHECK %i %i\n", op->DstReg, OP_REG2(op));
+			TODO("BC_OP_EXCEPTION_CHECK");
 			break;
 		case BC_OP_EXCEPTION_POP:
 			STATE_HDR();
-			DEBUG_F("EXCEPTION CHECK\n");
+			DEBUG_F("EXCEPTION POP\n");
+			TODO("BC_OP_EXCEPTION_POP");
 			break;
 		}
 
@@ -1217,7 +1253,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	// - Restore stack
 	for( int i = 0; i < num_registers; i ++ )
 	{
-		//DEREF_STACKVAL( registers[i] );
+		DEREF_STACKVAL( registers[i] );
 	}
 
 	DEBUG_F("--- Return %i\n", bError);
