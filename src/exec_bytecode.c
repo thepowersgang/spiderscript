@@ -60,17 +60,11 @@ struct sBC_StackEnt
 #define TYPE_BOOLEAN	((tSpiderTypeRef){.ArrayDepth=0,.Def=&gSpiderScript_BoolType})
 
 // === GLOBALS ===
-tSpiderScript_TypeDef	gBytecodeFcnStart;
-
 // === CODE ===
 int Bytecode_int_IsStackEntTrue(tSpiderScript *Script, tBC_StackEnt *Ent)
 {
 	if( Ent->Type.Def == NULL ) {
 		SpiderScript_RuntimeError(Script, "_IsStackEntTrue on void");
-		return -1;
-	}
-	if(Ent->Type.Def == &gBytecodeFcnStart) {
-		SpiderScript_RuntimeError(Script, "_IsStackEntTrue on ET_FUNCTION_START");
 		return -1;
 	}
 	if( SS_GETARRAYDEPTH(Ent->Type) )
@@ -108,12 +102,6 @@ tSpiderTypeRef Bytecode_int_GetSpiderValue(tSpiderScript *Script, tBC_StackEnt *
 	if( Ent->Type.Def == NULL ) {
 		SpiderScript_RuntimeError(Script, "_GetSpiderValue on SS_DATATYPE_NOVALUE");
 		return Ent->Type;
-	}
-	if(Ent->Type.Def == &gBytecodeFcnStart) {
-		tSpiderTypeRef	ret = {0,0};
-		SpiderScript_RuntimeError(Script, "_GetSpiderValue on ET_FUNCTION_START");
-		*(int*)0 = 0;
-		return ret;
 	}
 	if( Ent->Type.ArrayDepth ) {
 		*Dest = Ent->Array;
