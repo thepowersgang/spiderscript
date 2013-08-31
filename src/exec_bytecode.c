@@ -590,7 +590,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_JUMPIF:
 			STATE_HDR();
 			jmp_target = Fcn->BCFcn->Labels[ op->DstReg ]->Next;
-			DEBUG_F("JUMPIF #%i %p - ", op->DstReg, jmp_target);
+			DEBUG_F("JUMPIF #%i R%i - ", op->DstReg, OP_REG2(op));
 			PRINT_STACKVAL(*reg1); DEBUG_F("\n");
 			if( Bytecode_int_IsStackEntTrue(Script, reg1) )
 				nextop = jmp_target;
@@ -598,7 +598,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_JUMPIFNOT:
 			STATE_HDR();
 			jmp_target = Fcn->BCFcn->Labels[ op->DstReg ]->Next;
-			DEBUG_F("JUMPIFNOT #%i %p - ", op->DstReg, jmp_target);
+			DEBUG_F("JUMPIFNOT #%i R%i - ", op->DstReg, OP_REG2(op));
 			PRINT_STACKVAL(*reg1); DEBUG_F("\n");
 			if( !Bytecode_int_IsStackEntTrue(Script, reg1) )
 				nextop = jmp_target;

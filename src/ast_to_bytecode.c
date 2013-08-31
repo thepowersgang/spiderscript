@@ -55,6 +55,7 @@ typedef struct sAST_FuncInfo
 	struct sRegInfo {
 		tSpiderTypeRef	Type;
 		void	*Info;
+		 int	RefCount;
 	}	Registers[MAX_REGISTERS];	// Stores types of stack values
 
 	 int	MaxGlobals;
@@ -104,10 +105,11 @@ void	BC_Variable_Clear(tAST_BlockInfo *Block);
 void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
 void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 // - Type stack
- int	_AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, int *RegPtr);
- int	_GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, void **Info);
- int	_AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, int Register, tSpiderTypeRef Type);
- int	_ReleaseRegister(tAST_BlockInfo *Block, int Register);
+ int	_AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, tRegister *RegPtr);
+ int	_ReferenceRegister(tAST_BlockInfo *Block, tRegister Reg);
+ int	_GetRegisterInfo(tAST_BlockInfo *Block, tRegister Register, tSpiderTypeRef *Type, void **Info);
+ int	_AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, tRegister Register, tSpiderTypeRef Type);
+ int	_ReleaseRegister(tAST_BlockInfo *Block, tRegister Register);
 // - Helpers
 tSpiderTypeRef	_GetCoreType(tSpiderScript_CoreType CoreType);
 
@@ -1397,9 +1399,10 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	*RetReg = retreg;
 	// Push return type
 	DEBUGS1("Return type %s", SpiderScript_GetTypeName(Block->Func->Script, retreg));
-	if( ret_type.Def == NULL ) {
-		_ReleaseRegister(Block, retreg);
-	}
+	// Released by caller?
+//	if( ret_type.Def == NULL ) {
+//		_ReleaseRegister(Block, retreg);
+//	}
 
 	return 0;
 }
@@ -1419,7 +1422,7 @@ int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tReg
 	switch(type.Def->Core)
 	{
 	case SS_DATATYPE_BOOLEAN:
-		Bytecode_AppendBinOpInt(Block->Func->Handle, Op, rreg, reg1, reg2);
+		Bytecode_AppendBinOpBool(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	case SS_DATATYPE_INTEGER:
 		Bytecode_AppendBinOpInt(Block->Func->Handle, Op, rreg, reg1, reg2);
@@ -1815,14 +1818,9 @@ int BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister *V
 	}
 	const tVariable *var = BC_Variable_Lookup(Block, VarNode, VarNode->Variable.Name, TYPE_VOID);
 	if(!var)	return -1;
-	
-	tSpiderTypeRef	type;
-	_GetRegisterInfo(Block, var->Register, &type, NULL);
-	
-	ret = _AllocateRegister(Block, VarNode, type, NULL, ValRegPtr);
-	if(ret)	return ret;
 
-	Bytecode_AppendMov(Block->Func->Handle, *ValRegPtr, var->Register);
+	_ReferenceRegister(Block, var->Register);
+	*ValRegPtr = var->Register;
 	return 0;
 }
 
@@ -1894,6 +1892,7 @@ int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Typ
 		{
 			ri->Type = Type;
 			ri->Info = Info;
+			ri->RefCount = 1;
 			*RegPtr = i;
 			if( i > Block->Func->MaxRegisters )
 				Block->Func->MaxRegisters = i;
@@ -1903,11 +1902,21 @@ int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Typ
 	AST_RuntimeError(Node, "Out of avaliable registers");
 	return 1;
 }
+int _ReferenceRegister(tAST_BlockInfo *Block, tRegister Register)
+{
+	assert(Register >= 0);
+	assert(Register < MAX_REGISTERS);
+	struct sRegInfo	*ri = &Block->Func->Registers[Register];
+	assert(ri->RefCount);
+	ri->RefCount ++;
+	return 0;
+}
 int _GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, void **Info)
 {
 	assert(Register >= 0);
 	assert(Register < MAX_REGISTERS);
 	struct sRegInfo	*ri = &Block->Func->Registers[Register];
+	assert(ri->RefCount);
 	if( Type )
 		*Type = ri->Type;
 	if( Info )
@@ -1917,6 +1926,7 @@ int _GetRegisterInfo(tAST_BlockInfo *Block, int Register, tSpiderTypeRef *Type, 
 int _AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, int Register, tSpiderTypeRef Type)
 {
 	struct sRegInfo	*ri = &Block->Func->Registers[Register];
+	assert(ri->RefCount);
 	if( !SS_TYPESEQUAL(ri->Type, Type) ) {
 		AST_RuntimeError(Node, "Type mismatch, expected %s got %s",
 			SpiderScript_GetTypeName(Block->Func->Script, Type),
@@ -1931,11 +1941,16 @@ int _ReleaseRegister(tAST_BlockInfo *Block, int Register)
 	assert(Register >= 0);
 	assert(Register < MAX_REGISTERS);
 	struct sRegInfo	*ri = &Block->Func->Registers[Register];
-	if( SS_ISTYPEREFERENCE(ri->Type) ) {
-		// Emit dereference
-		Bytecode_AppendClearReg(Block->Func->Handle, Register);
+	assert(ri->RefCount);
+	ri->RefCount --;
+	if( ri->RefCount == 0 )
+	{
+		if( SS_ISTYPEREFERENCE(ri->Type) ) {
+			// Emit dereference
+			Bytecode_AppendClearReg(Block->Func->Handle, Register);
+		}
+		ri->Type.Def = NULL;
 	}
-	ri->Type.Def = NULL;
 	return 0;
 }
 

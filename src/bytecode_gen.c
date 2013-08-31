@@ -65,6 +65,10 @@ const enum eOpEncodingType caOpEncodingTypes[] = {
 
 	[BC_OP_INT_NEG]    = BC_OPENC_REG2,
 	[BC_OP_INT_BITNOT] = BC_OPENC_REG2,
+
+	[BC_OP_BOOL_LOGICAND] = BC_OPENC_REG3,
+	[BC_OP_BOOL_LOGICOR]  = BC_OPENC_REG3,
+	[BC_OP_BOOL_LOGICXOR] = BC_OPENC_REG3,
 	
 	[BC_OP_INT_BITAND] = BC_OPENC_REG3,
 	[BC_OP_INT_BITOR] = BC_OPENC_REG3,
@@ -339,6 +343,20 @@ void Bytecode_AppendMov(tBC_Function *Handle, int DstReg, int SrcReg)
 	DEF_BC_RI2(BC_OP_MOV, DstReg, SrcReg)
 //void Bytecode_AppendDeref(tBC_Function *Handle, int Reg)
 //	DEF_BC_RI1(BC_OP_DEREF, Reg)
+enum eBC_Ops Bytecode_int_GetBinOpBool(enum eBC_BinOp Op)
+{
+	switch(Op)
+	{
+	case BINOP_LOGICAND:	return BC_OP_BOOL_LOGICAND;
+	case BINOP_LOGICOR:	return BC_OP_BOOL_LOGICOR;
+	case BINOP_LOGICXOR:	return BC_OP_BOOL_LOGICXOR;
+	default:
+		BUG("BinOpBool %i unhabled", Op);
+		return BC_OP_NOP;
+	}
+}
+void Bytecode_AppendBinOpBool(tBC_Function *Handle, int Op, int DstReg, int Reg1, int Reg2)
+	DEF_BC_RI3(Bytecode_int_GetBinOpBool(Op), DstReg, Reg1, Reg2)
 enum eBC_Ops Bytecode_int_GetBinOpInt(enum eBC_BinOp Op)
 {
 	switch(Op)
