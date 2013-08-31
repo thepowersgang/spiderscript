@@ -1077,6 +1077,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			switch(ot)
 			{
 			case BC_OP_LOADNULLREF:
+			case BC_OP_CREATEARRAY:
 				t = op->Content.RegInt.RegInt2;
 				_ASSERT(t, <, State->NTypes, NULL);
 				t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
