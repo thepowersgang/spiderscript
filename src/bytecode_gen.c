@@ -373,6 +373,9 @@ enum eBC_Ops Bytecode_int_GetBinOpInt(enum eBC_BinOp Op)
 	case BINOP_MUL: 	return BC_OP_INT_MULTIPLY;
 	case BINOP_DIV: 	return BC_OP_INT_DIVIDE;
 	case BINOP_MOD: 	return BC_OP_INT_MODULO;
+	
+	case BINOP_BITOR:	return BC_OP_INT_BITOR;
+	case BINOP_BITXOR:	return BC_OP_INT_BITXOR;
 	default:
 		BUG("BinOpInt %i unhandled", Op);
 		return BC_OP_NOP;

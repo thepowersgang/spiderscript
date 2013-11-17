@@ -34,7 +34,8 @@ clean:
 	$(RM) -r obj .exports/
 
 $(BIN): $(OBJ)
-	$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
+	@echo [LD] -o $(BIN)
+	@$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
 
 export_types.gen.h: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
 	@mkdir -p $(dir $@)
