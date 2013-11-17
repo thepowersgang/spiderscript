@@ -163,6 +163,8 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 		BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name);
 	}
 
+	Fcn->ASTFcn = AST_Optimise(Fcn->ASTFcn);
+
 	if( AST_ConvertNode(&bi, Fcn->ASTFcn, 0) )
 	{
 		AST_RuntimeError(Fcn->ASTFcn, "Error in converting function");
@@ -564,6 +566,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	case NODETYPE_TRY: {
 		 int	handler = Bytecode_AllocateLabel(Block->Func->Handle);
 		 int	post_handler = Bytecode_AllocateLabel(Block->Func->Handle);
+		// TODO: Support finally?
+		// 'finally': is called before stack unwinding, and upon leaving try/catch
 		
 
 		Bytecode_AppendPushExceptHandler(Block->Func->Handle, handler);
@@ -597,6 +601,73 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		} break;
 #endif
 
+
+	case NODETYPE_SWITCH: {
+		tAST_BlockInfo	blockInfo = {0};
+		tAST_BlockInfo	*parentBlock = Block;
+		BC_PrepareBlock(parentBlock, &blockInfo);
+		Block = &blockInfo;
+		
+		 int	switch_end = Bytecode_AllocateLabel(Block->Func->Handle);
+		Block->BreakTarget = switch_end;
+		Block->Tag = "";
+		
+		ret = AST_ConvertNode(Block, Node->BinOp.Left, &vreg);
+		if(ret)	return ret;
+		_GetRegisterInfo(Block, vreg, &type2, NULL);
+		
+		// Count cases	
+		 int	nCases = 0;
+		for( tAST_Node *node = Node->BinOp.Right; node; node = node->NextSibling )
+			nCases ++;
+		
+		// Insert condition checks
+		 int	case_labels[nCases];
+		 int	i = 0, default_index = -1;
+		for( tAST_Node *node = Node->BinOp.Right; node; node = node->NextSibling, i++ )
+		{
+			case_labels[i] = Bytecode_AllocateLabel(Block->Func->Handle);
+			if( node->BinOp.Left )
+			{
+				// TODO: Ensure that .Left is a constant of the same type as vreg
+				ret = AST_ConvertNode(Block, node->BinOp.Left, &reg1);
+				if(ret)	return ret;
+				_AssertRegType(Block, node->BinOp.Left, reg1, type2);
+				//void *infoptr = NULL;
+				//_GetRegisterInfo(Block, node->BinOp.Left, reg1, &infoptr);
+				//ASSERT(infoptr != NULL);
+				BC_BinOp(Block, BINOP_EQ, reg1, reg1, vreg);
+				Bytecode_AppendCondJump(Block->Func->Handle, case_labels[i], reg1);
+				_ReleaseRegister(Block, reg1);
+			}
+			else {
+				if( default_index != -1 ) {
+					AST_RuntimeError(node, "Multiple 'default' labels in switch");
+					return -1;
+				}
+				default_index = i;
+			}
+		}
+		
+		Bytecode_AppendJump(Block->Func->Handle,
+			default_index == -1 ? switch_end : case_labels[default_index]
+			);
+	
+		// Code	
+		i = 0;
+		for( tAST_Node *node = Node->BinOp.Right; node; node = node->NextSibling, i++ )
+		{
+			Bytecode_SetLabel(Block->Func->Handle, case_labels[i]);
+			ret = AST_ConvertNode(Block, node->BinOp.Right, NULL);
+			if(ret)	return ret;
+			// No jump, as usually end with 'break'
+		}
+		Bytecode_SetLabel(Block->Func->Handle, switch_end);
+		BC_FinaliseBlock(parentBlock, Node, Block);
+		Block = parentBlock;
+		NO_RESULT();
+		break; }
+	
 	// Return
 	case NODETYPE_RETURN:
 		// Special case for `return null;`
@@ -619,8 +690,9 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 				bi = bi->Parent;
 		}
 		else {
-			while(bi && !bi->Tag)
+			while(bi && !bi->Tag) {
 				bi = bi->Parent;
+			}
 		}
 		if( !bi ) {
 			AST_RuntimeError(Node, "Unable to find continue/break target '%s'",
@@ -1411,6 +1483,7 @@ int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tReg
 {
 	 int	ret;
 	tSpiderTypeRef	type;
+	//printf("Op=%i by %p\n", Op, __builtin_return_address(0));
 
 	ret = _GetRegisterInfo(Block, reg1, &type, NULL);
 	if(ret)	return ret;

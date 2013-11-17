@@ -241,6 +241,9 @@ extern tAST_Node	*AST_NewBreakout(tParser *Parser, int Type, const char *DestTag
 
 extern void	AST_FreeNode(tAST_Node *Node);
 
+// ast_optimise.c
+extern tAST_Node	*AST_Optimise(tAST_Node *Node);
+
 // exec_ast.h
 extern tSpiderScript_CoreType	AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, tSpiderScript_CoreType Type);
 extern tSpiderInteger	AST_ExecuteNode_UniOp_Integer(tSpiderScript *Script, int Op, tSpiderInteger Value);
