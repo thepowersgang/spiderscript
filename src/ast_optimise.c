@@ -172,13 +172,12 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	
 	case NODETYPE_FUNCTIONCALL:
 	case NODETYPE_METHODCALL:
-	case NODETYPE_CREATEOBJECT:
 		Node->FunctionCall.FirstArg = AST_Optimise_OptList( Node->FunctionCall.FirstArg );
 		if( Node->Type == NODETYPE_METHODCALL )
 			_OPT(Node->FunctionCall.Object);
 		// TODO: Resolve function and get datatype
 		break;
-	case NODETYPE_CREATEOBJECT
+	case NODETYPE_CREATEOBJECT:
 		Node->FunctionCall.FirstArg = AST_Optimise_OptList( Node->FunctionCall.FirstArg );
 		break;
 
@@ -190,7 +189,7 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	
 	// If/Ternary node
 	case NODETYPE_IF:
-		Node->DataType = SS_DATATYPE_NOVALUE;
+		//Node->DataType = SS_DATATYPE_NOVALUE;
 		_OPT(Node->If.Condition);
 		_OPT(Node->If.True);
 		_OPT(Node->If.False);
@@ -213,18 +212,18 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 		_OPT(Node->For.Condition);
 		_OPT(Node->For.Increment);
 		_OPT(Node->For.Code);
-		Node->DataType = SS_DATATYPE_NOVALUE;
+		//Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	
 	case NODETYPE_SWITCH:
 		_OPT(Node->BinOp.Left);
 		Node->BinOp.Right = AST_Optimise_OptList( Node->BinOp.Right );
-		Node->DataType = SS_DATATYPE_NOVALUE;
+		//Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	case NODETYPE_CASE:
 		_OPT(Node->BinOp.Left);
 		_OPT(Node->BinOp.Right);
-		Node->DataType = SS_DATATYPE_NOVALUE;
+		//Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	
 	case NODETYPE_ELEMENT:
@@ -373,21 +372,21 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	case NODETYPE_NOP:
 	case NODETYPE_BREAK:
 	case NODETYPE_CONTINUE:
-		Node->DataType = SS_DATATYPE_NOVALUE;
+		//Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	case NODETYPE_CONSTANT:
-		Node->DataType = SS_DATATYPE_VOID;
+		//Node->DataType = SS_DATATYPE_VOID;
 		break;
 	case NODETYPE_STRING:
-		Node->DataType = SS_DATATYPE_STRING;
+		//Node->DataType = SS_DATATYPE_STRING;
 		break;
 	case NODETYPE_INTEGER:
-		Node->DataType = SS_DATATYPE_INTEGER;
+		//Node->DataType = SS_DATATYPE_INTEGER;
 		break;
 	case NODETYPE_REAL:
-		Node->DataType = SS_DATATYPE_REAL;
+		//Node->DataType = SS_DATATYPE_REAL;
 	case NODETYPE_BOOLEAN:
-		Node->DataType = SS_DATATYPE_BOOLEAN;
+		//Node->DataType = SS_DATATYPE_BOOLEAN;
 		break;
 	case NODETYPE_NULL:
 		break;
