@@ -167,6 +167,7 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	case NODETYPE_ASSIGN:
 		_OPT(Node->Assign.Dest);
 		_OPT(Node->Assign.Value);
+		Node->DataType = Node->Assign.Dest->DataType;
 		break;
 	
 	case NODETYPE_FUNCTIONCALL:
@@ -175,19 +176,35 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 		Node->FunctionCall.FirstArg = AST_Optimise_OptList( Node->FunctionCall.FirstArg );
 		if( Node->Type == NODETYPE_METHODCALL )
 			_OPT(Node->FunctionCall.Object);
+		// TODO: Resolve function and get datatype
+		break;
+	case NODETYPE_CREATEOBJECT
+		Node->FunctionCall.FirstArg = AST_Optimise_OptList( Node->FunctionCall.FirstArg );
 		break;
 
 	case NODETYPE_CREATEARRAY:
 	case NODETYPE_CAST:
 		_OPT(Node->Cast.Value);
+		Node->DataType = Node->Cast.DataType;
 		break;
 	
 	// If/Ternary node
 	case NODETYPE_IF:
+		Node->DataType = SS_DATATYPE_NOVALUE;
+		_OPT(Node->If.Condition);
+		_OPT(Node->If.True);
+		_OPT(Node->If.False);
+		break;
 	case NODETYPE_TERNARY:
 		_OPT(Node->If.Condition);
 		_OPT(Node->If.True);
 		_OPT(Node->If.False);
+		l = (Node->If.True ? Node->If.True : Node->If.Condition);
+		r = Node->If.False;
+		if( !SS_TYPESEQUAL(l->DataType, r->DataType) ) {
+			// Type mismatch?
+		}
+		Node->DataType = Node->If.False->DataType;
 		break;
 	
 	// Looping Construct (For loop node)
@@ -196,19 +213,23 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 		_OPT(Node->For.Condition);
 		_OPT(Node->For.Increment);
 		_OPT(Node->For.Code);
+		Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	
 	case NODETYPE_SWITCH:
 		_OPT(Node->BinOp.Left);
 		Node->BinOp.Right = AST_Optimise_OptList( Node->BinOp.Right );
+		Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	case NODETYPE_CASE:
 		_OPT(Node->BinOp.Left);
 		_OPT(Node->BinOp.Right);
+		Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
 	
 	case NODETYPE_ELEMENT:
 		_OPT(Node->Scope.Element);
+		// TODO: Resolve object to get type of element
 		break;
 	
 	// Define a variable
@@ -334,6 +355,9 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	case NODETYPE_BWAND:	case NODETYPE_LOGICALAND:
 	case NODETYPE_BWOR: 	case NODETYPE_LOGICALOR:
 	case NODETYPE_BWXOR:	case NODETYPE_LOGICALXOR:
+		l = _OPT(Node->BinOp.Left);
+		r = _OPT(Node->BinOp.Right);
+		break;
 	case NODETYPE_EQUALS:	case NODETYPE_NOTEQUALS:
 	case NODETYPE_GREATERTHAN:	case NODETYPE_GREATERTHANEQUAL:
 	case NODETYPE_LESSTHAN:	case NODETYPE_LESSTHANEQUAL:
@@ -347,14 +371,25 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	
 	// Node types that don't optimise (leaf nodes)
 	case NODETYPE_NOP:
-	case NODETYPE_CONSTANT:
 	case NODETYPE_BREAK:
 	case NODETYPE_CONTINUE:
+		Node->DataType = SS_DATATYPE_NOVALUE;
+		break;
+	case NODETYPE_CONSTANT:
+		Node->DataType = SS_DATATYPE_VOID;
+		break;
 	case NODETYPE_STRING:
+		Node->DataType = SS_DATATYPE_STRING;
+		break;
 	case NODETYPE_INTEGER:
+		Node->DataType = SS_DATATYPE_INTEGER;
+		break;
 	case NODETYPE_REAL:
-	case NODETYPE_NULL:
+		Node->DataType = SS_DATATYPE_REAL;
 	case NODETYPE_BOOLEAN:
+		Node->DataType = SS_DATATYPE_BOOLEAN;
+		break;
+	case NODETYPE_NULL:
 		break;
 	}
 	return Node;

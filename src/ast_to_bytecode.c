@@ -907,13 +907,13 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		else if( SS_ISTYPEOBJECT(type) ) {
 			const char *name;
 			tRegister args[] = {reg1};
-			switch(Node->Type)
+			switch(op)
 			{
-			case NODETYPE_LOGICALNOT:	name = "operator !";	break;
-			case NODETYPE_BWNOT:	name = "operator ~";	break;
-			case NODETYPE_NEGATE:	name = "operator -";	break;
+			case UNIOP_LOGICNOT:	name = "operator !";	break;
+			case UNIOP_BITNOT:	name = "operator ~";	break;
+			case UNIOP_NEG: 	name = "operator -";	break;
 			default:
-				AST_RuntimeError(Node, "BUG - Node %i unhandled in UniOp on Object", Node->Type);
+				AST_RuntimeError(Node, "BUG - UniOp %i unhandled on Object", op);
 				return -1;
 			}
 			// TODO: Somehow handle if the object doesn't expose an "operator !"

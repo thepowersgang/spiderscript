@@ -109,6 +109,8 @@ struct sAST_Node
 	
 	void	*BlockState;	//!< BlockState pointer (for cache integrity)
 	 int	BlockIdent;	//!< Ident (same as above)
+	
+	tSpiderTypeRef	DataType;	// Datatype used for codegen
 	void	*ValueCache;	//!< Cached value / pointer
 	
 	union
