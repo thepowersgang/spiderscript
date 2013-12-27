@@ -1,10 +1,13 @@
 /*
-* SpiderScript Library
-* by John Hodge (thePowersGang)
-* 
-* exceptions.c
-* - Exception handling
-*/
+ * SpiderScript Library
+ * by John Hodge (thePowersGang)
+ * 
+ * exceptions.c
+ * - Exception handling
+ *
+ * TODO: Allow throwing of objects?
+ * TODO: OR have 'custom' exception types
+ */
 #include <spiderscript.h>
 #include "common.h"
 #include <stdlib.h>

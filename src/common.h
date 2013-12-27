@@ -8,6 +8,19 @@
 #include <spiderscript.h>
 #include <stdarg.h>
 
+// ---
+#if DEBUG >= 2
+# define DEBUGS2(s, v...)	printf("%s: "s"\n", __func__, ## v)
+#else
+# define DEBUGS2(...)	do{}while(0)
+#endif
+#if DEBUG >= 1
+# define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
+#else
+# define DEBUGS1(...)	do{}while(0)
+#endif
+// ---
+
 #define CONSTRUCTOR_NAME	"__constructor"
 #define BC_NS_SEPARATOR	'@'
 

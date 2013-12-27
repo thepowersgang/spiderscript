@@ -2,6 +2,7 @@
  * Acess2 - SpiderScript
  * - Parser
  */
+#define DEBUG	0
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,20 +14,8 @@
 #include "common.h"
 #include <assert.h>
 
-#define DEBUG	0
 #define	SUPPORT_BREAK_TAGS	1
 #define MAX_INCLUDE_DEPTH	5
-
-#if DEBUG >= 2
-# define DEBUGS2(s, v...)	printf("%s: "s"\n", __func__, ## v)
-#else
-# define DEBUGS2(...)	do{}while(0)
-#endif
-#if DEBUG >= 1
-# define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
-#else
-# define DEBUGS1(...)	do{}while(0)
-#endif
 
 enum eGetIdentMode
 {
@@ -322,9 +311,9 @@ int Parse_ClassDefinition(tParser *Parser)
 int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type)
 {
 	 int	rv = 0;
-	tAST_Node	*first_arg = NULL, *last_arg, *code;
-	
-	last_arg = (void*)&first_arg;	// HACK
+	tAST_Node	*first_arg = NULL;
+	tAST_Node	**arg_next_ptr = &first_arg;
+	tAST_Node	*code;
 	
 	SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT );
 	
@@ -344,9 +333,10 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 			tAST_Node *def;
 			def = Parse_GetIdent(Parser, GETIDENTMODE_FUNCTIONDEF, NULL);
 			if( !def ) { rv = -1; goto _return; }
-			last_arg->NextSibling = def;
-			last_arg = def;
-			last_arg->NextSibling = NULL;
+			DEBUGS1("Arg '%s'", def->DefVar.Name);
+			def->NextSibling = NULL;
+			*arg_next_ptr = def;
+			arg_next_ptr = &def->NextSibling;
 		} while(GetToken(Parser) == TOK_COMMA);
 	}
 	else
@@ -364,6 +354,7 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 	}
 	DEBUGS2("-- Done '%s' code", name);
 
+	DEBUGS1("- first_arg=%p", first_arg);
 	if( Class )
 		rv = AST_AppendMethod( Parser, Class, name, Type, first_arg, code );
 	else

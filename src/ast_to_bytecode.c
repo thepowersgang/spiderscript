@@ -3,6 +3,7 @@
  *
  * AST to BytecodeV2
  */
+#define DEBUG	0
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -12,7 +13,6 @@
 #include "bytecode_gen.h"
 #include <assert.h>
 
-#define DEBUG	0
 #define TRACE_VAR_LOOKUPS	0
 #define TRACE_TYPE_STACK	0
 #define MAX_NAMESPACE_DEPTH	10
@@ -28,12 +28,6 @@
 #define STACKPOP_RV_NULL	1
 #define STACKPOP_RV_UFLOW	-1
 #define STACKPOP_RV_MISMATCH	-2
-
-#if DEBUG >= 1
-# define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
-#else
-# define DEBUGS1(...)	do{}while(0)
-#endif
 
 // === TYPES ===
 typedef int	tRegister;
@@ -119,16 +113,14 @@ tSpiderTypeRef	_GetCoreType(tSpiderScript_CoreType CoreType);
 // === CODE ===
 int SpiderScript_BytecodeScript(tSpiderScript *Script)
 {
-	tScript_Function	*fcn;
-	tScript_Class	*sc;
-	for(fcn = Script->Functions; fcn; fcn = fcn->Next)
+	for(tScript_Function *fcn = Script->Functions; fcn; fcn = fcn->Next)
 	{
 		if( Bytecode_ConvertFunction(Script, fcn) == 0 )
 			return -1;
 	}
-	for(sc = Script->FirstClass; sc; sc = sc->Next)
+	for(tScript_Class *sc = Script->FirstClass; sc; sc = sc->Next)
 	{
-		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
+		for(tScript_Function *fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 		{
 			if( Bytecode_ConvertFunction(Script, fcn) == 0 )
 				return -1;
@@ -156,11 +148,19 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	fi.Function = Fcn;
 	fi.Script = Script;
 	bi.Func = &fi;
+
+	DEBUGS1("%p %s %i args", Fcn, Fcn->Name, Fcn->ArgumentCount);
 	
 	// Parse arguments
 	for( int i = 0; i < Fcn->ArgumentCount; i ++ )
 	{
-		BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name);
+		int rv = BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name);
+		if(rv) {
+			AST_RuntimeError(Fcn->ASTFcn, "Error in creating arguments");
+			BC_Variable_Clear(&bi);
+			Bytecode_DeleteFunction(ret);
+			return NULL;
+		}
 	}
 
 	Fcn->ASTFcn = AST_Optimise(Fcn->ASTFcn);
@@ -1470,7 +1470,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	
 	*RetReg = retreg;
 	// Push return type
-	DEBUGS1("Return type %s", SpiderScript_GetTypeName(Block->Func->Script, retreg));
+	DEBUGS1("Return type %s", SpiderScript_GetTypeName(Block->Func->Script, ret_type));
 	// Released by caller?
 //	if( ret_type.Def == NULL ) {
 //		_ReleaseRegister(Block, retreg);
@@ -1708,40 +1708,39 @@ const tScript_Var *BC_Variable_LookupGlobal(tAST_BlockInfo *Block, tAST_Node *No
 const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, const char *Name, tSpiderTypeRef CreateType)
 {
 	tVariable	*var = NULL;
-	
+
+	DEBUGS1("Lookup '%s'", Name);
 	for( tAST_BlockInfo *bs = Block; bs; bs = bs->Parent )
 	{
+		DEBUGS2("> Block %p", bs);
 		for( var = bs->FirstVar; var; var = var->Next )
 		{
+			DEBUGS2("- == '%s'", var->Name);
 			if( strcmp(var->Name, Name) == 0 )
-				break;
+			{
+				#if TRACE_VAR_LOOKUPS
+				AST_RuntimeMessage(VarNode, "debug", "Variable lookup of '%s' %p type %i",
+					Name, var, var->Type);
+				#endif
+				
+				return var;
+			}
 		}
-		if(var)	break;
 	}
 
-	if( !var )
+	//if( Block->Func->Script->Variant->bDyamicTyped && CreateType != TYPE_VOID ) {
+	//	// Define variable
+	//	var = BC_Variable_Define(Block, CreateType, VarNode->Variable.Name, NULL);
+	//	#if TRACE_VAR_LOOKUPS
+	//	AST_RuntimeMessage(Node, "debug", "Variable <%s> '%s' implicit defined",
+	//		Name, SpiderScript_GetTypeName(Block->Func->Script, CreateType));
+	//	#endif
+	//}
+	if( Node && Node->Type != NODETYPE_DEFGLOBAL && Node->Type != NODETYPE_DEFVAR )
 	{
-		//if( Block->Func->Script->Variant->bDyamicTyped && CreateType != TYPE_VOID ) {
-		//	// Define variable
-		//	var = BC_Variable_Define(Block, CreateType, VarNode->Variable.Name, NULL);
-		//	#if TRACE_VAR_LOOKUPS
-		//	AST_RuntimeMessage(Node, "debug", "Variable <%s> '%s' implicit defined",
-		//		Name, SpiderScript_GetTypeName(Block->Func->Script, CreateType));
-		//	#endif
-		//}
-		if( Node && Node->Type != NODETYPE_DEFGLOBAL && Node->Type != NODETYPE_DEFVAR )
-		{
-			AST_RuntimeError(Node, "Variable '%s' is undefined", Name);
-		}
-		return NULL;
+		AST_RuntimeError(Node, "Variable '%s' is undefined", Name);
 	}
-		
-	#if TRACE_VAR_LOOKUPS
-	AST_RuntimeMessage(VarNode, "debug", "Variable lookup of '%s' %p type %i",
-		Name, var, var->Type);
-	#endif
-	
-	return var;
+	return NULL;
 }
 
 /**
@@ -1781,8 +1780,8 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 	
 	Bytecode_AppendDefineVar(Block->Func->Handle, reg, Name, Type);	
 
-//	printf("Defined variable %s as type %s\n",
-//		Name, SpiderScript_GetTypeName(Block->Func->Script, Type));
+	DEBUGS1("%p %s '%s' (Reg %i)", Block,
+		SpiderScript_GetTypeName(Block->Func->Script, Type), Name, reg);
 
 	return 0;
 }

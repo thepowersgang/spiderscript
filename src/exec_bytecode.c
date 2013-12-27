@@ -5,6 +5,7 @@
  * exec_bytecode.c
  * - Execute bytecode
  */
+#define DEBUG	0
 #include <stdlib.h>
 #include <stdint.h>
 #include "common.h"
@@ -23,10 +24,8 @@
 
 #if TRACE
 # define DEBUG_F(v...)	printf(v)
-# define DEBUGS1(f,a...)	printf("%s:%i - "f"\n", __func__, __LINE__,## a)
 #else
 # define DEBUG_F(v...)	
-# define DEBUGS1(f,a...)	do{}while(0)
 #endif
 
 #define TODO(str)	SpiderScript_RuntimeError(Script, "TODO: Impliment bytecode"str); bError = 1; break

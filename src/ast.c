@@ -2,6 +2,7 @@
  * Acess2 Init
  * - Script AST Manipulator
  */
+#define	DEBUG	0
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -94,15 +95,17 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
 {
 	tScript_Function	*fcn;
-	 int	arg_count = 0, arg_bytes = 0;
-	tAST_Node	*arg;
+	 int	arg_count = 0;
+	size_t	arg_bytes = 0;
 
 	// Count and size arguments
-	for(arg = FirstArg; arg; arg = arg->NextSibling)
+	for(tAST_Node *arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		arg_count ++;
 		arg_bytes += sizeof(fcn->Arguments[0]) + strlen(arg->DefVar.Name) + 1;
 	}
+	DEBUGS1("Fcn '%s' %i args (%zi bytes)",
+		Name, arg_count, arg_bytes);
 
 	// Allocate information
 	fcn = malloc( sizeof(tScript_Function) + arg_bytes + strlen(Name) + 1 );
@@ -119,7 +122,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	arg_bytes = strlen(Name) + 1;	// Used as an offset into fcn->Name
 	arg_count = 0;
 
-	for(arg = FirstArg; arg; arg = arg->NextSibling)
+	for(tAST_Node *arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		fcn->Arguments[arg_count].Name = fcn->Name + arg_bytes;
 		strcpy(fcn->Arguments[arg_count].Name, arg->DefVar.Name);
