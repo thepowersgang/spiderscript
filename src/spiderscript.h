@@ -340,7 +340,8 @@ enum eSpiderScript_Exceptions
 	SS_EXCEPTION_BADELEMENT,	// TODO: Is this needed?
 	SS_EXCEPTION_ARGUMENT,	// Invalid argument
 	SS_EXCEPTION_TYPEMISMATCH,	// Type mismatch
-	SS_EXCEPTION_NAMEERROR	// Invalid name/ID
+	SS_EXCEPTION_NAMEERROR,	// Invalid name/ID
+	SS_EXCEPTION_ARITH,
 };
 
 SS_EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message, ...);

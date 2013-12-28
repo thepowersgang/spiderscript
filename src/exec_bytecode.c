@@ -1037,7 +1037,12 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		BINOPI(BC_OP_INT_ADD,      +, TYPE_INTEGER, Integer)
 		BINOPI(BC_OP_INT_SUBTRACT, -, TYPE_INTEGER, Integer)
 		BINOPI(BC_OP_INT_MULTIPLY, *, TYPE_INTEGER, Integer)
-		BINOPI(BC_OP_INT_DIVIDE,   /, TYPE_INTEGER, Integer)
+		BINOPHDR_TYPE(BC_OP_INT_DIVIDE, TYPE_INTEGER, TYPE_INTEGER)
+			if( reg2->Integer == 0 ) {
+				return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARITH, "Divide by zero");
+			}
+			reg_dst->Integer = reg1->Integer / reg2->Integer;
+			break;
 		BINOPI(BC_OP_INT_MODULO,   %, TYPE_INTEGER, Integer)
 
 		BINOPI(BC_OP_INT_BITSHIFTLEFT,  <<, TYPE_INTEGER, Integer)
