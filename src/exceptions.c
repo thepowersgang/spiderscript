@@ -50,6 +50,11 @@ int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name
 		);
 }
 
+int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Location)
+{
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, "%s", Location);
+}
+
 int SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message, ...)
 {
 	if( Script->CurException ) {

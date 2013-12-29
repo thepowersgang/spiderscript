@@ -229,6 +229,9 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 
 @FUNCTION String[] Split(String Haystack, String Needle)
 @{
+	if( !Haystack )	return SpiderScript_ThrowException_NullRef(Script, "Lang.Strings.Split - Haystack");
+	if( !Needle )	return SpiderScript_ThrowException_NullRef(Script, "Lang.Strings.Split - Needle");
+	
 	 int	haystack_len, needle_len;
 	const void	*haystack, *needle, *end;
 	 int	ofs, slen;
