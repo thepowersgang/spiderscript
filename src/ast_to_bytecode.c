@@ -88,7 +88,7 @@ typedef struct sAST_BlockInfo
 // Variables
 const tScript_Var	*BC_Variable_LookupGlobal(tAST_BlockInfo *Block, tAST_Node *Node, const char *Name, int *Index);
 const tVariable	*BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, const char *Name, tSpiderTypeRef CreateType);
- int 	BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name);
+ int 	BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name, const tVariable **VarPtr);
  int	BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name);
  int	BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister Register);
  int	BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister *Result);
@@ -154,7 +154,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	// Parse arguments
 	for( int i = 0; i < Fcn->ArgumentCount; i ++ )
 	{
-		int rv = BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name);
+		int rv = BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name, NULL);
 		if(rv) {
 			AST_RuntimeError(Fcn->ASTFcn, "Error in creating arguments");
 			BC_Variable_Clear(&bi);
@@ -565,50 +565,95 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		BC_FinaliseBlock(Block, Node, &blockInfo);
 		NO_RESULT();
 		} break;
-	// 
-	#if 0
-	case NODETYPE_FOREACH:
-		ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
-		if(ret)	return ret;
+	// 'foreach' loop
+	// "for( $array : $entry )"
+	// "for( $array : $index, $entry )"
+	case NODETYPE_ITERATE: {
 		
+		ret = AST_ConvertNode(Block, Node->Iterator.Value, &vreg);
+		if(ret)	return ret;
 		ret = _GetRegisterInfo(Block, vreg, &type, NULL);
 		if(ret)	return ret;
 		
+		tAST_BlockInfo	blockInfo = {0};
+		tAST_BlockInfo	*parentBlock = Block;
+		BC_PrepareBlock(parentBlock, &blockInfo);
+		Block = &blockInfo;
+
+		int loop_start = Bytecode_AllocateLabel(Block->Func->Handle);
+		int loop_end   = Bytecode_AllocateLabel(Block->Func->Handle);
+		Block->Tag = Node->Iterator.Tag;
+		Block->BreakTarget = loop_end;
+		Block->ContinueTarget = loop_start;
+		
 		if( SS_GETARRAYDEPTH(type) )
 		{
+			tRegister	iterator;
+			tRegister	maximum;
+			tRegister	comparison;
 			// Get length, iterate 0 ... n-1
 			
-			ret = _AllocateRegister(Block, TYPE_INTEGER, NULL, &reg1);	// Iterator
+			if( Node->Iterator.IndexVar != NULL ) {
+				const tVariable *var;
+				ret = BC_Variable_Define(Block, Node, TYPE_INTEGER, Node->Iterator.IndexVar, &var);
+				if(ret)	return ret;
+				iterator = var->Register;
+			}
+			else {
+				ret = _AllocateRegister(Block, Node, TYPE_INTEGER, NULL, &iterator);	// Iterator
+				if(ret)	return ret;
+			}
+		
+			// Initialise loop state (iterator=-1,max=sizeof(array))	
+			Bytecode_AppendConstInt(Block->Func->Handle, iterator, -1);
+			const char *namespaces[] = {NULL};
+			tRegister	args[] = {vreg};
+			ret = BC_CallFunction(Block, Node, &maximum, namespaces, "sizeof", 1, args);
 			if(ret)	return ret;
-			ret = _AllocateRegister(Block, TYPE_INTEGER, NULL, &vreg);	// Maximum
+			ret = _AssertRegType(Block, Node, maximum, TYPE_INTEGER);
 			if(ret)	return ret;
-			
-			Bytecode_AppendConstInt(Block->Func->Handle, vreg, 0);	// array size
 
-			loop_start = Bytecode_AllocateLabel(Block->Func->Handle);
-			loop_end   = Bytecode_AllocateLabel(Block->Func->Handle);
-			
-			Bytecode_AppendConstInt(Block->Func->Handle, reg1, 0);
+			// Create value variable
+			type.ArrayDepth -= 1;
+			const tVariable *var;
+			ret = BC_Variable_Define(Block, Node, type, Node->Iterator.ValueVar, &var);
+			if(ret)	return ret;
+		
+			// Loop header (increment, comparison)
 			Bytecode_SetLabel(Block->Func->Handle, loop_start);
-			ret = _AllocateRegister(Block, TYPE_INTEGER, NULL, &reg2);
-			Bytecode_AppendBinOpInt(Block->Func->Handle, BINOP_GE, reg2, reg1, vreg);
-			Bytecode_AppendCondJump(Block->Func->Handle, loop_end, reg2);
-			_ReleaseRegister(Block, reg2);
+			ret = _AllocateRegister(Block, Node, TYPE_INTEGER, NULL, &comparison);
+			if(ret)	return ret;
+			Bytecode_AppendConstInt(Block->Func->Handle, comparison, 1);
+			Bytecode_AppendBinOpInt(Block->Func->Handle, BINOP_ADD, iterator, iterator, comparison);
+			Bytecode_AppendBinOpInt(Block->Func->Handle, BINOP_GE, comparison, iterator, maximum);
+			Bytecode_AppendCondJump(Block->Func->Handle, loop_end, comparison);
+			_ReleaseRegister(Block, comparison);
+			
+			// Set iteration variable
+			Bytecode_AppendIndex(Block->Func->Handle, var->Register, vreg, iterator);
 			
 			// Content
+			ret = AST_ConvertNode(Block, Node->Iterator.Code, NULL);
+			if(ret)	return ret;
 			
-			Bytecode_
+			// Loop tail
+			Bytecode_AppendJump(Block->Func->Handle, loop_start);
 			Bytecode_SetLabel(Block->Func->Handle, loop_end);
 			
-			_ReleaseRegister(Block, reg1);
-			_ReleaseRegister(Block, reg2);
+			if( Node->Iterator.IndexVar == NULL )
+				_ReleaseRegister(Block, iterator);
+			_ReleaseRegister(Block, maximum);
 		}
 		else
 		{
 			// oops :)
+			AST_RuntimeError(Node, "foreach on unsupported type");
 		}
-		break;
-	#endif
+		
+		Block = parentBlock;
+		BC_FinaliseBlock(Block, Node, &blockInfo);
+		NO_RESULT();
+		break; }
 
 	// Try/catch block
 #if 0
@@ -628,12 +673,12 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 
 		for( tAST_Node *cnode = Node->TryCatch.FirstCatch; cnode; cnode = cnode->NextSibling )
 		{
-			ret = _AllocateRegister(Block, cnode->Catch.Type, NULL, &reg1);
-			if(ret)	return ret;
 			int next = Bytecode_AllocateLabel(Block->Func->Handle);
-			Bytecode_AppendCheckException(Block->Func->Handle, cnode->Catch.Type, reg1, next);
-			ret = BC_Variable_Define(Block, cnode, cnode->Catch.Type, cnode->Catch.Name);
+			// TODO: Create block
+			const tVariable *var;
+			ret = BC_Variable_Define(Block, cnode, cnode->Catch.Type, cnode->Catch.Name, &var);
 			if(ret)	return ret;
+			Bytecode_AppendCheckException(Block->Func->Handle, cnode->Catch.Type, var->Register, next);
 
 			ret = AST_ConvertNode(Block, cnode->Catch.Code, NULL);
 			if(ret)	return ret;
@@ -783,16 +828,17 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			_GetRegisterInfo(Block, vreg, &type, NULL);
 			
 			// Set to return type
-			ret = BC_Variable_Define(Block, Node, type, Node->DefVar.Name);
+			const tVariable *var;
+			ret = BC_Variable_Define(Block, Node, type, Node->DefVar.Name, &var);
 			if(ret)	return ret;
 			
-			const tVariable *var = BC_Variable_Lookup(Block, Node, Node->DefVar.Name, TYPE_VOID);
 			Bytecode_AppendMov(Block->Func->Handle, var->Register, vreg);
 			_ReleaseRegister(Block, vreg);
 		}
 		else
 		{
-			ret = BC_Variable_Define(Block, Node, Node->DefVar.DataType, Node->DefVar.Name);
+			const tVariable *var;
+			ret = BC_Variable_Define(Block, Node, Node->DefVar.DataType, Node->DefVar.Name, &var);
 			if(ret)	return ret;
 		
 			if( Node->DefVar.InitialValue )
@@ -802,7 +848,6 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 				ret = _AssertRegType(Block, Node->DefVar.InitialValue, vreg, Node->DefVar.DataType);
 				if(ret)	return -1;
 				
-				const tVariable *var = BC_Variable_Lookup(Block, Node, Node->DefVar.Name, TYPE_VOID);
 				Bytecode_AppendMov(Block->Func->Handle, var->Register, vreg);
 				_ReleaseRegister(Block, vreg);
 			}
@@ -1804,7 +1849,7 @@ const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
 
 	//if( Block->Func->Script->Variant->bDyamicTyped && CreateType != TYPE_VOID ) {
 	//	// Define variable
-	//	var = BC_Variable_Define(Block, CreateType, VarNode->Variable.Name, NULL);
+	//	var = BC_Variable_Define(Block, CreateType, VarNode->Variable.Name, CreateType, NULL);
 	//	#if TRACE_VAR_LOOKUPS
 	//	AST_RuntimeMessage(Node, "debug", "Variable <%s> '%s' implicit defined",
 	//		Name, SpiderScript_GetTypeName(Block->Func->Script, CreateType));
@@ -1824,7 +1869,7 @@ const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
  * \param Name	Name of the variable
  * \return Boolean Failure
  */
-int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, const char *Name)
+int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, const char *Name, const tVariable **VarPtr)
 {
 	if( BC_Variable_LookupGlobal(Block, Node, Name, NULL) ) {
 		AST_RuntimeError(Node, "Definition of '%s' collides with imported global", Name);
@@ -1856,6 +1901,9 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 
 	DEBUGS1("%p %s '%s' (Reg %i)", Block,
 		SpiderScript_GetTypeName(Block->Func->Script, Type), Name, reg);
+
+	if( VarPtr )
+		*VarPtr = var;
 
 	return 0;
 }

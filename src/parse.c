@@ -507,7 +507,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		if(false)	AST_FreeNode(false);
 		return NULL;
 		}
-	
+
 	case TOK_RWD_FOR:
 		{
 		char	*tag = NULL;
@@ -533,7 +533,6 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 		
 		// Initialiser (special handling for definitions)
 		if(LookAhead(Parser) != TOK_SEMICOLON) {
-			// TODO: When will this go out of scope?
 			if(LookAhead(Parser) == TOK_IDENT)
 				init = Parse_GetIdent(Parser, GETIDENTMODE_EXPRROOT, NULL);
 			else
@@ -541,32 +540,79 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			if( !init )
 				goto _for_err_ret;
 		}
-		
-		// SEPARATOR
-		if( SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON) )
-			goto _for_err_ret;
-		
-		// Condition
-		if( LookAhead(Parser) != TOK_SEMICOLON && !(cond = Parse_DoExpr0(Parser)) )
-			goto _for_err_ret;
-		
-		// SEPARATOR
-		if( SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON) )
-			goto _for_err_ret;
-		
-		// Increment
-		if( LookAhead(Parser) != TOK_PAREN_CLOSE && !(inc = Parse_DoExpr0(Parser)) )
-			goto _for_err_ret;
-		
-		// CLOSE
-		if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
-			goto _for_err_ret;
-		
-		// Code
-		if( !(code = Parse_DoCodeBlock(Parser, CodeNode)) )
-			goto _for_err_ret;
-		
-		ret = AST_NewLoop(Parser, tag, init, 0, cond, inc, code);
+
+		if( LookAhead(Parser) == TOK_COLON )
+		{
+			DEBUGS2("actually iterator");
+			GetToken(Parser);
+			
+			// "for( $array : $index, $value)"
+			// "for( $array : $value)"
+			//               ^ -- here
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_VARIABLE) )
+				goto _for_err_ret;
+			char *it_name = NULL;
+			char *val_name = strndup(Parser->Cur.TokenStr+1, Parser->Cur.TokenLen-1);
+			
+			if( LookAhead(Parser) == TOK_COMMA )
+			{
+				// Listed both index and value names
+				GetToken(Parser);
+				if( SyntaxAssert(Parser, GetToken(Parser), TOK_VARIABLE) ) {
+					free(val_name);
+					goto _for_err_ret;
+				}
+				it_name = val_name;
+				val_name = strndup(Parser->Cur.TokenStr+1, Parser->Cur.TokenLen-1);
+			}
+			DEBUGS2("it_name=%s,val_name=%s", it_name, val_name);
+			
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) ) {
+				free(it_name);
+				free(val_name);
+				goto _for_err_ret;
+			}
+			
+			// Code
+			if( !(code = Parse_DoCodeBlock(Parser, CodeNode)) ) {
+				free(it_name);
+				free(val_name);
+				goto _for_err_ret;
+			}
+			
+			ret = AST_NewIterator(Parser, tag, init, it_name, val_name, code);
+			free(it_name);
+			free(val_name);
+		}
+		else
+		{
+
+			// SEPARATOR
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON) )
+				goto _for_err_ret;
+			
+			// Condition
+			if( LookAhead(Parser) != TOK_SEMICOLON && !(cond = Parse_DoExpr0(Parser)) )
+				goto _for_err_ret;
+			
+			// SEPARATOR
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON) )
+				goto _for_err_ret;
+			
+			// Increment
+			if( LookAhead(Parser) != TOK_PAREN_CLOSE && !(inc = Parse_DoExpr0(Parser)) )
+				goto _for_err_ret;
+			
+			// CLOSE
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
+				goto _for_err_ret;
+			
+			// Code
+			if( !(code = Parse_DoCodeBlock(Parser, CodeNode)) )
+				goto _for_err_ret;
+			
+			ret = AST_NewLoop(Parser, tag, init, 0, cond, inc, code);
+		}
 		if(tag)	free(tag);
 		return ret;	// No break, because no semicolon is needed
 	_for_err_ret:
@@ -1216,7 +1262,7 @@ tAST_Node *Parse_DoParen(tParser *Parser)
 				ret = AST_NewCast(Parser, ref, Parse_DoParen(Parser));
 				return ret;
 			}
-			DEBUGS2("'%.*s' doesn't give a type", Parser->Cur.TokenLen, Parser->Cur.TokenStr);
+			DEBUGS2("'%.*s' doesn't give a type", (int)Parser->Cur.TokenLen, Parser->Cur.TokenStr);
 			PutBack(Parser);
 			// Fall through
 		}

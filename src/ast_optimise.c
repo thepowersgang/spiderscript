@@ -214,6 +214,10 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 		_OPT(Node->For.Code);
 		//Node->DataType = SS_DATATYPE_NOVALUE;
 		break;
+	case NODETYPE_ITERATE:
+		_OPT(Node->Iterator.Code);
+		_OPT(Node->Iterator.Value);
+		break;
 	
 	case NODETYPE_SWITCH:
 		_OPT(Node->BinOp.Left);

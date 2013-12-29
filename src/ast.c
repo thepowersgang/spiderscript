@@ -249,6 +249,10 @@ void AST_FreeNode(tAST_Node *Node)
 		AST_FreeNode(Node->For.Increment);
 		AST_FreeNode(Node->For.Code);
 		break;
+	case NODETYPE_ITERATE:
+		AST_FreeNode(Node->Iterator.Value);
+		AST_FreeNode(Node->Iterator.Code);
+		break;
 	
 	// Asignment
 	case NODETYPE_ASSIGN:
@@ -425,6 +429,27 @@ tAST_Node *AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bP
 	ret->For.Increment = Increment;
 	ret->For.Code = Code;
 	strcpy(ret->For.Tag, Tag);
+	return ret;
+}
+
+tAST_Node *AST_NewIterator(tParser *Parser, const char *Tag, tAST_Node *Value, const char *ItName, const char *ValName, tAST_Node *Code)
+{
+	tAST_Node	*ret;
+	if(!Tag)	Tag = "";
+	size_t	strlens = strlen(Tag) + 1 + strlen(ValName) + 1 + (ItName ? strlen(ItName)+1 : 0);
+	strlens = (strlens + 3) & ~3;
+	ret = AST_int_AllocateNode(Parser, NODETYPE_ITERATE, strlens);
+	ret->Iterator.Value = Value;
+	ret->Iterator.Code = Code;
+	strcpy(ret->Iterator.Tag, Tag);
+	ret->Iterator.ValueVar = ret->Iterator.Tag + strlen(Tag)+1;
+	strcpy(ret->Iterator.ValueVar, ValName);
+	if( ItName ) {
+		ret->Iterator.IndexVar = ret->Iterator.ValueVar + strlen(ValName) + 1;
+		strcpy(ret->Iterator.IndexVar, ItName);
+	}
+	else
+		ret->Iterator.IndexVar = NULL;
 	return ret;
 }
 

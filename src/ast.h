@@ -59,17 +59,18 @@ enum eAST_NodeTypes
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_TERNARY,	//!< Ternary / Null-Coalescing
 	NODETYPE_LOOP,	//!< Looping Construct
-	
-	// 29
-	NODETYPE_INDEX,	//!< Index into an array
+	NODETYPE_ITERATE,	//!< Iteration construct (foreach)
 	
 	// 30
+	NODETYPE_INDEX,	//!< Index into an array
+	
+	// 31
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
 	NODETYPE_LOGICALXOR,	//!< Logical XOR operator
 	
-	// 34
+	// 35
 	NODETYPE_REFEQUALS,	//!< References are equal
 	NODETYPE_REFNOTEQUALS,	//!< References differ
 	NODETYPE_EQUALS,	//!< Comparison Equals
@@ -79,18 +80,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
-	// 41
+	// 42
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
-	// 45
+	// 46
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
-	// 48
+	// 49
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract
@@ -157,6 +158,13 @@ struct sAST_Node
 			tAST_Node	*Code;
 			char	Tag[];
 		}	For;
+		struct {
+			tAST_Node	*Value;
+			char	*ValueVar;	// Local (after tag)
+			char	*IndexVar;	// Local (after tag)
+			tAST_Node	*Code;
+			char	Tag[];
+		}	Iterator;
 		
 		/**
 		 * \note Used for \a NODETYPE_VARIABLE and \a NODETYPE_CONSTANT
@@ -233,6 +241,7 @@ extern void	AST_AppendNode(tAST_Node *Parent, tAST_Node *Child);
 extern tAST_Node	*AST_NewIf(tParser *Parser, tAST_Node *Condition, tAST_Node *True, tAST_Node *False);
 extern tAST_Node	*AST_NewTernary(tParser *Parser, tAST_Node *Condition, tAST_Node *True, tAST_Node *False);
 extern tAST_Node	*AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bPostCheck, tAST_Node *Condition, tAST_Node *Increment, tAST_Node *Code);
+extern tAST_Node	*AST_NewIterator(tParser *Parser, const char *Tag, tAST_Node *Value, const char *ItName, const char *ValName, tAST_Node *Code);
 
 extern tAST_Node	*AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_Node *Value);
 extern tAST_Node	*AST_NewCast(tParser *Parser, tSpiderTypeRef Target, tAST_Node *Value);
