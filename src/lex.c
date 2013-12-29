@@ -31,6 +31,7 @@ const struct {
 	{TOK_RWD_FUNCTION, "function"},
 	{TOK_RWD_CLASS, "class"},
 	{TOK_RWD_NAMESPACE, "namespace"},
+	{TOK_RWD_AUTO, "auto"},
 
 	// Storage class
 	{TOK_RWD_GLOBAL, "global"},
@@ -67,29 +68,19 @@ int GetToken(tParser *File)
 {
 	 int	ret;
 	
-	if( File->NextToken != -1 ) {
+	if( File->NextState.Token != TOK_INVAL ) {
 		// Save Last
-		File->LastToken = File->Token;
-		File->LastTokenStr = File->TokenStr;
-		File->LastTokenLen = File->TokenLen;
-		File->LastLine = File->CurLine;
+		File->PrevState = File->Cur;
 		// Restore Next
-		File->Token = File->NextToken;
-		File->TokenStr = File->NextTokenStr;
-		File->TokenLen = File->NextTokenLen;
-		File->CurLine = File->NextLine;
+		File->Cur = File->NextState;
 		// Set State
-		File->CurPos = File->TokenStr + File->TokenLen;
-		File->NextToken = -1;
+		File->CurPos = File->Cur.TokenStr + File->Cur.TokenLen;
+		File->NextState.Token = TOK_INVAL;
 		#if DEBUG
-		{
-			char	buf[ File->TokenLen + 1];
-			memcpy(buf, File->TokenStr, File->TokenLen);
-			buf[File->TokenLen] = 0;
-			printf(" GetToken: FAST Return %i (%i long) (%s)\n", File->Token, File->TokenLen, buf);
-		}
+		printf(" GetToken: FAST Return %i (%i long) (%.*s)\n", File->Cur.Token, File->Cur.TokenLen,
+			File->Cur.TokenLen, File->Cur.TokenStr);
 		#endif
-		return File->Token;
+		return File->Cur.Token;
 	}
 	
 	//printf("  GetToken: File=%p, File->CurPos = %p\n", File, File->CurPos);
@@ -102,7 +93,7 @@ int GetToken(tParser *File)
 		{
 			//printf("whitespace 0x%x, line = %i\n", *File->CurPos, File->CurLine);
 			if( *File->CurPos == '\n' )
-				File->CurLine ++;
+				File->Cur.Line ++;
 			File->CurPos ++;
 		}
 		
@@ -125,7 +116,8 @@ int GetToken(tParser *File)
 			File->CurPos += 2;	// Eat the '/*'
 			while( *File->CurPos && !(File->CurPos[-1] == '*' && *File->CurPos == '/') )
 			{
-				if( *File->CurPos == '\n' )	File->CurLine ++;
+				if( *File->CurPos == '\n' )
+					File->Cur.Line ++;
 				File->CurPos ++;
 			}
 			File->CurPos ++;	// Eat the '/'
@@ -137,13 +129,10 @@ int GetToken(tParser *File)
 	}
 	
 	// Save previous tokens (speeds up PutBack and LookAhead)
-	File->LastToken = File->Token;
-	File->LastTokenStr = File->TokenStr;
-	File->LastTokenLen = File->TokenLen;
-	File->LastLine = File->CurLine;
+	File->PrevState = File->Cur;
 	
 	// Read token
-	File->TokenStr = File->CurPos;
+	File->Cur.TokenStr = File->CurPos;
 	switch( *File->CurPos++ )
 	{
 	case '\0':	ret = TOK_EOF;	break;
@@ -394,21 +383,18 @@ int GetToken(tParser *File)
 				File->CurPos ++;
 			
 			// This is set later too, but we use it below
-			File->TokenLen = File->CurPos - File->TokenStr;
+			const char *tokstr = File->Cur.TokenStr;
+			size_t	len = File->CurPos - tokstr;
 			
 			// Check if it's a reserved word
+			for( int i = 0; i < ARRAY_SIZE(csaReservedWords); i ++ )
 			{
-				char	buf[File->TokenLen + 1];
-				 int	i;
-				memcpy(buf, File->TokenStr, File->TokenLen);
-				buf[File->TokenLen] = 0;
-				for( i = 0; i < ARRAY_SIZE(csaReservedWords); i ++ )
-				{
-					if(strcmp(csaReservedWords[i].Name, buf) == 0) {
-						ret = csaReservedWords[i].Value;
-						break ;
-					}
-				}
+				if( strncmp(csaReservedWords[i].Name, tokstr, len) != 0 )
+					continue ;
+				if( csaReservedWords[i].Name[len] != '\0' )
+					continue ;
+				ret = csaReservedWords[i].Value;
+				break ;
 			}
 			// If there's no match, just keep ret as TOK_IDENT
 			
@@ -421,49 +407,39 @@ int GetToken(tParser *File)
 		break;
 	}
 	// Return
-	File->Token = ret;
-	File->TokenLen = File->CurPos - File->TokenStr;
+	File->Cur.Token = ret;
+	File->Cur.TokenLen = File->CurPos - File->Cur.TokenStr;
 	
 	#if DEBUG
-	{
-		char	buf[ File->TokenLen + 1];
-		memcpy(buf, File->TokenStr, File->TokenLen);
-		buf[File->TokenLen] = 0;
-		//printf("  GetToken: File->CurPos = %p\n", File->CurPos);
-		printf(" GetToken: Return %i (%i long) (%s)\n", ret, File->TokenLen, buf);
-	}
+	printf(" GetToken: Return %i (%i long) (%.*s)\n", ret, File->Cur.TokenLen,
+		File->Cur.TokenLen, File->Cur.TokenStr);
 	#endif
 	return ret;
 }
 
 void PutBack(tParser *File)
 {
-	if( File->LastToken == -1 ) {
+	if( File->PrevState.Token == -1 ) {
 		// ERROR:
 		fprintf(stderr, "INTERNAL ERROR: Putback when LastToken==-1\n");
 		longjmp( File->JmpTarget, -1 );
 		return ;
 	}
 	#if DEBUG
-	printf(" PutBack: Was on %i\n", File->Token);
+	printf(" PutBack: Was on %i\n", File->Cur.Token);
 	#endif
 	// Save
-	File->NextLine = File->CurLine;
-	File->NextToken = File->Token;
-	File->NextTokenStr = File->TokenStr;
-	File->NextTokenLen = File->TokenLen;
+	File->NextState = File->Cur;
 	// Restore
-	File->CurLine = File->LastLine;
-	File->Token = File->LastToken;
-	File->TokenStr = File->LastTokenStr;
-	File->TokenLen = File->LastTokenLen;
-	File->CurPos = File->NextTokenStr;
+	File->Cur = File->PrevState;
 	// Invalidate
-	File->LastToken = -1;
+	File->PrevState.Token = TOK_INVAL;
 }
 
 int LookAhead(tParser *File)
 {
+	if( File->NextState.Token != TOK_INVAL )
+		return File->NextState.Token;
 	// TODO: Should I save the entire state here?
 	 int	ret = GetToken(File);
 	PutBack(File);

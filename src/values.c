@@ -212,7 +212,12 @@ tSpiderArray *SpiderScript_CreateArray(tSpiderTypeRef InnerType, int ItemCount)
 {
 	 int	ent_size;
 	tSpiderArray	*ret;
-	
+
+	if( ItemCount < 0 ) {
+		fprintf(stderr, "BUG: -ve value (%i) passed to CreateArray\n", ItemCount);
+		return NULL;
+	}	
+
 	// Get the size of one entry (reference types are zero sized, but need 1 pointer)
 	ent_size = SpiderScript_int_GetTypeSize(InnerType);
 	if( ent_size == 0 )	ent_size = sizeof(void*);

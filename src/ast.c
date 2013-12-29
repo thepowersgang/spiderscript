@@ -343,7 +343,7 @@ tAST_Node *AST_int_AllocateNode(tParser *Parser, int Type, int ExtraSize)
 	tAST_Node	*ret = malloc( sizeof(tAST_Node) + ExtraSize );
 	ret->NextSibling = NULL;
 	ret->File = Parser->Filename;	*(int*)(Parser->Filename - sizeof(int)) += 1;
-	ret->Line = Parser->CurLine;
+	ret->Line = Parser->Cur.Line;
 	ret->Type = Type;
 	
 	// Runtime Caching

@@ -209,13 +209,18 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultRegister)
 {
 	tSpiderScript	*const script = Block->Func->Script;
-	tAST_Node	*node;
 	 int	ret = 0;
 	tSpiderTypeRef	type, type2;
 	 int	i, op = 0;
 	void	*ident;	// used for classes
 	
 	tRegister	rreg, reg1, reg2, vreg;
+
+	if( Node == NULL ) {
+		NO_RESULT();
+		Block->NullType = TYPE_VOID;
+		return 0;
+	}
 
 	DEBUGS1("Node->Type = %i", Node->Type);
 	switch(Node->Type)
@@ -230,7 +235,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		tAST_BlockInfo	blockInfo = {0};
 		BC_PrepareBlock(Block, &blockInfo);
 		// Loop over all nodes, or until the return value is set
-		for(node = Node->Block.FirstChild; node; node = node->NextSibling )
+		for(tAST_Node *node = Node->Block.FirstChild; node; node = node->NextSibling )
 		{
 			ret = AST_ConvertNode(&blockInfo, node, 0);
 			if(ret) {
@@ -333,7 +338,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		 int	nargs = 0;
 		if( Node->Type == NODETYPE_METHODCALL )
 			nargs ++;
-		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
+		for(tAST_Node *node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
 			nargs ++;
 
 		// Evaluate arguments
@@ -343,7 +348,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			ret = AST_ConvertNode(Block, Node->FunctionCall.Object, &argregs[nargs++]);
 			if(ret)	return ret;
 		}
-		for(node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
+		for(tAST_Node *node = Node->FunctionCall.FirstArg; node; node = node->NextSibling)
 		{
 			ret = AST_ConvertNode(Block, node, &argregs[nargs++]);
 			if(ret)	return ret;
@@ -560,6 +565,50 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		BC_FinaliseBlock(Block, Node, &blockInfo);
 		NO_RESULT();
 		} break;
+	// 
+	#if 0
+	case NODETYPE_FOREACH:
+		ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
+		if(ret)	return ret;
+		
+		ret = _GetRegisterInfo(Block, vreg, &type, NULL);
+		if(ret)	return ret;
+		
+		if( SS_GETARRAYDEPTH(type) )
+		{
+			// Get length, iterate 0 ... n-1
+			
+			ret = _AllocateRegister(Block, TYPE_INTEGER, NULL, &reg1);	// Iterator
+			if(ret)	return ret;
+			ret = _AllocateRegister(Block, TYPE_INTEGER, NULL, &vreg);	// Maximum
+			if(ret)	return ret;
+			
+			Bytecode_AppendConstInt(Block->Func->Handle, vreg, 0);	// array size
+
+			loop_start = Bytecode_AllocateLabel(Block->Func->Handle);
+			loop_end   = Bytecode_AllocateLabel(Block->Func->Handle);
+			
+			Bytecode_AppendConstInt(Block->Func->Handle, reg1, 0);
+			Bytecode_SetLabel(Block->Func->Handle, loop_start);
+			ret = _AllocateRegister(Block, TYPE_INTEGER, NULL, &reg2);
+			Bytecode_AppendBinOpInt(Block->Func->Handle, BINOP_GE, reg2, reg1, vreg);
+			Bytecode_AppendCondJump(Block->Func->Handle, loop_end, reg2);
+			_ReleaseRegister(Block, reg2);
+			
+			// Content
+			
+			Bytecode_
+			Bytecode_SetLabel(Block->Func->Handle, loop_end);
+			
+			_ReleaseRegister(Block, reg1);
+			_ReleaseRegister(Block, reg2);
+		}
+		else
+		{
+			// oops :)
+		}
+		break;
+	#endif
 
 	// Try/catch block
 #if 0
@@ -719,19 +768,44 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	
 	// Define a variable
 	case NODETYPE_DEFVAR:
-		ret = BC_Variable_Define(Block, Node, Node->DefVar.DataType, Node->DefVar.Name);
-		if(ret)	return ret;
-		
-		if( Node->DefVar.InitialValue )
+
+		if( SS_TYPESEQUAL(Node->DefVar.DataType, TYPE_VOID)  )
 		{
+			// Automatic type
+			if( Node->DefVar.InitialValue == NULL ) {
+				AST_RuntimeError(Node, "Use of 'auto' without an initial value");
+				return 1;
+			}
+			
+			// Convert initial value, and get return type
 			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
 			if(ret)	return ret;
-			ret = _AssertRegType(Block, Node->DefVar.InitialValue, vreg, Node->DefVar.DataType);
-			if(ret < 0)	return -1;
+			_GetRegisterInfo(Block, vreg, &type, NULL);
+			
+			// Set to return type
+			ret = BC_Variable_Define(Block, Node, type, Node->DefVar.Name);
+			if(ret)	return ret;
 			
 			const tVariable *var = BC_Variable_Lookup(Block, Node, Node->DefVar.Name, TYPE_VOID);
 			Bytecode_AppendMov(Block->Func->Handle, var->Register, vreg);
 			_ReleaseRegister(Block, vreg);
+		}
+		else
+		{
+			ret = BC_Variable_Define(Block, Node, Node->DefVar.DataType, Node->DefVar.Name);
+			if(ret)	return ret;
+		
+			if( Node->DefVar.InitialValue )
+			{
+				ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
+				if(ret)	return ret;
+				ret = _AssertRegType(Block, Node->DefVar.InitialValue, vreg, Node->DefVar.DataType);
+				if(ret)	return -1;
+				
+				const tVariable *var = BC_Variable_Lookup(Block, Node, Node->DefVar.Name, TYPE_VOID);
+				Bytecode_AppendMov(Block->Func->Handle, var->Register, vreg);
+				_ReleaseRegister(Block, vreg);
+			}
 		}
 		NO_RESULT();
 		break;
@@ -745,7 +819,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			ret = AST_ConvertNode(Block, Node->DefVar.InitialValue, &vreg);
 			if(ret)	return ret;
 			ret = _AssertRegType(Block, Node->DefVar.InitialValue, vreg, Node->DefVar.DataType);
-			if(ret < 0)	return -1;
+			if(ret)	return -1;
 			
 			 int	slot;
 			BC_Variable_LookupGlobal(Block, Node, Node->DefVar.Name, &slot);
@@ -820,7 +894,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		{
 			tRegister	args[] = {rreg, vreg};
 			ret = BC_CallFunction(Block, Node, &rreg, NULL, "operator []", 2, args);
-			if(ret < 0)	return -1;
+			if(ret)	return -1;
 		}
 		else
 		{
@@ -920,7 +994,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			// and use the UniOp instead (for references)?
 			// - Nah, that leads to unpredictable behavior
 			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 1, args);
-			if(ret < 0)	return ret;
+			if(ret)	return ret;
 		}
 		else if( type.Def != NULL && type.Def->Class == SS_TYPECLASS_CORE )
 		{
@@ -1071,7 +1145,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			char	*name = SpiderScript_FormatTypeStr1(script, name_tpl, type2);
 			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 2, args);
 			free(name);
-			if(ret < 0)	return ret;
+			if(ret)	return ret;
 		}
 		else if( type.Def != NULL && type.Def->Class == SS_TYPECLASS_CORE )
 		{
@@ -1641,7 +1715,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 		tRegister args[] = {SrcReg};
 		ret = BC_CallFunction(Block, Node, DstReg, NULL, name, 1, args);
 		free(name);
-		if(ret < 0)	return ret;
+		if(ret)	return ret;
 	}
 	// Can't cast to (Array), (void), or non-core
 	else if( DestType.ArrayDepth || !DestType.Def || DestType.Def->Class != SS_TYPECLASS_CORE ) {

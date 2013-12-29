@@ -667,6 +667,12 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			}
 			// TODO: Range checks?
 			DEBUG_F("[%i]", (int)reg2->Integer);
+			if( reg2->Integer < 0 ) {
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_INDEX_OOB,
+					"Array size is <0 (%i)", (int)reg2->Integer);
+				bError = 1;
+				break;
+			}
 			reg_dst->Array = SpiderScript_CreateArray(reg_dst->Type, reg2->Integer );
 			reg_dst->Type.ArrayDepth ++;
 			DEBUG_F("\n");
@@ -757,7 +763,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			{
 				tSpiderArray	*array = reg1->Array;
 				
-				DEBUG_F("SETINDEX %li ", reg2->Integer); PRINT_STACKVAL(*reg_dst); DEBUG_F("\n");
+				DEBUG_F("SETINDEX %li = R%i", reg2->Integer, op->DstReg);
+				PRINT_STACKVAL(*reg_dst);
+				DEBUG_F("\n");
 				type = Bytecode_int_GetSpiderValue(Script, reg_dst, &ptr);
 				if(type.Def == NULL ) { bError = 1; break; }
 			
@@ -766,7 +774,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			}
 			else {
 				tSpiderArray	*array = reg1->Array;
-				DEBUG_F("INDEX %li ", reg2->Integer);
+				DEBUG_F("INDEX R%i = %li ", op->DstReg, reg2->Integer);
 				PRESET_DEREF(*reg_dst);
 				rv = AST_ExecuteNode_Index(Script, &reg_dst->Boolean, array, reg2->Integer,
 					TYPE_VOID, NULL);

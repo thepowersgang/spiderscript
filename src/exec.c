@@ -548,10 +548,7 @@ void AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, .
 {
 	va_list	args;
 	
-	if(Node) {
-		fprintf(stderr, "%s:%i: ", Node->File, Node->Line);
-	}
-	fprintf(stderr, "%s: ", Type);
+	fprintf(stderr, "%s:%i: %s: ", (Node?Node->File:"<none>"), (Node?Node->Line:0), Type);
 	va_start(args, Format);
 	vfprintf(stderr, Format, args);
 	va_end(args);
@@ -561,10 +558,7 @@ void AST_RuntimeError(tAST_Node *Node, const char *Format, ...)
 {
 	va_list	args;
 	
-	if(Node) {
-		fprintf(stderr, "%s:%i: ", Node->File, Node->Line);
-	}
-	fprintf(stderr, "error: ");
+	fprintf(stderr, "%s:%i: error: ", (Node?Node->File:"<none>"), (Node?Node->Line:0));
 	va_start(args, Format);
 	vfprintf(stderr, Format, args);
 	va_end(args);

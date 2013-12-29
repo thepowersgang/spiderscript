@@ -351,7 +351,7 @@ enum eBC_Ops Bytecode_int_GetBinOpBool(enum eBC_BinOp Op)
 	case BINOP_LOGICOR:	return BC_OP_BOOL_LOGICOR;
 	case BINOP_LOGICXOR:	return BC_OP_BOOL_LOGICXOR;
 	default:
-		BUG("BinOpBool %i unhabled", Op);
+		BUG("BinOpBool %i unhandled", Op);
 		return BC_OP_NOP;
 	}
 }
@@ -403,6 +403,8 @@ enum eBC_Ops Bytecode_int_GetBinOpStr(enum eBC_BinOp Op)
 	switch(Op)
 	{
 	case BINOP_ADD:	return BC_OP_STR_ADD;
+	case BINOP_EQ:	return BC_OP_STR_EQUALS;
+	case BINOP_NE:	return BC_OP_STR_NOTEQUALS;
 	default:
 		BUG("BinOpStr %i unhandled", Op);
 		return BC_OP_NOP;

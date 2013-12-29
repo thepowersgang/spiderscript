@@ -4,43 +4,11 @@
 #define _TOKENS_H_
 
 #include <setjmp.h>
+#include <stddef.h>
 
-// Make the scope character ('.') be a symbol, otherwise it's just
-// a ident character
+// Make the scope character ('.') be a token, otherwise it's just
+// a identifier character
 #define USE_SCOPE_CHAR	1
-
-// === TYPES ===
-typedef struct
-{	
-	// Lexer State
-	const char	*BufStart;
-	const char	*CurPos;
-	
-	char	*Filename;
-	
-	 int	LastLine;
-	 int	LastToken, LastTokenLen;
-	const char	*LastTokenStr;
-	
-	 int	NextLine;
-	 int	NextToken, NextTokenLen;
-	const char	*NextTokenStr;
-	
-	 int	CurLine;
-	 int	Token, TokenLen;
-	const char	*TokenStr;
-	
-	jmp_buf	JmpTarget;
-	 int	ErrorHit;
-	
-	struct sSpiderScript	*Script;
-	struct sSpiderVariant	*Variant;
-}	tParser;
-
-// === FUNCTIONS ===
- int	GetToken(tParser *File);
-void	PutBack(tParser *File);
- int	LookAhead(tParser *File);
 
 // === CONSTANTS ===
 enum eTokens
@@ -62,6 +30,7 @@ enum eTokens
 	TOK_RWD_FUNCTION,
 	TOK_RWD_CLASS,
 	TOK_RWD_NAMESPACE,
+	TOK_RWD_AUTO,
 	// - Classes
 	TOK_RWD_GLOBAL,
 	TOK_RWD_CONSTANT,
@@ -126,6 +95,39 @@ enum eTokens
 	TOK_LAST
 };
 
+// === TYPES ===
+struct sLexerToken
+{
+	 int	Line;
+	enum eTokens	Token;
+	size_t	TokenLen;
+	const char	*TokenStr;
+};
+
+typedef struct
+{	
+	// Lexer State
+	const char	*BufStart;
+	const char	*CurPos;
+	
+	char	*Filename;
+	
+	struct sLexerToken	PrevState;
+	struct sLexerToken	NextState;
+	struct sLexerToken	Cur;
+	
+	jmp_buf	JmpTarget;
+	 int	ErrorHit;
+	
+	struct sSpiderScript	*Script;
+	struct sSpiderVariant	*Variant;
+}	tParser;
+
+// === FUNCTIONS ===
+ int	GetToken(tParser *File);
+void	PutBack(tParser *File);
+ int	LookAhead(tParser *File);
+
 # if WANT_TOKEN_STRINGS
 const char * const csaTOKEN_NAMES[] = {
 	"TOK_INVAL",
@@ -142,6 +144,7 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_RWD_FUNCTION",
 	"TOK_RWD_CLASS",
 	"TOK_RWD_NAMESPACE",
+	"TOK_RWD_AUTO",
 
 	"TOK_RWD_GLOBAL",
 	"TOK_RWD_CONSTANT",

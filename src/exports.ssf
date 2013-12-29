@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <spiderscript.h>
+#include <ctype.h>	// isblank
 
 @FUNCTION Integer sizeof( * Value )
 @{
@@ -340,6 +341,20 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	} while(pos);
 	
 	@RETURN ret;
+@}
+
+@FUNCTION String Trim(String Input)
+@{
+	if( !Input )	@RETURN NULL;
+	const char *base = Input->Data;
+	size_t	len = Input->Length;
+	while( len > 0 && isblank(*base) )
+		base ++, len --;
+	
+	while( len > 0 && isblank(base[len-1]) )
+		len --;
+	
+	@RETURN SpiderScript_CreateString(len, base);
 @}
 
 // TODO: RegexReplace

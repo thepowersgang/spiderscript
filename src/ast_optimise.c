@@ -25,7 +25,7 @@
 tAST_Node *AST_Optimise_MakeString(tAST_Node **ents, int len, int First, int Cur)
 {
 	tAST_Node *first = ents[First];
-	tParser	state = {.CurLine = first->Line, .Filename = (char*)first->File};
+	tParser	state = {.Cur={.Line = first->Line}, .Filename = (char*)first->File};
 	tAST_Node *ns = AST_NewString(&state, NULL, len);
 	len = 0;
 	for( int j = First; j < Cur; j++ )
@@ -42,7 +42,7 @@ tAST_Node *AST_Optimise_MakeString(tAST_Node **ents, int len, int First, int Cur
 
 tAST_Node *AST_Optimise_MakeString2(tAST_Node *Left, tAST_Node *Right)
 {
-	tParser	state = {.CurLine = Left->Line, .Filename = (char*)Left->File};
+	tParser	state = {.Cur={.Line = Left->Line}, .Filename = (char*)Left->File};
 	assert(Left->Type  == NODETYPE_STRING);
 	assert(Right->Type == NODETYPE_STRING);
 	size_t	len = Left->ConstString->Length + Right->ConstString->Length;
