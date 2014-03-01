@@ -1,0 +1,155 @@
+/*
+ * Acess2 - SpiderScript
+ * - Script Exports (Lang. Namespace)
+ */
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <spiderscript.h>
+
+@NAMESPACE Lang
+@{
+
+@CLASS StringMap
+@{
+	typedef struct s_StringMap_Entry	t_StringMap_Entry;
+	struct s_StringMap_Entry
+	{
+		t_StringMap_Entry	*Next;
+		const tSpiderString	*Key;
+		const tSpiderString	*Value;
+	};
+	#define N_STRINGMAP_BUCKETS	256
+	typedef struct
+	{
+		 int	nItems;
+		t_StringMap_Entry	*Buckets[N_STRINGMAP_BUCKETS];
+	} t_StringMap_Info;
+	@CONSTRUCTOR ()
+	@{
+		tSpiderObject	*this;
+
+		this = SpiderScript_AllocateObject(Script, @CLASSPTR, sizeof(t_StringMap_Info));		
+
+		t_StringMap_Info *info = this->OpaqueData;
+		info->nItems = 0;
+		memset(info->Buckets, 0, sizeof(info->Buckets));
+		
+		@RETURN this;
+	@}
+	@DESTRUCTOR
+	@{
+		t_StringMap_Info *info = this->OpaqueData;
+		for( int i = 0; i < N_STRINGMAP_BUCKETS; i ++ )
+		{
+			t_StringMap_Entry	*e, *p;
+			
+			for( e = info->Buckets[i]; e; e = p )
+			{
+				p = e->Next;
+				SpiderScript_DereferenceString(e->Key);
+				SpiderScript_DereferenceString(e->Value);
+				free(e);
+			}
+		}
+	@}
+
+	@FUNCTION void set(String Key, String Value)
+	@{
+		t_StringMap_Info *info = this->OpaqueData;
+		if( !Key )	@RETURN ;
+
+		t_StringMap_Entry	**bucket;
+		if( Key->Length == 0 )
+			bucket = &info->Buckets[0];
+		else
+			bucket = &info->Buckets[ (int)Key->Data[0] ];
+		
+		t_StringMap_Entry	*e, *p = NULL;
+		for( e = *bucket; e; p = e, e = e->Next )
+		{
+			// Length sorted
+			if( e->Key->Length > Key->Length )	break;
+			if( e->Key->Length < Key->Length )	continue;
+			// Data sorted
+			int cmp = memcmp(e->Key->Data, Key->Data, Key->Length);
+			if( cmp > 0 )	break;
+			if( cmp < 0 )	continue ;
+			
+			// Ok, just update this then
+			SpiderScript_DereferenceString(e->Value);
+			SpiderScript_ReferenceString(Value);
+			e->Value = Value;
+			@RETURN ;
+		}
+		
+		e = malloc(sizeof(*e));
+		SpiderScript_ReferenceString(Key);
+		e->Key = Key;
+		SpiderScript_ReferenceString(Value);
+		e->Value = Value;
+		if( p ) {
+			e->Next = p->Next;
+			p->Next = e;
+		}
+		else {
+			e->Next = *bucket;
+			*bucket = e;
+		}
+		info->nItems ++;
+	@}
+
+	@FUNCTION String get(String Key)
+	@{
+		t_StringMap_Info *info = this->OpaqueData;
+		if( !Key )	@RETURN NULL;
+
+		t_StringMap_Entry	**bucket;
+		if( Key->Length == 0 )
+			bucket = &info->Buckets[0];
+		else
+			bucket = &info->Buckets[ (int)Key->Data[0] ];
+
+		t_StringMap_Entry	*e;
+		for( e = *bucket; e; e = e->Next )
+		{
+			// Length sorted
+			if( e->Key->Length > Key->Length )	break;
+			if( e->Key->Length < Key->Length )	continue;
+			// Data sorted
+			int cmp = memcmp(e->Key->Data, Key->Data, Key->Length);
+			if( cmp > 0 )	break;
+			if( cmp < 0 )	continue ;
+			
+			// Ok, just update this then
+			SpiderScript_ReferenceString(e->Value);
+			@RETURN e->Value;
+		}
+		@RETURN NULL;
+	@}
+
+	@FUNCTION String[] keys()
+	@{
+		t_StringMap_Info *info = this->OpaqueData;
+		tSpiderTypeRef	strtype = {&gSpiderScript_StringType, 0};
+		tSpiderArray	*ret = SpiderScript_CreateArray(strtype, info->nItems);
+		 int	j = 0;		
+
+		for( int i = 0; i < N_STRINGMAP_BUCKETS; i ++ )
+		{
+			t_StringMap_Entry	*e;
+			
+			for( e = info->Buckets[i]; e; e = e->Next ) {
+				SpiderScript_ReferenceString(e->Key);
+				ret->Strings[j++] = (void*)e->Key;
+			}
+		}
+		
+		@RETURN ret;
+	@}
+@}	// CLASS StringMap
+
+@}	// NAMESPACE Lang
+
+// vim: ft=c
+
