@@ -8,6 +8,8 @@
 #ifndef _BYTECODE_V2_H
 #define _BYTECODE_V2_H
 
+#include <stdbool.h>
+
 enum eBC_UniOp {
 	UNIOP_LOGICNOT,
 	UNIOP_BITNOT,
@@ -59,9 +61,9 @@ extern void	Bytecode_AppendConstReal(tBC_Function *Handle, int DstReg, tSpiderRe
 extern void	Bytecode_AppendConstString(tBC_Function *Handle, int DstReg, const void *Data, size_t Len);
 
 extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, int RetReg, tSpiderTypeRef Type, int SizeReg); 
-extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[]);
-extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[]);
-extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[]);
+extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
+extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
+extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
 
 extern void	Bytecode_AppendReturn(tBC_Function *Handle, int ReturnReg);
 

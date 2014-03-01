@@ -79,8 +79,8 @@ typedef struct sAST_BlockInfo
  int	AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result);
  int	BC_PrepareBlock(tAST_BlockInfo *ParentBlock, tAST_BlockInfo *ChildBlock);
  int	BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInfo *ChildBlock);
- int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[]);
- int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[]);
+ int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough);
+ int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough);
  int	BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef ObjType, const char *Name, tSpiderTypeRef *EleType);
  int	BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister Register);
  int	BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType, tRegister SrcReg, tRegister *Result);
@@ -358,12 +358,14 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		if( Node->Type == NODETYPE_CREATEOBJECT )
 		{
 			ret = BC_ConstructObject(Block, Node, &vreg, namespaces,
-				Node->FunctionCall.Name, nargs, argregs);
+				Node->FunctionCall.Name, nargs, argregs,
+				Node->FunctionCall.IsVArgPassthrough);
 		}
 		else
 		{
 			ret = BC_CallFunction(Block, Node, &vreg, nss_ptr,
-				Node->FunctionCall.Name, nargs, argregs);
+				Node->FunctionCall.Name, nargs, argregs,
+				Node->FunctionCall.IsVArgPassthrough);
 		}
 		if(ret)	return ret;
 
@@ -608,7 +610,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			Bytecode_AppendConstInt(Block->Func->Handle, iterator, -1);
 			const char *namespaces[] = {NULL};
 			tRegister	args[] = {vreg};
-			ret = BC_CallFunction(Block, Node, &maximum, namespaces, "sizeof", 1, args);
+			ret = BC_CallFunction(Block, Node, &maximum, namespaces, "sizeof", 1, args, false);
 			if(ret)	return ret;
 			ret = _AssertRegType(Block, Node, maximum, TYPE_INTEGER);
 			if(ret)	return ret;
@@ -938,7 +940,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		else if( SS_ISTYPEOBJECT(type) )
 		{
 			tRegister	args[] = {rreg, vreg};
-			ret = BC_CallFunction(Block, Node, &rreg, NULL, "operator []", 2, args);
+			ret = BC_CallFunction(Block, Node, &rreg, NULL, "operator []", 2, args, false);
 			if(ret)	return -1;
 		}
 		else
@@ -1038,7 +1040,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			// TODO: Somehow handle if the object doesn't expose an "operator !"
 			// and use the UniOp instead (for references)?
 			// - Nah, that leads to unpredictable behavior
-			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 1, args);
+			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 1, args, false);
 			if(ret)	return ret;
 		}
 		else if( type.Def != NULL && type.Def->Class == SS_TYPECLASS_CORE )
@@ -1192,7 +1194,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 			#undef suf
 			char	*name = SpiderScript_FormatTypeStr1(script, name_tpl, type2);
-			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 2, args);
+			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 2, args, false);
 			free(name);
 			if(ret)	return ret;
 		}
@@ -1300,7 +1302,7 @@ int BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInf
 	return 0;
 }
 
-int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[])
+int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough)
 {
 	tSpiderScript	*const script = Block->Func->Script;
 	 int	ret;
@@ -1328,14 +1330,15 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		if( sf )
 		{
 			// Argument count check
-			if( NArgs+1 != sf->ArgumentCount ) {
-				AST_RuntimeError(Node, "Constructor for %s takes %i arguments, passed %i",
-					Name, sf->ArgumentCount, NArgs);
+			if( 1+NArgs < sf->ArgumentCount || (!sf->IsVariable && 1+NArgs != sf->ArgumentCount) )
+			{
+				AST_RuntimeError(Node, "Constructor for %s takes %i%s arguments, passed %i",
+					Name, sf->ArgumentCount, (sf->IsVariable ? "+" : ""),NArgs);
 				return -1;
 			}
 			// Type checks
 			// - Arg 1 of a script class's constructor is the implicit 'this'
-			for( int i = 0; i < NArgs; i ++ )
+			for( int i = 0; i < sf->ArgumentCount-1; i ++ )
 			{
 				ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
 				if(ret)	return ret;
@@ -1407,7 +1410,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 	ret = _AllocateRegister(Block, Node, type, NULL, &retreg);
 	if(ret)	return ret;
 	
-	Bytecode_AppendCreateObj(Block->Func->Handle, def, retreg, NArgs, ArgRegs);
+	Bytecode_AppendCreateObj(Block->Func->Handle, def, retreg, NArgs, ArgRegs, VArgsPassThrough);
 	
 	assert(RetReg);
 	*RetReg = retreg;
@@ -1427,7 +1430,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
  * \return Boolean failure
  * \note If Namespaces == NULL, then ArgTypes[0] is used as the object type for the method call
  */
-int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[])
+int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough)
 {
 	 int	id = 0;
 	 int	ret;
@@ -1511,13 +1514,15 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	if( sf )
 	{
 		// Argument count check
-		if( NArgs != sf->ArgumentCount ) {
-			AST_RuntimeError(Node, "%s takes %i arguments, passed %i",
-				Name, sf->ArgumentCount, NArgs);
+		if( NArgs < sf->ArgumentCount || (!sf->IsVariable && NArgs != sf->ArgumentCount) )
+		{
+			AST_RuntimeError(Node, "%s takes %i%s arguments, passed %i",
+				Name, sf->ArgumentCount, (sf->IsVariable ? "+" : ""),
+				NArgs);
 			return -1;
 		}
 		// Type checks
-		for( int i = 0; i < NArgs; i ++ )
+		for( int i = 0; i < sf->ArgumentCount; i ++ )
 		{
 			tSpiderTypeRef	type;
 			ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
@@ -1586,10 +1591,11 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	if(ret)	return ret;
 
 	DEBUGS1("Add call bytecode op");
+	// TODO: For passthough, add flag
 	if( Namespaces == NULL )
-		Bytecode_AppendMethodCall(Block->Func->Handle, id, retreg, NArgs, ArgRegs);
+		Bytecode_AppendMethodCall(Block->Func->Handle, id, retreg, NArgs, ArgRegs, VArgsPassThrough);
 	else
-		Bytecode_AppendFunctionCall(Block->Func->Handle, id, retreg, NArgs, ArgRegs);
+		Bytecode_AppendFunctionCall(Block->Func->Handle, id, retreg, NArgs, ArgRegs, VArgsPassThrough);
 	
 	*RetReg = retreg;
 	// Push return type
@@ -1762,7 +1768,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 	else if( SS_ISTYPEOBJECT(SourceType) ) {
 		char *name = SpiderScript_FormatTypeStr1(script, "operator (%s)", DestType);
 		tRegister args[] = {SrcReg};
-		ret = BC_CallFunction(Block, Node, DstReg, NULL, name, 1, args);
+		ret = BC_CallFunction(Block, Node, DstReg, NULL, name, 1, args, false);
 		free(name);
 		if(ret)	return ret;
 	}

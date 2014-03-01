@@ -215,8 +215,8 @@ extern size_t	AST_WriteNode(void *Buffer, size_t Offset, tAST_Node *Node);
 extern tScript_Class	*AST_AppendClass(tParser *Parser, const char *Name);
 extern int	AST_FinaliseClass(tParser *Parser, tScript_Class *Class);
 extern int	AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type);
-extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
-extern int	AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
+extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable);
+extern int	AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable);
 
 extern tAST_Node	*AST_NewNop(tParser *Parser);
 
@@ -235,6 +235,7 @@ extern tAST_Node	*AST_NewFunctionCall(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewCreateObject(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Name);
 extern void	AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg);
+extern void	AST_SetCallVArgPassthrough(tAST_Node *Node);
 extern tAST_Node	*AST_NewCreateArray(tParser *Parser, tSpiderTypeRef InnerType, tAST_Node *Size);
 
 extern tAST_Node	*AST_NewCodeBlock(tParser *Parser);

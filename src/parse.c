@@ -202,7 +202,7 @@ int Parse_BufferInt(tSpiderScript *Script, const char *Buffer, const char *Filen
 	{
 		const tSpiderTypeRef rettype = {.Def=&gSpiderScript_IntegerType, .ArrayDepth = 0};
 		AST_AppendNode( MainCode, AST_NewUniOp(Parser, NODETYPE_RETURN, AST_NewInteger(Parser, 0)) );
-		AST_AppendFunction( Parser, "", rettype, NULL, MainCode );
+		AST_AppendFunction( Parser, "", rettype, NULL, MainCode, false );
 	}
 	
 	//printf("---- %p parsed as SpiderScript ----\n", Buffer);
@@ -376,9 +376,9 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 
 	DEBUGS1("- first_arg=%p", first_arg);
 	if( Class )
-		rv = AST_AppendMethod( Parser, Class, Name, Type, first_arg, code );
+		rv = AST_AppendMethod( Parser, Class, Name, Type, first_arg, code, bVariable );
 	else
-		rv = AST_AppendFunction( Parser, Name, Type, first_arg, code );
+		rv = AST_AppendFunction( Parser, Name, Type, first_arg, code, bVariable );
 
 _return:
 	// Clean up argument definition nodes
@@ -1459,6 +1459,38 @@ tAST_Node *Parse_GetNumeric(tParser *Parser)
 	return AST_NewInteger( Parser, value );
 }
 
+tAST_Node *Parse_DoFunctionArgs(tParser *Parser, tAST_Node *FcnNode)
+{
+	if( GetToken(Parser) != TOK_PAREN_CLOSE )
+	{
+		DEBUGS2("Call has args");
+		PutBack(Parser);
+		do {
+			// If the last argument is '...', mark the call as a varg parssthrough
+			if( LookAhead(Parser) == TOK_ELIPSIS ) {
+				GetToken(Parser);	// eat ...
+				GetToken(Parser);	// Should eat the )
+				AST_SetCallVArgPassthrough(FcnNode);
+				break;
+			}
+			tAST_Node *arg = Parse_DoExpr0(Parser);
+			if( !arg ) {
+				AST_FreeNode(FcnNode);
+				return NULL;
+			}
+			AST_AppendFunctionCallArg( FcnNode, arg );
+		} while(GetToken(Parser) == TOK_COMMA);
+		
+		if( SyntaxAssert( Parser, Parser->Cur.Token, TOK_PAREN_CLOSE ) ) {
+			AST_FreeNode(FcnNode);
+			return NULL;
+		}
+	}
+	else
+		DEBUGS2("No args for call");
+	return FcnNode;
+}
+
 /**
  * \brief Get a variable
  */
@@ -1514,27 +1546,9 @@ tAST_Node *Parse_GetVariable(tParser *Parser)
 				ret = AST_NewMethodCall(Parser, ret, name);
 				
 				// Read arguments
-				if( GetToken(Parser) != TOK_PAREN_CLOSE )
-				{
-					DEBUGS2("Method call %s has args", name);
-					PutBack(Parser);
-					do {
-						tAST_Node *arg = Parse_DoExpr0(Parser);
-						if( !arg ) {
-							AST_FreeNode(ret);
-							return NULL;
-						}
-						AST_AppendFunctionCallArg( ret, arg );
-					} while(GetToken(Parser) == TOK_COMMA);
-					
-					if( SyntaxAssert( Parser, Parser->Cur.Token, TOK_PAREN_CLOSE ) ) {
-						AST_FreeNode(ret);
-						return NULL;
-					}
-				}
-				else
-					DEBUGS2("No args for method call %s", name);
-				
+				ret = Parse_DoFunctionArgs(Parser, ret);
+				if( !ret )
+					return NULL;
 			}
 			// Attribute
 			else
@@ -1689,32 +1703,9 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		else
 			ret = AST_NewFunctionCall( Parser, name );
 		// Read arguments
-		if( GetToken(Parser) != TOK_PAREN_CLOSE )
-		{
-			PutBack(Parser);
-			do {
-				DEBUGS2(" Parse_GetIdent: Argument");
-				// If the last argument is '...', mark the call as a varg parssthrough
-				#if 0
-				if( LookAhead(Parser) == TOK_ELIPSIS ) {
-					GetToken(Parser);
-					AST_SetCallVArgPassthrough(ret);
-					break;
-				}
-				#endif
-				tAST_Node	*arg = Parse_DoExpr0(Parser);
-				if( !arg ) {
-					AST_FreeNode(ret);
-					return NULL;
-				}
-				AST_AppendFunctionCallArg( ret, arg );
-			} while(GetToken(Parser) == TOK_COMMA);
-			if( SyntaxAssert( Parser, Parser->Cur.Token, TOK_PAREN_CLOSE ) ) {
-				AST_FreeNode(ret);
-				return NULL;
-			}
-			DEBUGS2(" Parse_GetIdent: All arguments parsed");
-		}
+		ret = Parse_DoFunctionArgs(Parser, ret);
+		if(!ret)
+			return NULL;
 	}
 	else
 	{

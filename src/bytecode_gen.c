@@ -308,30 +308,30 @@ void Bytecode_AppendIndex(tBC_Function *Handle, int Dst, int Array, int Idx)
 void Bytecode_AppendSetIndex(tBC_Function *Handle, int Array, int Idx, int Src)
 	DEF_BC_RI3(BC_OP_SETINDEX, Src, Array, Idx);
 
-void Bytecode_int_AppendCall(tBC_Function *Handle, enum eBC_Ops Op, int RetReg, int FcnIdx, int ArgC, int ArgRegs[])
+void Bytecode_int_AppendCall(tBC_Function *Handle, enum eBC_Ops Op, int RetReg, int FcnIdx, int ArgC, int ArgRegs[], bool VArgsPassThrough)
 {
 	tBC_Op *op = Bytecode_int_AllocateOp(Op, sizeof(int)*ArgC);
 	op->DstReg = RetReg;
 	op->Content.Function.ID = FcnIdx;
-	op->Content.Function.ArgCount = ArgC;
+	op->Content.Function.ArgCount = ArgC | (VArgsPassThrough ? 0x100 : 0);
 	for( int i = 0; i < ArgC; i ++ )
 		op->Content.Function.ArgRegs[i] = ArgRegs[i];
 	Bytecode_int_AppendOp(Handle, op);
 }
 
-void Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[])
+void Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough)
 {
 	tSpiderTypeRef	type = {Def, 0};
 	Bytecode_int_AppendCall(Handle, BC_OP_CREATEOBJ, RetReg, Bytecode_int_GetTypeIdx(Handle->Script, type),
-		NArgs, ArgRegs);
+		NArgs, ArgRegs, VArgsPassThrough);
 }
-void Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[])
+void Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough)
 {
-	Bytecode_int_AppendCall(Handle, BC_OP_CALLMETHOD, RetReg, ID, NArgs, ArgRegs);
+	Bytecode_int_AppendCall(Handle, BC_OP_CALLMETHOD, RetReg, ID, NArgs, ArgRegs, VArgsPassThrough);
 }
-void Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[])
+void Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough)
 {
-	Bytecode_int_AppendCall(Handle, BC_OP_CALLFUNCTION, RetReg, ID, NArgs, ArgRegs);
+	Bytecode_int_AppendCall(Handle, BC_OP_CALLFUNCTION, RetReg, ID, NArgs, ArgRegs, VArgsPassThrough);
 }
 void Bytecode_AppendCreateArray(tBC_Function *Handle, int RetReg, tSpiderTypeRef Type, int SizeReg) 
 	DEF_BC_RI3(BC_OP_CREATEARRAY, RetReg, Bytecode_int_GetTypeIdx(Handle->Script, Type), SizeReg)

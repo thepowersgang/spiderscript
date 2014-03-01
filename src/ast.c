@@ -92,7 +92,7 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 	return 0;
 }
 
-tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable)
 {
 	tScript_Function	*fcn;
 	 int	arg_count = 0;
@@ -117,6 +117,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	fcn->ArgumentCount = arg_count;
 	fcn->ASTFcn = Code;
 	fcn->BCFcn = NULL;
+	fcn->IsVariable = bIsVariable;
 	
 	// Set arguments
 	arg_bytes = strlen(Name) + 1;	// Used as an offset into fcn->Name
@@ -134,7 +135,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	return fcn;
 }
 
-int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable)
 {
 	tScript_Function	*method;
 	
@@ -148,7 +149,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 	tAST_Node *this_def = AST_NewDefineVar(Parser, ref, "this");
 	this_def->NextSibling = FirstArg;
 
-	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code);
+	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code, bIsVariable);
 	if(!method)	return -1;
 
 	AST_FreeNode(this_def);
@@ -166,7 +167,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 /**
  * \brief Append a function to a script
  */
-int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *Args, tAST_Node *Code)
+int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *Args, tAST_Node *Code, bool bIsVariable)
 {
 	tScript_Function	*fcn;
 
@@ -178,7 +179,7 @@ int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnT
 			return 1;
 	}
 
-	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code);
+	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code, bIsVariable);
 	if(!fcn)	return -1;	
 
 	if(Parser->Script->Functions)
@@ -641,6 +642,7 @@ tAST_Node *AST_NewFunctionCall(tParser *Parser, const char *Name)
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
+	ret->FunctionCall.IsVArgPassthrough = false;
 	strcpy(ret->FunctionCall.Name, Name);
 	
 	return ret;
@@ -657,6 +659,7 @@ tAST_Node *AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Nam
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
+	ret->FunctionCall.IsVArgPassthrough = false;
 	strcpy(ret->FunctionCall.Name, Name);
 	
 	return ret;
@@ -670,6 +673,7 @@ tAST_Node *AST_NewCreateObject(tParser *Parser, const char *Name)
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
+	ret->FunctionCall.IsVArgPassthrough = false;
 	strcpy(ret->FunctionCall.Name, Name);
 	
 	return ret;
@@ -697,6 +701,19 @@ void AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg)
 		Node->FunctionCall.LastArg = Arg;
 	}
 	Node->FunctionCall.NumArgs ++;
+}
+
+void AST_SetCallVArgPassthrough(tAST_Node *Node)
+{
+	if( Node->Type != NODETYPE_FUNCTIONCALL
+	 && Node->Type != NODETYPE_CREATEOBJECT
+	 && Node->Type != NODETYPE_METHODCALL)
+	{
+		fprintf(stderr, "BUG REPORT: AST_AppendFunctionCallArg on an invalid node type (%i)\n", Node->Type);
+		return ;
+	}
+	
+	Node->FunctionCall.IsVArgPassthrough = true;
 }
 
 /*

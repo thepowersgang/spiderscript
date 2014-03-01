@@ -7,6 +7,7 @@
 
 #include <spiderscript.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 // ---
 #if DEBUG >= 2
@@ -68,6 +69,7 @@ struct sScript_Function
 	struct sAST_Node	*ASTFcn;
 	struct sBC_Function	*BCFcn;
 
+	bool	IsVariable;
 	 int	ArgumentCount;
 	tScript_Arg	Arguments[];
 };

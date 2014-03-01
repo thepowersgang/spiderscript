@@ -861,7 +861,7 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 			_put_index(op->DstReg);
 			_put_index(op->Content.Function.ID);
 			_put_index(op->Content.Function.ArgCount);
-			for( int i = 0; i < op->Content.Function.ArgCount; i ++ )
+			for( int i = 0; i < (op->Content.Function.ArgCount&0xFF); i ++ )
 				_put_index(op->Content.Function.ArgRegs[i]);
 			break;
 		// Everthing else just gets handled nicely

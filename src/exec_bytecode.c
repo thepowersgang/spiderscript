@@ -388,10 +388,9 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 /**
  * \brief Call an external function (may recurse into Bytecode_ExecuteFunction, but may not)
  */
-int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const tBC_StackEnt *Args[], tBC_StackEnt *RV)
+int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int arg_count, const tBC_StackEnt *Args[], tBC_StackEnt *RV)
 {
 	 int	id = op->Content.Function.ID;
-	 int	arg_count = op->Content.Function.ArgCount;
 	 int	rv = 0;
 	const void	*args[arg_count];
 	tSpiderTypeRef	arg_types[arg_count];
@@ -402,14 +401,15 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const tBC
 	// Read arguments
 	for( int i = 0; i < arg_count; i ++ )
 	{
+		DEBUG_F("- Arg %i = ", i);
 		// Arg 0 is at top of stack (EntryCount-1)
 		arg_types[i] = Bytecode_int_GetSpiderValueC(Script, Args[i], &args[i]);
 		if( arg_types[i].Def == NULL ) {
 			rv = -1;
+			DEBUG_F("VOID\n");
 			SpiderScript_RuntimeError(Script, "Argument %i popped void", i);
 			goto cleanup;
 		}
-		DEBUG_F("- Arg %i = ", i);
 		PRINT_STACKVAL(*Args[i]);
 		DEBUG_F("\n");
 	}
@@ -529,7 +529,12 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	}
 	
 
-	if( ArgCount > Fcn->ArgumentCount )	return -1;
+	if( ArgCount < Fcn->ArgumentCount || (!Fcn->IsVariable && ArgCount != Fcn->ArgumentCount) ) {
+		return SpiderScript_ThrowException_ArgCount(Script, Fcn->Name,
+			(Fcn->IsVariable ? -Fcn->ArgumentCount : Fcn->ArgumentCount), ArgCount);
+	}
+	const int	VArgC = ArgCount - Fcn->ArgumentCount;
+	const tBC_StackEnt	**VArgs = Args + Fcn->ArgumentCount;
 	DEBUG_F("--- ExecuteFunction %s (%i args)\n", Fcn->Name, Fcn->ArgumentCount);
 	
 	// Initialise stack and globals
@@ -1141,7 +1146,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			
 			tScript_Function	*fcn = NULL;
 			 int	id = op->Content.Function.ID;
-			 int	arg_count = op->Content.Function.ArgCount;
+			 int	arg_count = op->Content.Function.ArgCount & 0xFF;
+			bool	is_varg_passthrough = !!((op->Content.Function.ArgCount >> 8)&1);
 			
 			if( arg_count >= 1 )
 				reg1 = &REG( op->Content.Function.ArgRegs[0] );
@@ -1180,13 +1186,26 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				fcn = NULL;
 			}
 
-			const tBC_StackEnt	*args[arg_count];
+			int extra_args = (is_varg_passthrough ? VArgC : 0);
+			const tBC_StackEnt	*args[arg_count+extra_args];
 			for(int i = 0; i < arg_count; i ++ ) {
 				args[i] = &REG( op->Content.Function.ArgRegs[i] );
+			}
+			for( int i = 0; i < extra_args; i ++ ) {
+				args[arg_count+i] = VArgs[i];
 			}
 			
 			// Either a local call, or a remote call
 			PRESET_DEREF(*reg_dst);
+
+			DEBUG_F("%s.%s R%i, 0x%x,", opstr, (fcn?"L":"R"), op->DstReg, id);
+			for(int i = 0; i < arg_count; i ++ ) {
+				DEBUG_F(" R%i", op->Content.Function.ArgRegs[i]);
+			}
+			if( is_varg_passthrough )
+				DEBUG_F(" ...(%i)", extra_args);
+			DEBUG_F("\n");
+
 			if( fcn )
 			{
 				if( !fcn->BCFcn ) {
@@ -1195,19 +1214,16 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 					bError = 1;
 					break;
 				}
-				rv = Bytecode_int_ExecuteFunction(Script, fcn, arg_count, args, reg_dst);
+				rv = Bytecode_int_ExecuteFunction(Script, fcn,
+					arg_count+extra_args, args, reg_dst);
 				if( rv ) {
 					bError = 1;
 				}
 			}
 			else
 			{
-				DEBUG_F("%s.G R%i, 0x%x,", opstr, op->DstReg, id);
-				for(int i = 0; i < arg_count; i ++ ) {
-					DEBUG_F(" R%i", op->Content.Function.ArgRegs[i]);
-				}
-				DEBUG_F("\n");
-				if( Bytecode_int_CallExternFunction( Script, op, args, reg_dst ) ) {
+				if( Bytecode_int_CallExternFunction( Script, op,
+					arg_count+extra_args, args, reg_dst ) ) {
 					bError = 1;
 					break;
 				}
