@@ -32,6 +32,7 @@ const struct {
 	{TOK_RWD_CLASS, "class"},
 	{TOK_RWD_NAMESPACE, "namespace"},
 	{TOK_RWD_AUTO, "auto"},
+	{TOK_RWD_OPERATOR, "operator"},
 
 	// Storage class
 	{TOK_RWD_GLOBAL, "global"},
@@ -173,6 +174,14 @@ int GetToken(tParser *File)
 		}
 		ret = TOK_DIV;
 		break;
+	case '%':
+		if( *File->CurPos == '=' ) {
+			File->CurPos ++;
+			ret = TOK_ASSIGN_MODULO;
+			break;
+		}
+		ret = TOK_MODULO;
+		break;
 	case '*':
 		if( *File->CurPos == '=' ) {
 			File->CurPos ++;
@@ -246,9 +255,18 @@ int GetToken(tParser *File)
 		else
 			ret = TOK_QUESTIONMARK;
 		break;
-	#if USE_SCOPE_CHAR
-	case '.':	ret = TOK_SCOPE;	break;
-	#endif
+	case '.':
+		if( *File->CurPos == '.' && File->CurPos[1] == '.' ) {
+			File->CurPos += 2;
+			ret = TOK_ELIPSIS;
+		}
+		else
+			#if USE_SCOPE_CHAR
+			ret = TOK_SCOPE;
+			#else
+			goto default;
+			#endif
+		break;
 	
 	// Equals
 	case '=':

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <spiderscript.h>
 #define WANT_TOKEN_STRINGS	1
 #include "tokens.h"
@@ -33,7 +34,7 @@ enum eGetIdentMode
  int	Parse_Buffer(tSpiderScript *Script, const char *Buffer, const char *Filename);
  int	Parse_NamespaceContent(tParser *Parser);
  int	Parse_ClassDefinition(tParser *Parser);
- int	Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type);
+ int	Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type, const char *Name);
 tAST_Node	*Parse_DoCodeBlock(tParser *Parser, tAST_Node *CodeNode);
 tAST_Node	*Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode);
 tAST_Node	*Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class *Class);
@@ -306,19 +307,14 @@ int Parse_ClassDefinition(tParser *Parser)
 /**
  * \brief Function
  */
-int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type)
+int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeRef Type, const char *Name)
 {
 	 int	rv = 0;
 	tAST_Node	*first_arg = NULL;
 	tAST_Node	**arg_next_ptr = &first_arg;
 	tAST_Node	*code;
-	
-	SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT );
-	
-	char name[Parser->Cur.TokenLen+1];
-	memcpy(name, Parser->Cur.TokenStr, Parser->Cur.TokenLen);
-	name[Parser->Cur.TokenLen] = 0;
-	DEBUGS1("DefFCN %s", name);
+	bool	bVariable = false;
+	DEBUGS1("DefFCN %s", Name);
 	
 	// Get arguments
 	if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_OPEN ) ) {
@@ -329,6 +325,10 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 	{
 		do {
 			tAST_Node *def;
+			if( LookAhead(Parser) == TOK_ELIPSIS ) {
+				GetToken(Parser);
+				break;
+			}
 			def = Parse_GetIdent(Parser, GETIDENTMODE_FUNCTIONDEF, NULL);
 			if( !def ) { rv = -1; goto _return; }
 			DEBUGS1("Arg '%s'", def->DefVar.Name);
@@ -336,6 +336,13 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 			*arg_next_ptr = def;
 			arg_next_ptr = &def->NextSibling;
 		} while(GetToken(Parser) == TOK_COMMA);
+		
+		if( Parser->Cur.Token == TOK_ELIPSIS )
+		{
+			// Function takes a variable argument count
+			bVariable = true;
+			GetToken(Parser);
+		}
 	}
 	else
 		GetToken(Parser);
@@ -343,6 +350,21 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 	if( SyntaxAssert(Parser, Parser->Cur.Token, TOK_PAREN_CLOSE)  ) {
 		rv = -1;
 		goto _return;
+	}
+
+	for( bool loop = true; loop; )
+	{
+		switch(GetToken(Parser))
+		{
+		case TOK_RWD_CONSTANT:
+			loop = true;
+			//function_is_const = true;
+			break;
+		default:
+			loop = false;
+			PutBack(Parser);
+			break;
+		}
 	}
 
 	DEBUGS2("-- Parsing function '%s' code", name);
@@ -354,9 +376,9 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 
 	DEBUGS1("- first_arg=%p", first_arg);
 	if( Class )
-		rv = AST_AppendMethod( Parser, Class, name, Type, first_arg, code );
+		rv = AST_AppendMethod( Parser, Class, Name, Type, first_arg, code );
 	else
-		rv = AST_AppendFunction( Parser, name, Type, first_arg, code );
+		rv = AST_AppendFunction( Parser, Name, Type, first_arg, code );
 
 _return:
 	// Clean up argument definition nodes
@@ -461,7 +483,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 	// Control Statements
 	case TOK_RWD_IF:
 		{
-		tAST_Node	*cond = NULL, *true = NULL, *false = NULL;
+		tAST_Node	*cond = NULL, *truecode = NULL, *falsecode = NULL;
 		GetToken(Parser);	// eat the if
 
 		DEBUGS2("for statement");		
@@ -472,7 +494,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			goto _if_err_ret;
 		if( SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE) )
 			goto _if_err_ret;
-		if( !(true = Parse_DoCodeBlock(Parser, CodeNode)) )
+		if( !(truecode = Parse_DoCodeBlock(Parser, CodeNode)) )
 			goto _if_err_ret;
 
 #if 0
@@ -491,20 +513,20 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 	
 		if( LookAhead(Parser) == TOK_RWD_ELSE ) {
 			GetToken(Parser);
-			false = Parse_DoCodeBlock(Parser, CodeNode);
+			falsecode = Parse_DoCodeBlock(Parser, CodeNode);
 		}
 		else
-			false = AST_NewNop(Parser);
+			falsecode = AST_NewNop(Parser);
 		
-		if(!false)
+		if(!falsecode)
 			goto _if_err_ret;
 		
-		ret = AST_NewIf(Parser, cond, true, false);
+		ret = AST_NewIf(Parser, cond, truecode, falsecode);
 		return ret;
 	_if_err_ret:
 		if(cond)	AST_FreeNode(cond);
-		if(true)	AST_FreeNode(true);
-		if(false)	AST_FreeNode(false);
+		if(truecode)	AST_FreeNode(truecode);
+		if(falsecode)	AST_FreeNode(falsecode);
 		return NULL;
 		}
 
@@ -1180,6 +1202,9 @@ tAST_Node *Parse_DoExpr6(tParser *Parser)
 		case TOK_DIV:
 			ret = AST_NewBinOp(Parser, NODETYPE_DIVIDE, ret, _next(Parser));
 			break;
+		case TOK_MODULO:
+			ret = AST_NewBinOp(Parser, NODETYPE_MODULO, ret, _next(Parser));
+			break;
 		default:
 			PutBack(Parser);
 			cont = 0;
@@ -1316,6 +1341,21 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 	case TOK_RWD_NEW:
 		GetToken(Parser);
 		return Parse_GetIdent(Parser, GETIDENTMODE_NEW, NULL);
+	
+	#if 0
+	// Elipsis - Variable argument access
+	case TOK_ELIPSIS:
+		GetToken(Parser);
+		// "...[index]" Access an individual argument
+		if( LookAhead(Parser) == TOK_SQUARE_OPEN ) {
+			GetToken(Parser);
+			ret = AST_NewVArgInd(Parser, Parse_DoExpr0(Parser));
+			SyntaxAssert(Parser, GetToken(Parser), TOK_SQUARE_CLOSE);
+			return ret;
+		}
+		// Used to pass through arguments
+		return AST_NewVariable(Parser, "...");
+	#endif
 
 	default:
 		SyntaxError(Parser, "Unexpected %s, expected TOK_T_VALUE",
@@ -1558,7 +1598,36 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		} while(GetToken(Parser) == TOK_SQUARE_OPEN);
 	}	
 
-	if( Parser->Cur.Token == TOK_IDENT || Parser->Cur.Token == TOK_VARIABLE )
+	if( Parser->Cur.Token == TOK_RWD_OPERATOR )
+	{
+		DEBUGS2("Operator override");
+		// Function definition
+		const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
+		if( type == SS_ERRPTR ) {
+			SyntaxError(Parser, "Unknown type '%s'", name);
+			return NULL;
+		}
+		tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = level};
+
+		if( Mode != GETIDENTMODE_CLASS ) {
+			SyntaxError(Parser, "Operator override outside of class (Mode %i)", Mode);
+			return NULL;
+		}
+		const char *fcnname = NULL;
+		switch(GetToken(Parser))
+		{
+		case TOK_MODULO:	fcnname = "operator %";	break;
+		default:
+			SyntaxError(Parser, "Unknown operator token %s", csaTOKEN_NAMES[Parser->Cur.Token]);
+			return NULL;
+		}
+
+		if( Parse_FunctionDefinition(Class, Parser, ref, fcnname) )
+			return NULL;
+
+		ret = SS_ERRPTR;
+	}
+	else if( Parser->Cur.Token == TOK_IDENT || Parser->Cur.Token == TOK_VARIABLE )
 	{
 		DEBUGS2("Function/variable definition");
 		// Function definition
@@ -1581,8 +1650,11 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		if( Parser->Cur.Token == TOK_IDENT )
 		{
 			DEBUGS2("- Function definition");
-			PutBack(Parser);
-			if( Parse_FunctionDefinition(Class, Parser, ref) )
+			
+			char fcnname[Parser->Cur.TokenLen+1];
+			memcpy(fcnname, Parser->Cur.TokenStr, Parser->Cur.TokenLen);
+			fcnname[Parser->Cur.TokenLen] = 0;
+			if( Parse_FunctionDefinition(Class, Parser, ref, fcnname) )
 				return NULL;
 			ret = SS_ERRPTR;	// Not an error
 		}
@@ -1622,6 +1694,14 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 			PutBack(Parser);
 			do {
 				DEBUGS2(" Parse_GetIdent: Argument");
+				// If the last argument is '...', mark the call as a varg parssthrough
+				#if 0
+				if( LookAhead(Parser) == TOK_ELIPSIS ) {
+					GetToken(Parser);
+					AST_SetCallVArgPassthrough(ret);
+					break;
+				}
+				#endif
 				tAST_Node	*arg = Parse_DoExpr0(Parser);
 				if( !arg ) {
 					AST_FreeNode(ret);

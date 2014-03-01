@@ -1162,31 +1162,35 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		else if( SS_ISTYPEOBJECT(type) ) {
 			const char *name_tpl;
 			tRegister args[] = {reg1, reg2};
+			//#define suf	"(%s)"
+			#define suf	""
 			switch(Node->Type)
 			{
-			case NODETYPE_LOGICALAND:	name_tpl = "operator &&(%s)";	break;
-			case NODETYPE_LOGICALOR:	name_tpl = "operator ||(%s)";	break;
-			case NODETYPE_LOGICALXOR:	name_tpl = "operator ^^(%s)";	break;
-			case NODETYPE_EQUALS:   	name_tpl = "operator ==(%s)";	break;
-			case NODETYPE_NOTEQUALS:	name_tpl = "operator !=(%s)";	break;
-			case NODETYPE_LESSTHAN: 	name_tpl = "operator <(%s)";	break;
-			case NODETYPE_LESSTHANEQUAL:	name_tpl = "operator <=(%s)";	break;
-			case NODETYPE_GREATERTHAN: 	name_tpl = "operator >(%s)";	break;
-			case NODETYPE_GREATERTHANEQUAL:	name_tpl = "operator >=(%s)";	break;
-			case NODETYPE_ADD:	name_tpl = "operator +(%s)";	break;
-			case NODETYPE_SUBTRACT:	name_tpl = "operator -(%s)";	break;
-			case NODETYPE_MULTIPLY:	name_tpl = "operator *(%s)";	break;
-			case NODETYPE_DIVIDE:	name_tpl = "operator %(%s)";	break;
-			case NODETYPE_BWAND:	name_tpl = "operator &(%s)";	break;
-			case NODETYPE_BWOR:	name_tpl = "operator |(%s)";	break;
-			case NODETYPE_BWXOR:	name_tpl = "operator ^(%s)";	break;
-			case NODETYPE_BITSHIFTLEFT:	name_tpl = "operator <<(%s)";	break;
-			case NODETYPE_BITSHIFTRIGHT:	name_tpl = "operator >>(%s)";	break;
-			case NODETYPE_BITROTATELEFT:	name_tpl = "operator <<<(%s)";	break;
+			case NODETYPE_LOGICALAND:	name_tpl = "operator &&"suf;	break;
+			case NODETYPE_LOGICALOR:	name_tpl = "operator ||"suf;	break;
+			case NODETYPE_LOGICALXOR:	name_tpl = "operator ^^"suf;	break;
+			case NODETYPE_EQUALS:   	name_tpl = "operator =="suf;	break;
+			case NODETYPE_NOTEQUALS:	name_tpl = "operator !="suf;	break;
+			case NODETYPE_LESSTHAN: 	name_tpl = "operator <"suf;	break;
+			case NODETYPE_LESSTHANEQUAL:	name_tpl = "operator <="suf;	break;
+			case NODETYPE_GREATERTHAN: 	name_tpl = "operator >"suf;	break;
+			case NODETYPE_GREATERTHANEQUAL:	name_tpl = "operator >="suf;	break;
+			case NODETYPE_ADD:	name_tpl = "operator +"suf;	break;
+			case NODETYPE_SUBTRACT:	name_tpl = "operator -"suf;	break;
+			case NODETYPE_MULTIPLY:	name_tpl = "operator *"suf;	break;
+			case NODETYPE_DIVIDE:	name_tpl = "operator /"suf;	break;
+			case NODETYPE_MODULO:	name_tpl = "operator %%"suf;	break;
+			case NODETYPE_BWAND:	name_tpl = "operator &"suf;	break;
+			case NODETYPE_BWOR:	name_tpl = "operator |"suf;	break;
+			case NODETYPE_BWXOR:	name_tpl = "operator ^"suf;	break;
+			case NODETYPE_BITSHIFTLEFT:	name_tpl = "operator <<"suf;	break;
+			case NODETYPE_BITSHIFTRIGHT:	name_tpl = "operator >>"suf;	break;
+			case NODETYPE_BITROTATELEFT:	name_tpl = "operator <<<"suf;	break;
 			default:
 				AST_RuntimeError(Node, "BUG - Node %i unhandled in BinOp on Object", Node->Type);
 				return -1;
 			}
+			#undef suf
 			char	*name = SpiderScript_FormatTypeStr1(script, name_tpl, type2);
 			ret = BC_CallFunction(Block, Node, &rreg, NULL, name, 2, args);
 			free(name);
