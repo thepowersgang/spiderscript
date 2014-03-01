@@ -33,6 +33,7 @@ typedef struct sScript_Var	tScript_Var;
 struct sSpiderScript
 {
 	tSpiderVariant	*Variant;
+	enum eSpiderScript_TraceLevel	BytecodeTraceLevel;
 	
 	tScript_Function	*Functions;
 	tScript_Function	*LastFunction;

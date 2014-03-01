@@ -167,6 +167,11 @@ void SpiderScript_Free(tSpiderScript *Script)
 	free(Script);
 }
 
+void SpiderScript_SetTraceLevel(tSpiderScript *Script, enum eSpiderScript_TraceLevel Level)
+{
+	Script->BytecodeTraceLevel = Level;
+}
+
 void SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...)
 {
 	va_list	args;

@@ -279,7 +279,50 @@ struct sSpiderFunction
  * \return Script suitable for execution
  */
 SS_EXPORT extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
+/**
+ * \brief Load a script from bytecode
+ */
+SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
+SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Buf, size_t Len);
+/**
+ * \brief Convert a script to bytecode and save to a file
+ */
+SS_EXPORT extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
+SS_EXPORT extern int	SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr);
+/**
+ * \brief Save the AST of a script to a file
+ */
+SS_EXPORT extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
 
+/**
+ * \brief Free a script
+ * \param Script	Script structure to free
+ */
+SS_EXPORT extern void	SpiderScript_Free(tSpiderScript *Script);
+
+enum eSpiderScript_TraceLevel
+{
+	SS_TRACE_NONE,
+	// SS_TRACE_CALLS,
+	SS_TRACE_OPCODES,
+	SS_TRACE_REGDUMP,
+};
+
+/**
+ * \brief Set the execution tracing level
+ * \param Level	Tracing level, see eSpiderScript_TraceLevel
+ * \note Tracing is performed to stdout
+ */
+SS_EXPORT extern void	SpiderScript_SetTraceLevel(tSpiderScript *Script, enum eSpiderScript_TraceLevel Level);
+
+
+/**
+ * \name Execution
+ * \{
+ */
+/**
+ * \brief Execute a function
+ */
 SS_EXPORT extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 	tSpiderTypeRef *RetType, void *RetData,
 	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
@@ -301,31 +344,14 @@ SS_EXPORT extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char
 	void **Ident
 	);
 
-SS_EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, const tSpiderScript_TypeDef *TypeCode,
+SS_EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script,
+	const tSpiderScript_TypeDef *TypeCode,
 	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
- * \brief Convert a script to bytecode and save to a file
+ * \}
  */
-SS_EXPORT extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
-SS_EXPORT extern int	SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr);
-/**
- * \brief Load a script from bytecode
- */
-SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
-SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Buf, size_t Len);
-/**
- * \brief Save the AST of a script to a file
- */
-SS_EXPORT extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
-
-/**
- * \brief Free a script
- * \param Script	Script structure to free
- */
-SS_EXPORT extern void	SpiderScript_Free(tSpiderScript *Script);
-
 /**
  * \name Exception Handling
  * \{

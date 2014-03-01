@@ -16,17 +16,14 @@
 #include <inttypes.h>
 #include <stdarg.h>
 
-// 1: Opcode trace
-// 2: Register trace
-#define TRACE	0
 
 #define DEREF_BEFORE_SET	1
 
-#if TRACE
-# define DEBUG_F(v...)	printf(v)
-#else
-# define DEBUG_F(v...)	
-#endif
+// Values for BytecodeTraceLevel
+// 1: Opcode trace
+// 2: Register trace
+#define TRACECOND(code)	do{ if(Script->BytecodeTraceLevel>=SS_TRACE_OPCODES){code;} }while(0)
+#define DEBUG_F(v...)	TRACECOND(printf(v))
 
 #define TODO(str)	SpiderScript_RuntimeError(Script, "TODO: Impliment bytecode"str); bError = 1; break
 
@@ -309,13 +306,8 @@ void Bytecode_int_PrintStackValue(tSpiderScript *Script, const tBC_StackEnt *Ent
 	}
 }
 
-#if TRACE
-# define PRINT_STACKVAL(val)	Bytecode_int_PrintStackValue(Script, &val)
-# define PRINT_STR(len, ptr)	Bytecode_int_PrintEscapedString(len, ptr);
-#else
-# define PRINT_STACKVAL(val)
-# define PRINT_STR(len, ptr)	
-#endif
+#define PRINT_STACKVAL(val)	TRACECOND(Bytecode_int_PrintStackValue(Script, &val))
+#define PRINT_STR(len, ptr)	TRACECOND(Bytecode_int_PrintEscapedString(len, ptr))
 
 // TODO: Emit notice if a reference type is lost?
 #if DEREF_BEFORE_SET
@@ -567,13 +559,15 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	while(op)
 	{
 		 int	op_valid = 0;
-		#if TRACE >= 2
-		for( int i = 0; i < num_registers; i ++ )
+		if( Script->BytecodeTraceLevel >= SS_TRACE_REGDUMP )
 		{
-			if( registers[i].Type.Def )
-				DEBUG_F("R%i = ", i); PRINT_STACKVAL(registers[i]); DEBUG_F("\n");
+			for( int i = 0; i < num_registers; i ++ )
+			{
+				if( registers[i].Type.Def )
+					DEBUG_F("R%i = ", i); PRINT_STACKVAL(registers[i]); DEBUG_F("\n");
+			}
 		}
-		#endif
+
 		reg_dst = &REG(op->DstReg);
 		reg1 = &REG(OP_REG2(op));
 		reg2 = &REG(OP_REG3(op));
