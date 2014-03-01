@@ -137,6 +137,9 @@ extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, t
 
 extern int	SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeCode);
 
+extern const char	*SpiderScript_int_GetFunctionName(tSpiderScript *Script, int FunctionID);
+extern const char	*SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef ObjType, int MethodID);
+
 extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
 
 

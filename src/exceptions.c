@@ -30,20 +30,20 @@ int SpiderScript_ThrowException_ArgErrorC(tSpiderScript *Script, const char *CNa
 	tSpiderTypeRef Expected, tSpiderTypeRef Got)
 {
 	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-		"%s->%s expects argument %i to be %s, got %s",
-		CName, FName,
+		"%s%s%s expects argument %i to be %s, got %s",
+		CName, (CName?"->":""), FName,
 		Num,
 		SpiderScript_GetTypeName(Script, Expected),
 		SpiderScript_GetTypeName(Script, Got)
 		);
 }
 
-int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num,
+int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *CName, const char *Name, int Num,
 	tSpiderTypeRef Expected, tSpiderTypeRef Got)
 {
 	return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARGUMENT,
-		"%s expects argument %i to be %s, got %s",
-		Name,
+		"%s%s%s expects argument %i to be %s, got %s",
+		CName, (CName?"->":""), Name,
 		Num,
 		SpiderScript_GetTypeName(Script, Expected),
 		SpiderScript_GetTypeName(Script, Got)

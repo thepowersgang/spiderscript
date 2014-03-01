@@ -4,6 +4,7 @@
 #define _AST_H_
 
 #include <spiderscript.h>
+#include <stdbool.h>
 #include "tokens.h"
 #include "common.h"
 
@@ -140,6 +141,7 @@ struct sAST_Node
 			tAST_Node	*Object;
 			tAST_Node	*FirstArg;
 			tAST_Node	*LastArg;
+			bool	IsVArgPassthrough;
 			 int	NumArgs;
 			char	Name[];
 		}	FunctionCall;

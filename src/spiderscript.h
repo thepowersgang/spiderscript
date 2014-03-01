@@ -335,6 +335,7 @@ enum eSpiderScript_Exceptions
 	SS_EXCEPTION_NONE = 0,	// No exception
 	SS_EXCEPTION_GENERIC,	// Generic error
 	SS_EXCEPTION_BUG,	// Bug in the engine
+	SS_EXCEPTION_MEMORY,	// Out of memory
 	SS_EXCEPTION_NULLDEREF,	// Derefence of a NULL array/string/object
 	SS_EXCEPTION_INDEX_OOB,	// Array index out of bounds
 	SS_EXCEPTION_BADELEMENT,	// TODO: Is this needed?
@@ -353,8 +354,7 @@ SS_EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
 SS_EXPORT extern int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Location);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName, int Exp, int Got);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCount(tSpiderScript *Script, const char *Name, int Exp, int Got);
-SS_EXPORT extern int SpiderScript_ThrowException_ArgErrorC(tSpiderScript *Script, const char *CName, const char *FName, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
-SS_EXPORT extern int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
+SS_EXPORT extern int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *CName, const char *Name, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
 /**
  * \}
  */

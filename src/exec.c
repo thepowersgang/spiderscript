@@ -130,7 +130,7 @@ int SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 
 int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 	tSpiderTypeRef *RetType, void *RetData,
-	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
+	const int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	)
 {
@@ -292,7 +292,7 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
  */
 int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	tSpiderTypeRef *RetType, void *RetData,
-	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
+	const int NArguments, const tSpiderTypeRef *const ArgTypes, const void * const Arguments[],
 	void **FunctionIdent
 	)
 {
@@ -360,7 +360,7 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			{
 				if( !SS_TYPESEQUAL(ArgTypes[i],sf->Arguments[i].Type) )
 				{
-					return SpiderScript_ThrowException_ArgErrorC(Script, sc->Name, sf->Name,
+					return SpiderScript_ThrowException_ArgError(Script, sc->Name, sf->Name,
 						i+1, sf->Arguments[i].Type, ArgTypes[i]);
 				}
 			}
@@ -383,13 +383,15 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 				return -1;
 			}
 
-			for( i = 0; fcn->Prototype->Args[i].Def != NULL; i ++ );
+			for( i = 0; fcn->Prototype->Args[i].Def != NULL; i ++ )
+				;
 			 int	minArgc = i;
 			 int	bVaraible = fcn->Prototype->bVariableArgs;
 
-			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) ) {
+			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) )
+			{
 				return SpiderScript_ThrowException_ArgCountC(Script, nc->Name, fcn->Name,
-					(bVaraible ? -minArgc : minArgc), 1+NArguments);
+					(bVaraible ? -minArgc : minArgc), NArguments);
 			}
 
 			// Check the type of the arguments
@@ -400,7 +402,8 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 					continue ;
 				if( !SS_TYPESEQUAL(ArgTypes[i], fcn->Prototype->Args[i]) )
 				{
-					return SpiderScript_ThrowException_ArgErrorC(Script, nc->Name, fcn->Name,
+					return SpiderScript_ThrowException_ArgError(Script,
+						nc->Name, fcn->Name,
 						i+1, fcn->Prototype->Args[i], ArgTypes[i]);
 				}
 			}
@@ -433,8 +436,8 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	else {
 		tSpiderTypeRef	typeref = {.ArrayDepth=0,.Def=Object->TypeDef};
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("BUG - Method call %s #%i did not resolve",
-				SpiderScript_GetTypeName(Script, typeref), MethodID)
+			"BUG - Method call %s #%i did not resolve",
+			SpiderScript_GetTypeName(Script, typeref), MethodID
 			);
 		return -1;
 	}
@@ -542,6 +545,57 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, const tSpiderScript_
 			);
 		return -1;
 	}
+}
+
+const char *SpiderScript_int_GetFunctionName(tSpiderScript *Script, int FunctionID)
+{
+	tScript_Function	*sf;
+	tSpiderFunction	*fcn = NULL;
+	int i = FunctionID & 0xFFFF;
+	switch( FunctionID >> 16 )
+	{
+	case 0:	// Script
+		for( sf = Script->Functions; sf && i --; sf = sf->Next )
+			;
+		return sf ? sf->Name : "-BADID-";
+	case 1:	// Exports
+		if( i < giNumExportedFunctions )
+			fcn = gapExportedFunctions[i];
+		return fcn ? fcn->Name : "-BADID-";
+	case 2:	// Variant
+		if( i < Script->Variant->nFunctions )
+			fcn = Script->Variant->Functions[i];
+		return fcn ? fcn->Name : "-BADID-";
+	default:
+		return "-BADTYPE-";
+	}
+}
+const char *SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef ObjType, int MethodID)
+{
+	if( ObjType.ArrayDepth > 0 )
+		return "-BADTYPE-";
+	if( ObjType.Def->Class == SS_TYPECLASS_SCLASS )
+	{
+		tScript_Class	*sc = ObjType.Def->SClass;
+		tScript_Function	*sf = sc->FirstFunction;
+		for( int i = 0; sf && i != MethodID; sf = sf->Next, i ++ )
+			;
+		return sf ? sf->Name : "-BADID-";
+	}
+	else if( ObjType.Def->Class == SS_TYPECLASS_NCLASS )
+	{
+		tSpiderClass	*nc = ObjType.Def->NClass;
+		tSpiderFunction	*fcn = nc->Methods;
+		// Search for the function
+		for( int i = 0; fcn && i != MethodID; fcn = fcn->Next, i ++ )
+			;
+		return fcn ? fcn->Name : "-BADID-";
+	}
+	else
+	{
+		return "-BADTYPE-";
+	}
+
 }
 
 void AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...)

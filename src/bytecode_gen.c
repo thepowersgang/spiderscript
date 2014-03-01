@@ -66,6 +66,7 @@ const enum eOpEncodingType caOpEncodingTypes[] = {
 	[BC_OP_INT_NEG]    = BC_OPENC_REG2,
 	[BC_OP_INT_BITNOT] = BC_OPENC_REG2,
 
+	[BC_OP_BOOL_EQUALS] = BC_OPENC_REG3,
 	[BC_OP_BOOL_LOGICAND] = BC_OPENC_REG3,
 	[BC_OP_BOOL_LOGICOR]  = BC_OPENC_REG3,
 	[BC_OP_BOOL_LOGICXOR] = BC_OPENC_REG3,
@@ -347,6 +348,7 @@ enum eBC_Ops Bytecode_int_GetBinOpBool(enum eBC_BinOp Op)
 {
 	switch(Op)
 	{
+	case BINOP_EQ:	return BC_OP_BOOL_EQUALS;
 	case BINOP_LOGICAND:	return BC_OP_BOOL_LOGICAND;
 	case BINOP_LOGICOR:	return BC_OP_BOOL_LOGICOR;
 	case BINOP_LOGICXOR:	return BC_OP_BOOL_LOGICXOR;
@@ -432,6 +434,7 @@ enum eBC_Ops Bytecode_int_GetUniOpInt(enum eBC_UniOp Op)
 {
 	switch(Op)
 	{
+	case UNIOP_LOGICNOT:	return BC_OP_BOOL_LOGICNOT;
 	case UNIOP_BITNOT:	return BC_OP_INT_BITNOT;
 	case UNIOP_NEG: 	return BC_OP_INT_NEG;
 	default:

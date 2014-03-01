@@ -420,7 +420,9 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const tBC
 		rv = SpiderScript_int_ExecuteFunction(Script, id, &rettype,
 			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
 		if(rv < 0)
-			SpiderScript_RuntimeError(Script, "Calling function 0x%x failed", id);
+			SpiderScript_RuntimeError(Script, "Calling function %s failed",
+				SpiderScript_int_GetFunctionName(Script, id)
+				);
 	}
 	else if( op->Operation == BC_OP_CREATEOBJ )
 	{
@@ -460,9 +462,10 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const tBC
 				rv = SpiderScript_int_ExecuteMethod(Script, id, &rettype,
 					&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
 				if(rv < 0)
-					SpiderScript_RuntimeError(Script, "Calling method 0x%x of %s failed",
-						id, SpiderScript_GetTypeName(Script, arg_types[0]));
-				
+					SpiderScript_RuntimeError(Script, "Calling method %s->%s failed",
+						SpiderScript_GetTypeName(Script, arg_types[0]),
+						SpiderScript_int_GetMethodName(Script, arg_types[0], id)
+						);
 				// TODO: Should a dereference be done?
 			}
 			else {
@@ -1022,6 +1025,11 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			reg_dst->Boolean = reg1->String != reg2->String;
 			break;
 	
+		BINOPHDR(BC_OP_BOOL_EQUALS)
+			reg_dst->Type = TYPE_BOOLEAN;
+			reg_dst->Boolean = Bytecode_int_IsStackEntTrue(Script, reg1)
+				== Bytecode_int_IsStackEntTrue(Script, reg2);
+			break;
 		BINOPHDR(BC_OP_BOOL_LOGICAND)
 			reg_dst->Type = TYPE_BOOLEAN;
 			reg_dst->Boolean = Bytecode_int_IsStackEntTrue(Script, reg1)
