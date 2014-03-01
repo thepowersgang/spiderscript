@@ -24,9 +24,11 @@
 # define TRACE(v...)	do{}while(0)
 #endif
 
-#define _ASSERT(l,rel,r,rv) do{if(!(l rel r)){\
+#define _ASSERT(l,rel,r,code) do{if(!(l rel r)){\
 	fprintf(stderr,"%s:%i: ASSERT %s [%li] %s %s [%li] failed\n", __FILE__, __LINE__, #l, (long)(l), #rel, #r, (long)(r));\
-	return rv;}}while(0)
+	code;}}while(0)
+#define _ASSERT_R(l,rel,r,rv) _ASSERT(l,rel,r,return rv)
+#define _ASSERT_G(l,rel,r,target) _ASSERT(l,rel,r,goto target)
 
 
 // === TYPES ===
@@ -98,13 +100,13 @@ static inline uint32_t _get32(t_loadstate *State)
 }
 size_t _get_str(t_loadstate *State, char *Dest, int StringID)
 {
-	_ASSERT(StringID, <, State->NStr, -1);
+	_ASSERT_R(StringID, <, State->NStr, -1);
 	if( Dest )
 	{
 		off_t saved_pos = ftell(State->FP);
 		fseek(State->FP, State->Strings[StringID].Offset, SEEK_SET);
 		size_t len = fread(Dest, 1, State->Strings[StringID].Length, State->FP);
-		_ASSERT(len, ==, State->Strings[StringID].Length, -1);
+		_ASSERT_R(len, ==, State->Strings[StringID].Length, -1);
 		Dest[ State->Strings[StringID].Length ] = '\0';
 		fseek(State->FP, saved_pos, SEEK_SET);
 //		printf("String '%s' read\n", Dest);
@@ -114,7 +116,7 @@ size_t _get_str(t_loadstate *State, char *Dest, int StringID)
 tSpiderTypeRef _get_type(t_loadstate *State, int TypeID)
 {
 	tSpiderTypeRef	retz = {0,0};
-	_ASSERT(TypeID, <, State->NTypes, retz);
+	_ASSERT_R(TypeID, <, State->NTypes, retz);
 
 	return State->Types[TypeID];
 }
@@ -133,8 +135,8 @@ tScript_Function *_get_fcn(t_loadstate *State)
 
 	TRACE("_get_fcn: Name [%i] 0x%lx+%li RV%i %i args",
 		namestr, code_ofs, code_len, ret_type, n_args);
-	_ASSERT(code_ofs, <, State->FileSize, NULL);
-	_ASSERT(code_ofs+code_len, <, State->FileSize, NULL);
+	_ASSERT_R(code_ofs, <, State->FileSize, NULL);
+	_ASSERT_R(code_ofs+code_len, <, State->FileSize, NULL);
 
 //	printf("namestr = %i, code_ofs = %x, code_len = %x, ret_type = %x, n_args = %i\n",
 //		namestr, (unsigned int)code_ofs, (unsigned int)code_len, ret_type, n_args);
@@ -149,14 +151,14 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	datasize += sizeof(tScript_Function);
 	datasize += n_args * sizeof(ret->Arguments[0]);
 	size_t	len = _get_str(State, NULL, namestr) + 1;
-	_ASSERT(len, !=, -1, NULL);
+	_ASSERT_R(len, !=, -1, NULL);
 	datasize += len;
 	for( int i = 0; i < n_args; i ++ )
 	{
 		args[i].Name = _get16(State);
 		args[i].Type = _get16(State);
 		len = _get_str(State, NULL, args[i].Name) + 1;
-		_ASSERT(len, !=, -1, NULL);
+		_ASSERT_R(len, !=, -1, NULL);
 		datasize += len;
 	}
 
@@ -184,7 +186,7 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	len = fread(code, 1, code_len, State->FP);
 	if( len != code_len ) {
 		free(code);
-		_ASSERT(len, ==, code_len, NULL);
+		_ASSERT_G(len, ==, code_len, _err);
 	}
 	fseek(State->FP, old_pos, SEEK_SET);
 
@@ -194,6 +196,10 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	free(code);
 
 	return ret;
+_err:
+	free(ret);
+	free(code);
+	return NULL;
 }
 
 
@@ -235,7 +241,7 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	State->FileSize = file_size;
 
 	// Check magic
-	_ASSERT(file_size, >, MAGIC_STR_LEN + 5*2+4, 1);
+	_ASSERT_R(file_size, >, MAGIC_STR_LEN + 5*2+4, 1);
 	{
 		char magic[MAGIC_STR_LEN];
 		if( fread(magic, MAGIC_STR_LEN, 1, fp) != 1 ) {
@@ -262,15 +268,15 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	TRACE("Header %ic %it %ig %if %is@%lx", n_class, n_types, n_globals, n_fcn, n_str, ofs_str);
 
 	// Load string table
-	_ASSERT(ofs_str + n_str*(4+4), <=, file_size, 1);
+	_ASSERT_R(ofs_str + n_str*(4+4), <=, file_size, 1);
 	t_lenofs strings[n_str];
 	fseek(fp, ofs_str, SEEK_SET);
 	for( int i = 0; i < n_str; i ++ )
 	{
 		strings[i].Length = _get32(State);
 		strings[i].Offset = _get32(State);
-		_ASSERT(strings[i].Offset, <, file_size, 1);
-		_ASSERT(strings[i].Offset + strings[i].Length, <=, file_size, 1);
+		_ASSERT_R(strings[i].Offset, <, file_size, 1);
+		_ASSERT_R(strings[i].Offset + strings[i].Length, <=, file_size, 1);
 		TRACE("Str %i: 0x%x + %i", i, strings[i].Offset, strings[i].Length);
 	}
 	fseek(fp, MAGIC_STR_LEN+5*2+4, SEEK_SET);	
@@ -340,7 +346,7 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 			break;
 		case SS_TYPECLASS_SCLASS:
 			TRACE("Script class %i", idx);
-			_ASSERT(idx, <, n_class, -1);
+			_ASSERT_G(idx, <, n_class, _err);
 			State->Types[i].Def = &State->Classes[idx].Class->TypeInfo;
 			break;
 		case SS_TYPECLASS_NCLASS: {
@@ -354,8 +360,8 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 			// TODO
 			break;
 		default:
-			_ASSERT(class, >, 0, -1);
-			_ASSERT(class, <=, SS_TYPECLASS_FCNPTR, -1);
+			_ASSERT_G(class, >, 0, _err);
+			_ASSERT_G(class, <=, SS_TYPECLASS_FCNPTR, _err);
 			break;
 		}
 		TRACE(" = %s", SpiderScript_GetTypeName(Script, State->Types[i]));
@@ -394,7 +400,7 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		tScript_Function *fcn;
 		
 		fcn = _get_fcn(State);
-		_ASSERT(fcn, !=, NULL, -1);
+		_ASSERT_G(fcn, !=, NULL, _err);
 
 		TRACE("Fcn %i done", i);
 
@@ -416,7 +422,7 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 			int type = _get16(State);
 			
 			size_t	namelen = _get_str(State, NULL, name);
-			_ASSERT(namelen, !=, -1, -1);
+			_ASSERT_G(namelen, !=, -1, _err);
 			tScript_Var *at = malloc( sizeof(*at) + namelen + 1 );
 			at->Next = NULL;
 			at->Type = _get_type(State, type);
@@ -436,7 +442,7 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		for( int j = 0; j < State->Classes[i].NMethods; j ++ )
 		{
 			tScript_Function *fcn = _get_fcn(State);
-			_ASSERT(fcn, !=, NULL, -1);
+			_ASSERT_G(fcn, !=, NULL, _err);
 //			printf("Added method '%s' of '%s'\n", fcn->Name, sc->Name);
 			sc->Functions[j] = fcn;
 			if( sc->FirstFunction )
@@ -451,6 +457,10 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	free(State->Classes);
 
 	return 0;
+_err:
+	free(State->Types);
+	free(State->Classes);
+	return 1;
 }
 
 int SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile)
@@ -601,7 +611,7 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 	for( int i = 0; i < Script->BCTypeCount; i ++ )
 	{
 		TRACE("Type %i: %s", i, SpiderScript_GetTypeName(Script, Script->BCTypes[i]));
-		_ASSERT( Script->BCTypes[i].ArrayDepth, <, 256, -1 );
+		_ASSERT_R( Script->BCTypes[i].ArrayDepth, <, 256, -1 );
 		_put8( Script->BCTypes[i].ArrayDepth );
 		if( Script->BCTypes[i].Def == NULL ) {
 			_put8(SS_TYPECLASS_CORE);
@@ -623,7 +633,7 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 			_put16( StringList_GetString(&strings, sc->Name, strlen(sc->Name)) );
 			break;
 		case SS_TYPECLASS_FCNPTR:
-			_ASSERT( Script->BCTypes[i].Def->Class, !=, SS_TYPECLASS_FCNPTR, -1 );
+			_ASSERT_R( Script->BCTypes[i].Def->Class, !=, SS_TYPECLASS_FCNPTR, -1 );
 			break;
 		}
 	}
@@ -1035,7 +1045,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			switch( caOpEncodingTypes[ot] )
 			{
 			case BC_OPENC_UNK:
-				_ASSERT(caOpEncodingTypes[ot], !=, BC_OPENC_UNK, NULL);
+				_ASSERT_R(caOpEncodingTypes[ot], !=, BC_OPENC_UNK, NULL);
 				break;
 			case BC_OPENC_NOOPRS:
 				op = malloc( sizeof(tBC_Op) );
@@ -1059,7 +1069,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 				 int	dreg = buf_get_index(Bi);
 				 int	sidx = buf_get_index(Bi);
 				size_t	slen = _get_str(State, NULL, sidx);
-				_ASSERT(slen, !=, -1, NULL);
+				_ASSERT_R(slen, !=, -1, NULL);
 				op = malloc(sizeof(tBC_Op) + slen + 1);
 				op->DstReg = dreg;
 				op->Content.String.Length = slen;
@@ -1079,13 +1089,13 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			case BC_OP_LOADNULLREF:
 			case BC_OP_CREATEARRAY:
 				t = op->Content.RegInt.RegInt2;
-				_ASSERT(t, <, State->NTypes, NULL);
+				_ASSERT_R(t, <, State->NTypes, NULL);
 				t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
 				op->Content.RegInt.RegInt2 = t;
 				break;
 			case BC_OP_CREATEOBJ:
 				t = op->Content.Function.ID;
-				_ASSERT(t, <, State->NTypes, NULL);
+				_ASSERT_R(t, <, State->NTypes, NULL);
 				op->Content.Function.ID = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
 				break;
 			}
