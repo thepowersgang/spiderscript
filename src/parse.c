@@ -1690,22 +1690,46 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 			return NULL;
 		}
 
-		if( level )
+		if( Mode != GETIDENTMODE_NEW )
 		{
-			SyntaxError(Parser, "Array definition unexpected");
-			return NULL;
-		}
+			// Function Call
+			DEBUGS2("Parse_GetIdent: Calling '%s'", name);
+			if( level )
+			{
+				SyntaxError(Parser, "Array definition unexpected");
+				return NULL;
+			}
 
-		DEBUGS2("Parse_GetIdent: Calling '%s'", name);
-		// Function Call
-		if( Mode == GETIDENTMODE_NEW )
-			ret = AST_NewCreateObject( Parser, name );
-		else
 			ret = AST_NewFunctionCall( Parser, name );
-		// Read arguments
-		ret = Parse_DoFunctionArgs(Parser, ret);
-		if(!ret)
-			return NULL;
+			// Read arguments
+			ret = Parse_DoFunctionArgs(Parser, ret);
+			if(!ret)
+				return NULL;
+		}
+		else if( level == 0 )
+		{
+			// New Object
+			DEBUGS2("Parse_GetIdent: Create '%s'", name);
+			ret = AST_NewCreateObject( Parser, name );
+			// Read arguments
+			ret = Parse_DoFunctionArgs(Parser, ret);
+			if(!ret)
+				return NULL;
+		}
+		else
+		{
+			// Reallocate array
+			const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
+			if( type == SS_ERRPTR ) {
+				SyntaxError(Parser, "Unknown type '%s'", name);
+				return NULL;
+			}
+			tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = level};
+			DEBUGS2("Parse_GetIdent: Create array '%s'", SpiderScript_GetTypeName(ref));
+			
+			ret = AST_NewCreateArray(Parser, ref, Parse_DoExpr0(Parser));
+			SyntaxAssert(Parser, GetToken(Parser), TOK_PAREN_CLOSE);
+		}
 	}
 	else
 	{
