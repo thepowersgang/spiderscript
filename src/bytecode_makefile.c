@@ -14,7 +14,7 @@
 #include <string.h>
 #include <assert.h>
 
-#define MAGIC_STR	"SSBC\r\n\xBC\x57"
+#define MAGIC_STR	"SSBC\r\n\xBC\x58"
 #define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
 
 #define DEBUG	0
@@ -131,6 +131,7 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	off_t	code_ofs = _get32(State);
 	size_t	code_len = _get32(State);
 	 int	ret_type = _get16(State);
+	uint8_t	flags    = _get8(State);
 	 int	n_args   = _get16(State);
 
 	TRACE("_get_fcn: Name [%i] 0x%lx+%li RV%i %i args",
@@ -169,6 +170,7 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	_get_str(State, ret->Name, namestr);
 	ret->ArgumentCount = n_args;
 	ret->ReturnType = _get_type(State, ret_type);
+	ret->IsVariable = (flags & 1);
 	ret->ASTFcn = NULL;
 	char *nameptr = ret->Name + _get_str(State, NULL, namestr) + 1;
 	for( int i = 0; i < n_args; i ++ )
@@ -257,12 +259,12 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	
 	
 	// Get counts
-	 int	n_class   = _get16(State);
-	 int	n_types   = _get16(State);
-	 int	n_globals = _get16(State);
-	 int	n_fcn     = _get16(State);
-	 int	n_str     = _get16(State);
-	off_t	ofs_str   = _get32(State);
+	const int	n_class   = _get16(State);
+	const int	n_types   = _get16(State);
+	const int	n_globals = _get16(State);
+	const int	n_fcn     = _get16(State);
+	const int	n_str     = _get16(State);
+	const off_t	ofs_str   = _get32(State);
 	// TODO: Validation	
 
 	TRACE("Header %ic %it %ig %if %is@%lx", n_class, n_types, n_globals, n_fcn, n_str, ofs_str);
@@ -341,19 +343,18 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 		switch(class)
 		{
 		case SS_TYPECLASS_CORE:
-			TRACE("Core type %i", idx);
+			TRACE("Type %i: Core %i", i, idx);
 			State->Types[i].Def = SpiderScript_GetCoreType(idx);
 			break;
 		case SS_TYPECLASS_SCLASS:
-			TRACE("Script class %i", idx);
+			TRACE("Type %i: SClass %i", i, idx);
 			_ASSERT_G(idx, <, n_class, _err);
 			State->Types[i].Def = &State->Classes[idx].Class->TypeInfo;
 			break;
 		case SS_TYPECLASS_NCLASS: {
-			TRACE("Native class [%i]", idx);
+			TRACE("Type %i: NClass %i", i, idx);
 			char str[_get_str(State, NULL, idx)];
 			_get_str(State, str, idx);
-			TRACE(" > '%s'", str);
 			State->Types[i].Def = SpiderScript_ResolveObject(Script, NULL, str);
 			break; }
 		case SS_TYPECLASS_FCNPTR:
@@ -372,10 +373,12 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	{
 		 int	nameid = _get16(State);
 		 int	typeid = _get16(State);
+		TRACE("Global %i,%i", nameid, typeid);
 
 		// TODO: Need to handle merging of compiled files?		
 
 		tSpiderTypeRef type = _get_type(State, typeid);
+		_ASSERT_G(type.Def,!=,NULL, _err);
 		 int	size = SS_ISTYPEREFERENCE(type) ? 0 : SpiderScript_int_GetTypeSize(type);
 		assert(size >= 0);
 		tScript_Var	*g = malloc( sizeof(tScript_Var) + _get_str(State, NULL, nameid)+1 + size );
@@ -532,6 +535,7 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 		
 		// Prototype
 		_put16( Bytecode_int_GetTypeIdx(Script, fcn->ReturnType) );
+		_put8(fcn->IsVariable ? 1 : 0);
 		_put16( fcn->ArgumentCount );
 		for( int i = 0; i < fcn->ArgumentCount; i ++ )
 		{
@@ -607,7 +611,11 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 		_put16( n_methods );	// Method count
 	}
 
+	for( tScript_Var *g = Script->FirstGlobal; g; g = g->Next )
+		Bytecode_int_GetTypeIdx(Script, g->Type);
+
 	// 2. Type table
+	const int type_count = Script->BCTypeCount;
 	for( int i = 0; i < Script->BCTypeCount; i ++ )
 	{
 		TRACE("Type %i: %s", i, SpiderScript_GetTypeName(Script, Script->BCTypes[i]));
@@ -716,13 +724,17 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 	}
 
 	// Fix header
-	fseek(fp, 8, SEEK_SET);
+	fseek(fp, MAGIC_STR_LEN, SEEK_SET);
 	_put16(class_count);
-	_put16(Script->BCTypeCount);
+	_put16(type_count);
 	_put16(num_globals);
 	_put16(fcn_count);
 	_put16(strings.Count);
 	_put32(strtab_ofs);
+	assert(type_count == Script->BCTypeCount);
+	
+	TRACE("Header %ic %it %ig %if %is@%x",
+		class_count, Script->BCTypeCount, num_globals, fcn_count, strings.Count, strtab_ofs);
 
 	return 0;
 }
@@ -1019,11 +1031,13 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 		case BC_OP_LOADINT:
 			op = malloc(sizeof(tBC_Op));
 			op->DstReg = buf_get_index(Bi);
+			_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 			op->Content.Integer = buf_get_signed(Bi);
 			break;
 		case BC_OP_LOADREAL:
 			op = malloc(sizeof(tBC_Op));
 			op->DstReg = buf_get_index(Bi);
+			_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 			op->Content.Real = buf_get_double(Bi);
 			break;
 		// Function calls are specail
@@ -1035,9 +1049,10 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			 int	argc = buf_get_index(Bi);
 			op = malloc( sizeof(tBC_Op) + (argc * sizeof(int)) );
 			op->DstReg = dstreg;
+			_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 			op->Content.Function.ID = fcnid;
 			op->Content.Function.ArgCount = argc;
-			for( int i = 0; i < argc; i ++ )
+			for( int i = 0; i < (argc&0xFF); i ++ )
 				op->Content.Function.ArgRegs[i] = buf_get_index(Bi);
 			} break;
 		// Everthing else just gets handled nicely
@@ -1053,15 +1068,18 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			case BC_OPENC_REG1:
 				op = malloc( sizeof(tBC_Op) );
 				op->DstReg = buf_get_index(Bi);
+				_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 				break;
 			case BC_OPENC_REG2:
 				op = malloc( sizeof(tBC_Op) );
 				op->DstReg = buf_get_index(Bi);
+				_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 				op->Content.RegInt.RegInt2 = buf_get_index(Bi);
 				break;
 			case BC_OPENC_REG3:
 				op = malloc( sizeof(tBC_Op) );
 				op->DstReg = buf_get_index(Bi);
+				_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 				op->Content.RegInt.RegInt2 = buf_get_index(Bi);
 				op->Content.RegInt.RegInt3 = buf_get_index(Bi);
 				break;
@@ -1072,6 +1090,7 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 				_ASSERT_R(slen, !=, -1, NULL);
 				op = malloc(sizeof(tBC_Op) + slen + 1);
 				op->DstReg = dreg;
+				_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 				op->Content.String.Length = slen;
 				_get_str(State, op->Content.String.Data, sidx);
 				} break;
@@ -1089,13 +1108,13 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			case BC_OP_LOADNULLREF:
 			case BC_OP_CREATEARRAY:
 				t = op->Content.RegInt.RegInt2;
-				_ASSERT_R(t, <, State->NTypes, NULL);
+				_ASSERT_G(t, <, State->NTypes, _err);
 				t = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
 				op->Content.RegInt.RegInt2 = t;
 				break;
 			case BC_OP_CREATEOBJ:
 				t = op->Content.Function.ID;
-				_ASSERT_R(t, <, State->NTypes, NULL);
+				_ASSERT_G(t, <, State->NTypes, _err);
 				op->Content.Function.ID = Bytecode_int_GetTypeIdx(State->Script, State->Types[t]);
 				break;
 			}
@@ -1127,5 +1146,10 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 	}
 
 	return ret;
+_err:
+	free(op);
+	// TODO: Free function ops
+	free(ret);
+	return NULL;
 }
 
