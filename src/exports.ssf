@@ -8,28 +8,38 @@
 #include <spiderscript.h>
 #include <ctype.h>	// isblank
 
-@FUNCTION Integer sizeof( * Value )
+@FUNCTION Integer len( * Value )
 @{
 	if( SS_GETARRAYDEPTH( @TYPEOF(Value) ) )
 	{
+		if( !Value )	@RETURN 0;
 		@RETURN @ARRAY(Value)->Length;
 	}
 
 	if( SS_ISTYPEOBJECT( @TYPEOF(Value) ) )
 	{
+		// TODO: Call an operator overload?
 		@RETURN 0;
 	}	
 
-	if( SS_ISCORETYPE(@TYPEOF(Value), SS_DATATYPE_INTEGER) )
+	if( SS_ISCORETYPE(@TYPEOF(Value), SS_DATATYPE_STRING) )
+	{
+		if( !Value )	@RETURN 0;
 		@RETURN @STRING(Value)->Length;
-	
+	}
+
+	// Actually an invalid operation	
 	@RETURN 0;
+@}
+
+@FUNCTION Integer sizeof( * Value )
+@{
+	return Exports_fcn_len(Script, RetData, NArgs, ArgTypes, Args);
 @}
 
 @FUNCTION void exit()
 @{
-	exit(0);
-//	return -1;	// TODO: Return RV_CLEANEXIT
+	return SpiderScript_ThrowException_ForceExit(Script, 0);
 @}
 
 @FUNCTION Boolean isnull( * Value )
@@ -123,6 +133,45 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	tSpiderArray *ret = SpiderScript_CreateArray(@TYPEOF(Haystack), nSubStrs);
 	memcpy(ret->Strings, strings, nSubStrs*sizeof(tSpiderString*));
 	free(strings);
+
+	@RETURN ret;
+@}
+
+@FUNCTION String Join(String[] Array, String Joiner)
+@{
+	if( !Array ) {
+		return SpiderScript_ThrowException_NullRef(Script, "Join - Input array NULL");
+	}
+	if( !Joiner ) {
+		return SpiderScript_ThrowException_NullRef(Script, "Join - Joiner NULL");
+	}
+	
+	if( Array->Length == 0 ) {
+		@RETURN SpiderScript_CreateString(0, "");
+	}
+
+	if( !Array->Strings[0] ) {
+		return SpiderScript_ThrowException_NullRef(Script, "Join - Array[0] NULL");
+	}
+	
+	size_t	len = Array->Strings[0]->Length;
+	for( unsigned int i = 1; i < Array->Length; i ++ )
+	{
+		if( !Array->Strings[i] )
+			return SpiderScript_ThrowException_NullRef(Script, "Join - Array[i]");
+		len += Joiner->Length + Array->Strings[i]->Length;
+	}
+	
+	tSpiderString	*ret = SpiderScript_CreateString(len, NULL);
+	size_t	ofs = Array->Strings[0]->Length;
+	memcpy(ret->Data, Array->Strings[0]->Data, Array->Strings[0]->Length);
+	for( unsigned int i = 1; i < Array->Length; i ++ )
+	{
+		memcpy(ret->Data + ofs, Joiner->Data, Joiner->Length);
+		ofs += Joiner->Length;
+		memcpy(ret->Data + ofs, Array->Strings[i]->Data, Array->Strings[i]->Length);
+		ofs += Array->Strings[i]->Length;
+	}
 
 	@RETURN ret;
 @}

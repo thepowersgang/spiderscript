@@ -411,7 +411,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int
 	{
 		rv = SpiderScript_int_ExecuteFunction(Script, id, &rettype,
 			&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
-		if(rv < 0)
+		if(rv < 0 && SpiderScript_GetException(Script,NULL)!=SS_EXCEPTION_FORCEEXIT)
 			SpiderScript_RuntimeError(Script, "Calling function %s failed",
 				SpiderScript_int_GetFunctionName(Script, id)
 				);
@@ -434,7 +434,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int
 		
 		rv = SpiderScript_int_ConstructObject(Script, rettype.Def, &ret.Object,
 			arg_count, arg_types, args, &op->CacheEnt);
-		if(rv < 0)
+		if(rv < 0 && SpiderScript_GetException(Script,NULL)!=SS_EXCEPTION_FORCEEXIT)
 			SpiderScript_RuntimeError(Script, "Creating object %s failed",
 				SpiderScript_GetTypeName(Script, rettype));
 	}
@@ -453,7 +453,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int
 			if( obj ) {
 				rv = SpiderScript_int_ExecuteMethod(Script, id, &rettype,
 					&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
-				if(rv < 0)
+				if(rv < 0 && SpiderScript_GetException(Script,NULL)!=SS_EXCEPTION_FORCEEXIT)
 					SpiderScript_RuntimeError(Script, "Calling method %s->%s failed",
 						SpiderScript_GetTypeName(Script, arg_types[0]),
 						SpiderScript_int_GetMethodName(Script, arg_types[0], id)
@@ -765,7 +765,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			{
 				tSpiderArray	*array = reg1->Array;
 				
-				DEBUG_F("SETINDEX %li = R%i", reg2->Integer, op->DstReg);
+				DEBUG_F("SETINDEX R%i [ R%i=%li ] = R%i ",
+					OP_REG2(op), OP_REG3(op),
+					reg2->Integer, op->DstReg);
 				PRINT_STACKVAL(*reg_dst);
 				DEBUG_F("\n");
 				type = Bytecode_int_GetSpiderValue(Script, reg_dst, &ptr);
@@ -814,7 +816,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 
 		case BC_OP_SETELEMENT:
 			STATE_HDR();
-			DEBUG_F("GETELEMENT R%i->#%i = R%i [", OP_REG2(op), OP_REG3(op), op->DstReg);
+			DEBUG_F("SETELEMENT R%i->#%i = R%i [", OP_REG2(op), OP_REG3(op), op->DstReg);
 			PRINT_STACKVAL(*reg_dst); DEBUG_F("]\n");
 			
 			// - Core types can't have elements
@@ -1212,12 +1214,14 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 					arg_count+extra_args, args, reg_dst);
 				if( rv ) {
 					bError = 1;
+					break;
 				}
 			}
 			else
 			{
-				if( Bytecode_int_CallExternFunction( Script, op,
-					arg_count+extra_args, args, reg_dst ) ) {
+				rv = Bytecode_int_CallExternFunction( Script, op,
+					arg_count+extra_args, args, reg_dst );
+				if( rv ) {
 					bError = 1;
 					break;
 				}

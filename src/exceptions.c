@@ -55,6 +55,11 @@ int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Locat
 	return SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, "%s", Location);
 }
 
+int SpiderScript_ThrowException_ForceExit(tSpiderScript *Script, int ExitCode)
+{
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_FORCEEXIT, "exit(%i)", ExitCode);
+}
+
 int SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message, ...)
 {
 	if( Script->CurException ) {

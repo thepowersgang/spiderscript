@@ -359,6 +359,7 @@ SS_EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script,
 enum eSpiderScript_Exceptions
 {
 	SS_EXCEPTION_NONE = 0,	// No exception
+	SS_EXCEPTION_FORCEEXIT,	// Forced exit (no error)
 	SS_EXCEPTION_GENERIC,	// Generic error
 	SS_EXCEPTION_BUG,	// Bug in the engine
 	SS_EXCEPTION_MEMORY,	// Out of memory
@@ -378,6 +379,7 @@ SS_EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
 
 
 SS_EXPORT extern int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Location);
+SS_EXPORT extern int SpiderScript_ThrowException_ForceExit(tSpiderScript *Script, int ExitCode);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName, int Exp, int Got);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCount(tSpiderScript *Script, const char *Name, int Exp, int Got);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *CName, const char *Name, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
