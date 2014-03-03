@@ -97,8 +97,9 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 	size = 0;
 	for( i = 0, at = Class->FirstProperty; at; at = at->Next, i ++ )
 	{
-		ret->Attributes[i] = (char*)(ret->Attributes + n_attr) + size;
-		size += SpiderScript_int_GetTypeSize(at->Type);
+		size_t	elesize = SpiderScript_int_GetTypeSize(at->Type);
+		ret->Attributes[i] = (elesize ? (char*)(ret->Attributes + n_attr) + size : NULL);
+		size += elesize;
 	}
 	
 	return ret;
@@ -292,6 +293,18 @@ void SpiderScript_DereferenceArray(const tSpiderArray *_Array)
 
 int SpiderScript_StringCompare(const tSpiderString *s1, const tSpiderString *s2)
 {
+	if( !s1 )
+	{
+		if( s2 )
+			return -1;
+		else
+			return 0;
+	}
+	else if( !s2 )
+	{
+		return 1;
+	}
+	
 	 int	cmp;
 	if( s1->Length > s2->Length )
 		cmp = memcmp(s1->Data, s2->Data, s2->Length);
