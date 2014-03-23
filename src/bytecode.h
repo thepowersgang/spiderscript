@@ -34,6 +34,10 @@ struct sBC_Op
 			size_t	Length;
 			char	Data[];
 		} String;
+		struct {
+			 int	RefCount;
+			char	Data[];
+		} *RefStr;
 	} Content;
 };
 

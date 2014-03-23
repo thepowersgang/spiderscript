@@ -30,6 +30,7 @@ static int dbg_indent = 0;
 #endif
 // ---
 
+#define MAX_BACKTRACE_SIZE	8
 #define CONSTRUCTOR_NAME	"__constructor"
 #define BC_NS_SEPARATOR	'@'
 
@@ -51,6 +52,8 @@ struct sSpiderScript
 	
 	 int	CurException;
 	char	*CurExceptionString;
+	 int	BacktraceSize;
+	tSpiderBacktrace	Backtrace[MAX_BACKTRACE_SIZE];;
 	
 	tScript_Var	*FirstGlobal;
 	tScript_Var	*LastGlobal;
@@ -152,7 +155,7 @@ extern const char	*SpiderScript_int_GetFunctionName(tSpiderScript *Script, int F
 extern const char	*SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef ObjType, int MethodID);
 
 extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
-
+extern void	SpiderScript_PushBacktrace(tSpiderScript *Script, const char *FcnName, size_t Ofs, const char *FileName, unsigned int Line);
 
 extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 extern int	SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size);

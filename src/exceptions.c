@@ -12,6 +12,7 @@
 #include "common.h"
 #include <stdlib.h>
 #include <stdarg.h>
+#include <assert.h>
 
 // === CODE ===
 int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName,
@@ -84,6 +85,27 @@ int SpiderScript_GetException(tSpiderScript *Script, const char **Message)
 	return Script->CurException;
 }
 
+const tSpiderBacktrace *SpiderScript_GetBacktrace(tSpiderScript *Script, int *Size)
+{
+	*Size = Script->BacktraceSize;
+	return Script->Backtrace;
+}
+
+void SpiderScript_PushBacktrace(tSpiderScript *Script,
+	const char *FcnName, size_t Ofs, const char *FileName, unsigned int Line)
+{
+	assert( Script->BacktraceSize >= 0 );
+	assert( Script->BacktraceSize <= MAX_BACKTRACE_SIZE );
+	if( Script->BacktraceSize != MAX_BACKTRACE_SIZE )
+	{
+		Script->Backtrace[Script->BacktraceSize].Function = FcnName;
+		Script->Backtrace[Script->BacktraceSize].Offset = Ofs;
+		Script->Backtrace[Script->BacktraceSize].File = FileName;
+		Script->Backtrace[Script->BacktraceSize].Line = Line;
+		Script->BacktraceSize ++;
+	}
+}
+
 void SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved)
 {
 	// TODO: Have this?
@@ -91,6 +113,7 @@ void SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf
 
 void SpiderScript_ClearException(tSpiderScript *Script)
 {
+	Script->BacktraceSize = 0;
 	Script->CurException = 0;
 	if( Script->CurExceptionString )
 		free( Script->CurExceptionString );

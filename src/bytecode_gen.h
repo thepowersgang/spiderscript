@@ -48,6 +48,7 @@ extern void	Bytecode_DeleteFunction(tBC_Function *Handle);
 
 extern void	Bytecode_AppendEnterContext(tBC_Function *Handle);
 extern void	Bytecode_AppendLeaveContext(tBC_Function *Handle);
+extern void	Bytecode_AppendPos(tBC_Function *Handle, const char *Filename, int Line);
 
 extern  int	Bytecode_AllocateLabel(tBC_Function *Handle);
 extern void	Bytecode_SetLabel(tBC_Function *Handle, int Label);

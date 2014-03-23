@@ -505,7 +505,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	const int	num_registers = Fcn->BCFcn->MaxRegisters;
 	tSpiderTypeRef	type;
 	void	*ptr;
-	 int	bError = 0;
+	 int	bError = 0, function_offset = 0;
+	const char	*last_file = NULL;
+	 int	last_line = 0;
 	 int	itype;
 	tBC_StackEnt	*reg_dst, *reg1, *reg2;
 
@@ -580,6 +582,12 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		case BC_OP_NOP:
 			STATE_HDR();
 			DEBUG_F("NOP\n");
+			break;
+		case BC_OP_NOTEPOSITION:
+			STATE_HDR();
+			DEBUG_F("NOTEPOSITION %s:%i\n", op->Content.RefStr->Data, op->DstReg);
+			last_file = op->Content.RefStr->Data;
+			last_line = op->DstReg;
 			break;
 		// Jumps
 		case BC_OP_JUMP:
@@ -1056,9 +1064,12 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		BINOPI(BC_OP_INT_MULTIPLY, *, TYPE_INTEGER, Integer)
 		BINOPHDR_TYPE(BC_OP_INT_DIVIDE, TYPE_INTEGER, TYPE_INTEGER)
 			if( reg2->Integer == 0 ) {
-				return SpiderScript_ThrowException(Script, SS_EXCEPTION_ARITH, "Divide by zero");
+				bError = 1;
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_ARITH, "Divide by zero");
 			}
-			reg_dst->Integer = reg1->Integer / reg2->Integer;
+			else {
+				reg_dst->Integer = reg1->Integer / reg2->Integer;
+			}
 			break;
 		BINOPI(BC_OP_INT_MODULO,   %, TYPE_INTEGER, Integer)
 
@@ -1268,6 +1279,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 		if( bError )
 			break ;
 		op = nextop;
+		function_offset ++;
 	}
 	
 	// Clean up
@@ -1276,6 +1288,14 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	for( int i = 0; i < num_registers; i ++ )
 	{
 		DEREF_STACKVAL( registers[i] );
+	}
+
+	if( bError ) {
+		SpiderScript_PushBacktrace(
+			Script,
+			Fcn->Name, function_offset,
+			last_file, last_line
+			);
 	}
 
 	DEBUG_F("--- Return %i\n", bError);

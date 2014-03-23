@@ -238,7 +238,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// Loop over all nodes, or until the return value is set
 		for(tAST_Node *node = Node->Block.FirstChild; node; node = node->NextSibling )
 		{
-			//Bytecode_AppendPos(Block->Func->Handle, node->File, node->Line);
+			Bytecode_AppendPos(Block->Func->Handle, node->File, node->Line);
 			ret = AST_ConvertNode(&blockInfo, node, 0);
 			if(ret) {
 				BC_Variable_Clear(&blockInfo);

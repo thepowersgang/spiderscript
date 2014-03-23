@@ -1,5 +1,7 @@
 /*
  * SpiderScript Library Header
+ *
+ * PUBLIC
  */
 #ifndef _SPIDERSCRIPT_H_
 #define _SPIDERSCRIPT_H_
@@ -32,6 +34,7 @@ enum eSpiderScript_InternalTypes
 typedef struct sSpiderScript	tSpiderScript;
 
 typedef struct sSpiderVariant	tSpiderVariant;
+typedef struct sSpiderBacktrace	tSpiderBacktrace;
 typedef struct sSpiderNamespace	tSpiderNamespace;
 typedef struct sSpiderFcnProto	tSpiderFcnProto;
 typedef struct sSpiderFunction	tSpiderFunction;
@@ -136,6 +139,14 @@ struct sSpiderVariant
 		const char *Name;
 		tSpiderTypeRef	Type;
 	}	Constants[];	//!< Number of constants
+};
+
+struct sSpiderBacktrace
+{
+	const char	*Function;
+	size_t	Offset;
+	const char	*File;
+	unsigned int	Line;
 };
 
 struct sSpiderString
@@ -374,6 +385,7 @@ enum eSpiderScript_Exceptions
 
 SS_EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message, ...);
 SS_EXPORT extern int	SpiderScript_GetException(tSpiderScript *Script, const char **Message);
+SS_EXPORT extern const tSpiderBacktrace	*SpiderScript_GetBacktrace(tSpiderScript *Script, int *Size);
 SS_EXPORT extern void	SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved);
 SS_EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
 

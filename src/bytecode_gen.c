@@ -30,6 +30,7 @@ const enum eOpEncodingType caOpEncodingTypes[] = {
 	[BC_OP_NOP] = BC_OPENC_NOOPRS,
 	[BC_OP_ENTERCONTEXT] = BC_OPENC_NOOPRS,
 	[BC_OP_LEAVECONTEXT] = BC_OPENC_NOOPRS,
+	[BC_OP_NOTEPOSITION] = BC_OPENC_UNK,
 
 	[BC_OP_TAGREGISTER] = BC_OPENC_STRING,
 	[BC_OP_IMPORTGLOBAL] = BC_OPENC_STRING,
@@ -448,6 +449,14 @@ void Bytecode_AppendEnterContext(tBC_Function *Handle)
 	DEF_BC_NONE(BC_OP_ENTERCONTEXT)
 void Bytecode_AppendLeaveContext(tBC_Function *Handle)
 	DEF_BC_NONE(BC_OP_LEAVECONTEXT)
+void Bytecode_AppendPos(tBC_Function *Handle, const char *Filename, int Line)
+{
+	tBC_Op *op = Bytecode_int_AllocateOp(BC_OP_NOTEPOSITION, 0);
+	op->DstReg = Line;
+	op->Content.RefStr = (void*)((int*)Filename-1);
+	op->Content.RefStr->RefCount ++;
+	Bytecode_int_AppendOp(Handle, op);
+}
 
 void Bytecode_AppendDefineVar(tBC_Function *Handle, int Reg, const char *Name, tSpiderTypeRef Type)
 {

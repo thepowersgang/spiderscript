@@ -886,6 +886,10 @@ int Bytecode_int_Serialize(const tBC_Function *Function, void *Output, int *Labe
 			for( int i = 0; i < (op->Content.Function.ArgCount&0xFF); i ++ )
 				_put_index(op->Content.Function.ArgRegs[i]);
 			break;
+		case BC_OP_NOTEPOSITION:
+			_put_index(op->DstReg);
+			_put_string(op->Content.RefStr->Data, strlen(op->Content.RefStr->Data));
+			break;
 		// Everthing else just gets handled nicely
 		default:
 			switch( caOpEncodingTypes[op->Operation] )
@@ -1039,6 +1043,11 @@ tBC_Function *Bytecode_DeserialiseFunction(const void *Data, size_t Length, t_lo
 			op->DstReg = buf_get_index(Bi);
 			_ASSERT_G(op->DstReg,<,ret->MaxRegisters,_err);
 			op->Content.Real = buf_get_double(Bi);
+			break;
+		case BC_OP_NOTEPOSITION:
+			op = malloc(sizeof(tBC_Op));
+			op->DstReg = buf_get_index(Bi);
+			op->Content.RefStr = NULL;
 			break;
 		// Function calls are specail
 		case BC_OP_CALLFUNCTION:
