@@ -10,13 +10,21 @@
 #include <stdbool.h>
 
 // ---
+#if DEBUG
+# define DEBUGS2_DOWN()	dbg_indent++
+# define DEBUGS2_UP()	dbg_indent--
+static int dbg_indent = 0;
+#else
+# define DEBUGS2_DOWN()	do{}while(0)
+# define DEBUGS2_UP()	do{}while(0)
+#endif
 #if DEBUG >= 2
-# define DEBUGS2(s, v...)	printf("%s: "s"\n", __func__, ## v)
+# define DEBUGS2(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
 #else
 # define DEBUGS2(...)	do{}while(0)
 #endif
 #if DEBUG >= 1
-# define DEBUGS1(s, v...)	printf("%s: "s"\n", __func__, ## v)
+# define DEBUGS1(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
 #else
 # define DEBUGS1(...)	do{}while(0)
 #endif

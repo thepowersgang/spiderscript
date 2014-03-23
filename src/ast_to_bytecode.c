@@ -222,6 +222,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		return 0;
 	}
 
+	DEBUGS2_DOWN();
 	DEBUGS1("Node->Type = %i", Node->Type);
 	switch(Node->Type)
 	{
@@ -237,6 +238,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// Loop over all nodes, or until the return value is set
 		for(tAST_Node *node = Node->Block.FirstChild; node; node = node->NextSibling )
 		{
+			//Bytecode_AppendPos(Block->Func->Handle, node->File, node->Line);
 			ret = AST_ConvertNode(&blockInfo, node, 0);
 			if(ret) {
 				BC_Variable_Clear(&blockInfo);
@@ -912,6 +914,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 
 		ret = BC_CastValue(Block, Node, Node->Cast.DataType, rreg, &vreg);
 		_ReleaseRegister(Block, rreg);
+		if(ret)	return ret;
 		SET_RESULT(vreg, 1);
 		break;
 
@@ -1275,6 +1278,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	Block->NullType = TYPE_VOID;
 
 	DEBUGS1("Left NT%i", Node->Type);
+	DEBUGS2_UP();
 	return 0;
 }
 

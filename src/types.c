@@ -93,11 +93,11 @@ int SpiderScript_FormatTypeStrV(tSpiderScript *Script, char *Data, int MaxLen, c
 			break;
 		case 's':	// String representation
 			adds(SpiderScript_GetTypeName(Script, Type));
-			if( SS_GETARRAYDEPTH(Type) ) {
-				addch('#');
-				assert( SS_GETARRAYDEPTH(Type) < 10 );
-				addch('0' + SS_GETARRAYDEPTH(Type));
-			}
+			//if( SS_GETARRAYDEPTH(Type) ) {
+			//	addch('#');
+			//	assert( SS_GETARRAYDEPTH(Type) < 10 );
+			//	addch('0' + SS_GETARRAYDEPTH(Type));
+			//}
 			break;
 		}
 	}

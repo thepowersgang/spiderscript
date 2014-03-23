@@ -508,8 +508,6 @@ tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_No
 {
 	if( !Left || !Right ) {
 		SyntaxError_(Parser, -__LINE__, "NULL passed to _NewBinOp");
-		AST_FreeNode(Left);
-		AST_FreeNode(Right);
 		return NULL;
 	}
 	return AST_NewBinOpN(Parser, Operation, Left, Right);
