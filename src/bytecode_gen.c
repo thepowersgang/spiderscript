@@ -143,6 +143,11 @@ void Bytecode_DeleteFunction(tBC_Function *Fcn)
 	for( op = Fcn->Operations; op; )
 	{
 		tBC_Op	*nextop = op->Next;
+		if(op->Operation == BC_OP_NOTEPOSITION) {
+			op->Content.RefStr->RefCount --;
+			if( op->Content.RefStr->RefCount == 0 )
+				free(op->Content.RefStr);
+		}
 		free(op);
 		op = nextop;
 	}
