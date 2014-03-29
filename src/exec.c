@@ -14,10 +14,6 @@
 
 // === IMPORTS ===
 
-// === PROTOTYPES ===
-void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
-void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
-
 // === CODE ===
 #define DO_CHECK()	do {\
 		 int	ofs = baseLen ? baseLen + 1 : 0; \
@@ -598,23 +594,38 @@ const char *SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef
 
 }
 
-void AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...)
+void AST_RuntimeMessageV(tSpiderScript *Script, tAST_Node *Node, const char *Type, const char *Format, va_list args)
 {
-	va_list	args;
+	size_t len = 0;
+	va_list largs;
+	va_copy(largs, args);
+	len += snprintf(NULL, 0, "%s:%i: %s: ", (Node?Node->File:"<none>"), (Node?Node->Line:0), Type);
+	len += vsnprintf(NULL, 0, Format, largs);
+	len += snprintf(NULL, 0, "\n");
+	va_end(largs);
 	
-	fprintf(stderr, "%s:%i: %s: ", (Node?Node->File:"<none>"), (Node?Node->Line:0), Type);
-	va_start(args, Format);
-	vfprintf(stderr, Format, args);
-	va_end(args);
-	fprintf(stderr, "\n");
+	char buf[len+1];
+	size_t ofs = 0;
+	ofs += snprintf(buf+ofs, len-ofs, "%s:%i: %s: ", (Node?Node->File:"<none>"), (Node?Node->Line:0), Type);
+	ofs += vsnprintf(buf+ofs, len-ofs, Format, args);
+	ofs += snprintf(buf+ofs, len-ofs, "\n");
+	
+	if( Script->Variant->HandleError )
+		Script->Variant->HandleError(Script, buf);
+	else
+		fprintf(stderr, "%s", buf);
 }
-void AST_RuntimeError(tAST_Node *Node, const char *Format, ...)
+void AST_RuntimeMessage(tSpiderScript *Script, tAST_Node *Node, const char *Type, const char *Format, ...)
 {
 	va_list	args;
-	
-	fprintf(stderr, "%s:%i: error: ", (Node?Node->File:"<none>"), (Node?Node->Line:0));
 	va_start(args, Format);
-	vfprintf(stderr, Format, args);
+	AST_RuntimeMessageV(Script, Node, Type, Format, args);
 	va_end(args);
-	fprintf(stderr, "\n");
+}
+void AST_RuntimeError(tSpiderScript *Script, tAST_Node *Node, const char *Format, ...)
+{
+	va_list	args;
+	va_start(args, Format);
+	AST_RuntimeMessageV(Script, Node, "error", Format, args);
+	va_end(args);
 }

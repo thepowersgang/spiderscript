@@ -95,9 +95,6 @@ const tVariable	*BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
 void	BC_Variable_Delete(tAST_BlockInfo *Block, tVariable *Var);
 void	BC_Variable_Clear(tAST_BlockInfo *Block);
  int	BC_BinOp(tAST_BlockInfo *Block, int Operation, tRegister RegOut, tRegister RegL, tRegister RegR);
-// - Errors
-void	AST_RuntimeMessage(tAST_Node *Node, const char *Type, const char *Format, ...);
-void	AST_RuntimeError(tAST_Node *Node, const char *Format, ...);
 // - Type stack
  int	_AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, tRegister *RegPtr);
  int	_ReferenceRegister(tAST_BlockInfo *Block, tRegister Reg);
@@ -156,7 +153,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	{
 		int rv = BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name, NULL);
 		if(rv) {
-			AST_RuntimeError(Fcn->ASTFcn, "Error in creating arguments");
+			AST_RuntimeError(Script, Fcn->ASTFcn, "Error in creating arguments");
 			BC_Variable_Clear(&bi);
 			Bytecode_DeleteFunction(ret);
 			return NULL;
@@ -167,7 +164,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 
 	if( AST_ConvertNode(&bi, Fcn->ASTFcn, 0) )
 	{
-		AST_RuntimeError(Fcn->ASTFcn, "Error in converting function");
+		AST_RuntimeError(Script, Fcn->ASTFcn, "Error in converting function");
 		BC_Variable_Clear(&bi);
 		Bytecode_DeleteFunction(ret);
 		return NULL;
@@ -187,7 +184,8 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 // Indepotent operation
 #define NO_RESULT() do { \
 	if(ResultRegister) { \
-		 AST_RuntimeMessage(Node, "Bytecode", "Getting result of void operation"); \
+		 AST_RuntimeMessage(Block->Func->Script, Node, \
+			"Bytecode", "Getting result of void operation"); \
 		return -1; \
 	} \
 } while(0)
@@ -196,10 +194,14 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 		*ResultRegister = reg; \
 	} \
 	else { \
-		if(b_warn)	AST_RuntimeMessage(Node, "Bytecode", "Result of operation unused"); \
+		if(b_warn) \
+			AST_RuntimeMessage(Block->Func->Script, Node, \
+				"Bytecode", "Result of operation unused"); \
 		_ReleaseRegister(Block, reg); \
 	}\
 } while(0)
+
+#define AST_NODEERROR(v...)	AST_RuntimeError(Block->Func->Script, Node, v)
 
 /**
  * \brief Convert a node into bytecode
@@ -277,7 +279,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			case NODETYPE_BITROTATELEFT:	op = BINOP_BITROTATELEFT;	break;
 
 			default:
-				AST_RuntimeError(Node, "Unknown operation in ASSIGN %i", Node->Assign.Operation);
+				AST_NODEERROR("Unknown operation in ASSIGN %i", Node->Assign.Operation);
 				break;
 			}
 			// TODO: Check if this operation is valid
@@ -378,7 +380,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		_GetRegisterInfo(Block, vreg, &type, NULL);
 		if( ResultRegister ) {
 			if( type.Def == NULL ) {
-				AST_RuntimeError(Node, "void value not ignored as it aught to be");
+				AST_NODEERROR("void value not ignored as it aught to be");
 				return -1;
 			}
 			*ResultRegister = vreg;
@@ -651,7 +653,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		else
 		{
 			// oops :)
-			AST_RuntimeError(Node, "foreach on unsupported type");
+			AST_NODEERROR("foreach on unsupported type");
 		}
 		
 		Block = parentBlock;
@@ -740,7 +742,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 			else {
 				if( default_index != -1 ) {
-					AST_RuntimeError(node, "Multiple 'default' labels in switch");
+					AST_RuntimeError(Block->Func->Script, node,
+						"Multiple 'default' labels in switch");
 					return -1;
 				}
 				default_index = i;
@@ -793,21 +796,21 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 		}
 		if( !bi ) {
-			AST_RuntimeError(Node, "Unable to find continue/break target '%s'",
+			AST_NODEERROR("Unable to find continue/break target '%s'",
 				Node->Variable.Name);
 			return 1;
 		}
 		
 		if( Node->Type == NODETYPE_BREAK ) {
 			if( bi->BreakTarget == 0 ) {
-				AST_RuntimeError(Node, "Break target invalid");
+				AST_NODEERROR("Break target invalid");
 				return 1;
 			}
 			Bytecode_AppendJump(Block->Func->Handle, bi->BreakTarget);
 		}
 		else {
 			if( bi->ContinueTarget == 0 ) {
-				AST_RuntimeError(Node, "Continue target invalid");
+				AST_NODEERROR("Continue target invalid");
 				return 1;
 			}
 			Bytecode_AppendJump(Block->Func->Handle, bi->ContinueTarget);
@@ -822,7 +825,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		{
 			// Automatic type
 			if( Node->DefVar.InitialValue == NULL ) {
-				AST_RuntimeError(Node, "Use of 'auto' without an initial value");
+				AST_NODEERROR("Use of 'auto' without an initial value");
 				return 1;
 			}
 			
@@ -948,7 +951,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		}
 		else
 		{
-			AST_RuntimeError(Node, "Type mismatch, Expected an array, got %i", ret);
+			AST_NODEERROR("Type mismatch, Expected an array, got %i", ret);
 			return -2;
 		}
 		SET_RESULT(rreg, 1);
@@ -957,13 +960,13 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	// TODO: Implement runtime constants
 	case NODETYPE_CONSTANT:
 		// TODO: Scan namespace for constant name
-		AST_RuntimeError(Node, "TODO - Runtime Constants");
+		AST_NODEERROR("TODO - Runtime Constants");
 		return -1;
 	
 	// Constant Values
 	case NODETYPE_NULL:
 		if( SS_TYPESEQUAL(Block->NullType, TYPE_VOID) ) {
-			AST_RuntimeError(Node, "null on non-reference");
+			AST_NODEERROR("null on non-reference");
 			return -2;
 		}
 		ret = _AllocateRegister(Block, Node, Block->NullType, NULL, &rreg);
@@ -1004,7 +1007,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		if(ret < 0)	return -1;
 		BC_SaveValue(Block, Node->UniOp.Value);
 		if( bKeepValue ) {
-			AST_RuntimeError(Node, "'delete' does not return any value");
+			AST_NODEERROR("'delete' does not return any value");
 			return -1;
 		}
 		#endif
@@ -1025,7 +1028,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		if(ret)	return ret;
 
 		if( SS_GETARRAYDEPTH(type) != 0) {
-			AST_RuntimeError(Node, "Unary operation on array is invalid");
+			AST_NODEERROR("Unary operation on array is invalid");
 			return -1;
 		}
 		else if( SS_ISTYPEOBJECT(type) ) {
@@ -1037,9 +1040,10 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			case UNIOP_BITNOT:	name = "operator ~";	break;
 			case UNIOP_NEG: 	name = "operator -";	break;
 			default:
-				AST_RuntimeError(Node, "BUG - UniOp %i unhandled on Object", op);
+				AST_NODEERROR("BUG - UniOp %i unhandled on Object", op);
 				return -1;
 			}
+			// TODO: Global scope overload on operators
 			// TODO: Somehow handle if the object doesn't expose an "operator !"
 			// and use the UniOp instead (for references)?
 			// - Nah, that leads to unpredictable behavior
@@ -1050,7 +1054,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		{
 			i = AST_ExecuteNode_UniOp_GetType(script, Node->Type, type.Def->Core);
 			if( i <= 0 ) {
-				AST_RuntimeError(Node, "Invalid unary operation #%i on %s", Node->Type,
+				AST_NODEERROR("Invalid unary operation #%i on %s", Node->Type,
 					SpiderScript_GetTypeName(script, type));
 				return -1;
 			}
@@ -1074,7 +1078,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		}
 		else
 		{
-			AST_RuntimeError(Node, "Unary boolean on invalid type %s",
+			AST_NODEERROR("Unary boolean on invalid type %s",
 				SpiderScript_GetTypeName(script, type));
 			return -1;
 		}
@@ -1108,7 +1112,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			;	// Strings - yup
 		else {
 			// Value type - nope.avi
-			AST_RuntimeError(Node, "Can't use reference comparisons on value types");
+			AST_NODEERROR("Can't use reference comparisons on value types");
 			return -1;
 		}
 
@@ -1161,7 +1165,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		if(ret)	return ret;
 		
 		if( SS_GETARRAYDEPTH(type) != 0 ) {
-			AST_RuntimeError(Node, "Binary operation on array is invalid");
+			AST_NODEERROR("Binary operation on array is invalid");
 			return -1;
 		}
 		else if( SS_ISTYPEOBJECT(type) ) {
@@ -1192,7 +1196,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			case NODETYPE_BITSHIFTRIGHT:	name_tpl = "operator >>"suf;	break;
 			case NODETYPE_BITROTATELEFT:	name_tpl = "operator <<<"suf;	break;
 			default:
-				AST_RuntimeError(Node, "BUG - Node %i unhandled in BinOp on Object", Node->Type);
+				AST_NODEERROR("BUG - Node %i unhandled in BinOp on Object", Node->Type);
 				return -1;
 			}
 			#undef suf
@@ -1239,7 +1243,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 					type = _GetCoreType(i);
 				}
 				else {
-					AST_RuntimeError(Node, "Cast required for %s #%i %s",
+					AST_NODEERROR("Cast required for %s #%i %s",
 						SpiderScript_GetTypeName(script, type),
 						op,
 						SpiderScript_GetTypeName(script, tgt_type)
@@ -1249,7 +1253,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 			else {
 				// Bad combo / no implicit
-				AST_RuntimeError(Node, "Invalid binary operation (%s #%i %s)",
+				AST_NODEERROR("Invalid binary operation (%s #%i %s)",
 					SpiderScript_GetTypeName(script, type),
 					op,
 					SpiderScript_GetTypeName(script, type2)
@@ -1262,7 +1266,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		}
 		else
 		{
-			AST_RuntimeError(Node, "Binary operation on invalid type");
+			AST_NODEERROR("Binary operation on invalid type");
 			return -1;
 		}
 		_ReleaseRegister(Block, reg1);
@@ -1271,7 +1275,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		break;
 	
 	default:
-		AST_RuntimeError(Node, "BUG - SpiderScript AST_ConvertNode Unimplemented %i", Node->Type);
+		AST_NODEERROR("BUG - SpiderScript AST_ConvertNode Unimplemented %i", Node->Type);
 		return -1;
 	}
 	
@@ -1296,7 +1300,7 @@ int BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInf
 {
 	BC_Variable_Clear(ChildBlock);
 	if(ChildBlock->OrigNumAllocatedRegs != ParentBlock->Func->NumAllocatedRegs) {
-		AST_RuntimeMessage(Node, "bug", "Leaked registers");
+		AST_RuntimeMessage(ParentBlock->Func->Script, Node, "bug", "Leaked registers");
 	}
 	// Clean up imported globals
 	assert(ParentBlock->Func->NumGlobals >= ChildBlock->OrigNumGlobals);
@@ -1316,7 +1320,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 	tSpiderScript_TypeDef *def = SpiderScript_ResolveObject(script, Namespaces, Name);
 	if( def == NULL )
 	{
-		AST_RuntimeError(Node, "Undefined reference to class %s", Name);
+		AST_NODEERROR("Undefined reference to class %s", Name);
 		return -1;
 	}
 	
@@ -1336,7 +1340,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 			// Argument count check
 			if( 1+NArgs < sf->ArgumentCount || (!sf->IsVariable && 1+NArgs != sf->ArgumentCount) )
 			{
-				AST_RuntimeError(Node, "Constructor for %s takes %i%s arguments, passed %i",
+				AST_NODEERROR( "Constructor for %s takes %i%s arguments, passed %i",
 					Name, sf->ArgumentCount, (sf->IsVariable ? "+" : ""),NArgs);
 				return -1;
 			}
@@ -1348,7 +1352,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 				if(ret)	return ret;
 				if( !SS_TYPESEQUAL(sf->Arguments[i+1].Type, type) ) {
 					// Sad to be chucked
-					AST_RuntimeError(Node, "Arg %i of %s constructor expected %s, given %s",
+					AST_NODEERROR( "Arg %i of %s constructor expected %s, given %s",
 						i, Name,
 						SpiderScript_GetTypeName(script, sf->Arguments[i+1].Type),
 						SpiderScript_GetTypeName(script, type)
@@ -1361,7 +1365,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		{
 			// No constructor, no arguments
 			if( NArgs != 0 ) {
-				AST_RuntimeError(Node,
+				AST_NODEERROR(
 					"Class %s has no constructor, no arguments allowed", Name);
 				return -1;
 			}
@@ -1385,7 +1389,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		}
 		// Argument count check
 		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
-			AST_RuntimeError(Node, "Constructor %s takes %i arguments, passed %i",
+			AST_NODEERROR( "Constructor %s takes %i arguments, passed %i",
 				Name, minArgc, NArgs);
 			return -1;
 		}
@@ -1396,7 +1400,7 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 			if(ret) return ret;
 			if( !SS_TYPESEQUAL(nf->Prototype->Args[i], type) ) {
 				// Sad to be chucked
-				AST_RuntimeError(Node, "Argument %i of constructor %s should be %s, given %s",
+				AST_NODEERROR( "Argument %i of constructor %s should be %s, given %s",
 					i, Name,
 					SpiderScript_GetTypeName(script, nf->Prototype->Args[i]),
 					SpiderScript_GetTypeName(script, type)
@@ -1446,7 +1450,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	if( Namespaces == NULL )
 	{
 		if( NArgs < 1 ) {
-			AST_RuntimeError(Node, "BUG - BC_CallFunction(Namespaces == NULL, NArgs < 1)");
+			AST_NODEERROR( "BUG - BC_CallFunction(Namespaces == NULL, NArgs < 1)");
 			return -1;
 		}		
 
@@ -1455,11 +1459,11 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 		ret = _GetRegisterInfo(Block, ArgRegs[0], &thistype, NULL);
 		if(ret)	return ret;
 		if( thistype.ArrayDepth ) {
-			AST_RuntimeError(Node, "Method call on array");
+			AST_NODEERROR("Method call on array");
 			return -1;
 		}
 		if( thistype.Def == NULL ) {
-			AST_RuntimeError(Node, "Method call on NULL");
+			AST_NODEERROR("Method call on NULL");
 			return -1;
 		}
 		if( thistype.Def->Class == SS_TYPECLASS_NCLASS )
@@ -1472,7 +1476,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 				}
 			}
 			if( !nf ) {
-				AST_RuntimeError(Node, "Class %s does not have a method '%s'", nc->Name, Name);
+				AST_NODEERROR("Class %s does not have a method '%s'", nc->Name, Name);
 				return -1;
 			}
 		}
@@ -1487,13 +1491,13 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 				}
 			}
 			if( !sf ) {
-				AST_RuntimeError(Node, "Class %s does not have a method '%s'", sc->Name, Name);
+				AST_NODEERROR("Class %s does not have a method '%s'", sc->Name, Name);
 				return -1;
 			}
 		}
 		else
 		{
-			AST_RuntimeError(Node, "Method call on non-object (%s)",
+			AST_NODEERROR("Method call on non-object (%s)",
 				SpiderScript_GetTypeName(Block->Func->Script, thistype));
 			return -1;
 		}
@@ -1504,7 +1508,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 		void *ident;
 		id = SpiderScript_ResolveFunction(Block->Func->Script, Namespaces, Name, &ident);
 		if( id == -1 ) {
-			AST_RuntimeError(Node, "Undefined reference to %s", Name);
+			AST_NODEERROR("Undefined reference to %s", Name);
 			return -1;
 		}
 		
@@ -1520,7 +1524,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 		// Argument count check
 		if( NArgs < sf->ArgumentCount || (!sf->IsVariable && NArgs != sf->ArgumentCount) )
 		{
-			AST_RuntimeError(Node, "%s takes %i%s arguments, passed %i",
+			AST_NODEERROR("%s takes %i%s arguments, passed %i",
 				Name, sf->ArgumentCount, (sf->IsVariable ? "+" : ""),
 				NArgs);
 			return -1;
@@ -1533,7 +1537,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 			if(ret)	return ret;
 			if( !SS_TYPESEQUAL(sf->Arguments[i].Type, type) ) {
 				// Sad to be chucked
-				AST_RuntimeError(Node, "Argument %i of %s should be %s, given %s",
+				AST_NODEERROR("Argument %i of %s should be %s, given %s",
 					i, Name,
 					SpiderScript_GetTypeName(Block->Func->Script, sf->Arguments[i].Type),
 					SpiderScript_GetTypeName(Block->Func->Script, type)
@@ -1556,7 +1560,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 
 		// Check argument count
 		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
-			AST_RuntimeError(Node, "%s takes %i%s arguments, passed %i",
+			AST_NODEERROR("%s takes %i%s arguments, passed %i",
 				Name, minArgc, (bVariable?"+":""), NArgs);
 			return -1;
 		}
@@ -1574,7 +1578,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 			if(ret) return ret;
 			
 			if( !SS_TYPESEQUAL(argtype, type) ) {
-				AST_RuntimeError(Node, "Argument %i of %s should be %s, given %s",
+				AST_NODEERROR("Argument %i of %s should be %s, given %s",
 					i, Name,
 					SpiderScript_GetTypeName(Block->Func->Script, argtype),
 					SpiderScript_GetTypeName(Block->Func->Script, type)
@@ -1587,7 +1591,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	}
 	else
 	{
-		AST_RuntimeError(Node, "Can't find '%s'", Name);
+		AST_NODEERROR("Can't find '%s'", Name);
 		return -1;
 	}
 
@@ -1649,7 +1653,7 @@ int BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Obj
 {
 	if(!ObjType.Def)
 	{
-		AST_RuntimeError(Node, "BUG Accessing element of void");
+		AST_NODEERROR("BUG Accessing element of void");
 		return -2;
 	}
 	else if(ObjType.Def->Class == SS_TYPECLASS_NCLASS)
@@ -1662,7 +1666,7 @@ int BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Obj
 				return i;
 			}
 		}
-		AST_RuntimeError(Node, "Class %s does not have an attribute %s", nc->Name, Name);
+		AST_NODEERROR("Class %s does not have an attribute %s", nc->Name, Name);
 		return -2;
 	}
 	else if(ObjType.Def->Class == SS_TYPECLASS_SCLASS)
@@ -1675,11 +1679,11 @@ int BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Obj
 				return i;
 			}
 		}
-		AST_RuntimeError(Node, "Class %s does not have an attribute %s", sc->Name, Name);
+		AST_NODEERROR("Class %s does not have an attribute %s", sc->Name, Name);
 		return -2;
 	}
 	else {
-		AST_RuntimeError(Node, "Setting element of non-class type %s",
+		AST_NODEERROR("Setting element of non-class type %s",
 			SpiderScript_GetTypeName(Block->Func->Script, ObjType) );
 		return -2;
 	}
@@ -1709,7 +1713,8 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister ValReg)
 		if(ret)	return ret;
 		
 		if(SS_GETARRAYDEPTH(type) == 0) {
-			AST_RuntimeError(DestNode, "Type mismatch, Expected an array, got %s",
+			AST_RuntimeError(Block->Func->Script, DestNode,
+				"Type mismatch, Expected an array, got %s",
 				SpiderScript_GetTypeName(Block->Func->Script, type));
 			return -2;
 		}
@@ -1750,7 +1755,7 @@ int BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister ValReg)
 		break; }
 	// Anything else
 	default:
-		AST_RuntimeError(DestNode, "Assignment target is not a LValue");
+		AST_RuntimeError(Block->Func->Script, DestNode, "Assignment target is not a LValue");
 		return -1;
 	}
 	return 0;
@@ -1765,7 +1770,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 	if(ret)	return ret;
 
 	if( SS_GETARRAYDEPTH(SourceType) && !SS_ISCORETYPE(DestType, SS_DATATYPE_BOOLEAN) ) {
-		AST_RuntimeError(Node, "Invalid cast from array (0x%x)", SourceType);
+		AST_NODEERROR("Invalid cast from array (0x%x)", SourceType);
 		return 1;
 	}
 	// Objects cast using methods
@@ -1778,7 +1783,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 	}
 	// Can't cast to (Array), (void), or non-core
 	else if( DestType.ArrayDepth || !DestType.Def || DestType.Def->Class != SS_TYPECLASS_CORE ) {
-		AST_RuntimeError(Node, "Invalid cast from %s to %s",
+		AST_NODEERROR("Invalid cast from %s to %s",
 			SpiderScript_GetTypeName(script, SourceType),
 			SpiderScript_GetTypeName(script, DestType)
 			);
@@ -1812,7 +1817,7 @@ int BC_CastValue(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef DestType
 	tSpiderTypeRef	type;
 	ret = _GetRegisterInfo(Block, *DstReg, &type, NULL);
 	if( !SS_TYPESEQUAL(type, DestType) ) {
-		AST_RuntimeError(Node, "BUG - Cast from %s to %s does not returns %s",
+		AST_NODEERROR("BUG - Cast from %s to %s does not returns %s",
 			SpiderScript_GetTypeName(script, SourceType),
 			SpiderScript_GetTypeName(script, DestType),
 			SpiderScript_GetTypeName(script, type)
@@ -1871,7 +1876,7 @@ const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
 	//}
 	if( Node && Node->Type != NODETYPE_DEFGLOBAL && Node->Type != NODETYPE_DEFVAR )
 	{
-		AST_RuntimeError(Node, "Variable '%s' is undefined", Name);
+		AST_NODEERROR("Variable '%s' is undefined", Name);
 	}
 	return NULL;
 }
@@ -1886,12 +1891,12 @@ const tVariable *BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
 int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, const char *Name, const tVariable **VarPtr)
 {
 	if( BC_Variable_LookupGlobal(Block, Node, Name, NULL) ) {
-		AST_RuntimeError(Node, "Definition of '%s' collides with imported global", Name);
+		AST_NODEERROR("Definition of '%s' collides with imported global", Name);
 		return -1;
 	}
 
 	if( BC_Variable_Lookup(Block, NULL, Name, TYPE_VOID) ) {
-		AST_RuntimeError(Node, "Redefinition of variable '%s'", Name);
+		AST_NODEERROR("Redefinition of variable '%s'", Name);
 		return -1;
 	}
 
@@ -1925,19 +1930,22 @@ int BC_Variable_Define(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Ty
 int BC_Variable_DefImportGlobal(tAST_BlockInfo *Block, tAST_Node *DefNode, tSpiderTypeRef Type, const char *Name)
 {
 	if( BC_Variable_Lookup(Block, DefNode, Name, TYPE_VOID) ) {
-		AST_RuntimeError(DefNode, "Global '%s' collides with exising name", Name);
+		AST_RuntimeError(Block->Func->Script, DefNode,
+			"Global '%s' collides with exising name", Name);
 		return -1;
 	}
 	
 	if( BC_Variable_LookupGlobal(Block, DefNode, Name, NULL) ) {
-		AST_RuntimeError(DefNode, "Global %s is already imported", Name);
+		AST_RuntimeError(Block->Func->Script, DefNode,
+			"Global %s is already imported", Name);
 		return -1;
 	}
 
 	// Globals cannot be de-scoped except by a block closing
 	// - This allows a simple allocation scheme (and simplifies cleanup)
 	if( Block->Func->NumGlobals == MAX_GLOBALS ) {
-		AST_RuntimeError(DefNode, "Too many globals in function, %i max", MAX_GLOBALS);
+		AST_RuntimeError(Block->Func->Script, DefNode,
+			"Too many globals in function, %i max", MAX_GLOBALS);
 		return -1;
 	}
 	int slot = Block->Func->NumGlobals;
@@ -2107,7 +2115,7 @@ int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Typ
 			return 0;
 		}
 	}
-	AST_RuntimeError(Node, "Out of avaliable registers");
+	AST_NODEERROR("Out of avaliable registers");
 	return 1;
 }
 int _ReferenceRegister(tAST_BlockInfo *Block, tRegister Register)
@@ -2136,7 +2144,7 @@ int _AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, int Register, tSpider
 	struct sRegInfo	*ri = &Block->Func->Registers[Register];
 	assert(ri->RefCount);
 	if( !SS_TYPESEQUAL(ri->Type, Type) ) {
-		AST_RuntimeError(Node, "Type mismatch, expected %s got %s",
+		AST_NODEERROR("Type mismatch, expected %s got %s",
 			SpiderScript_GetTypeName(Block->Func->Script, Type),
 			SpiderScript_GetTypeName(Block->Func->Script, ri->Type)
 			);

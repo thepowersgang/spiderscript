@@ -379,6 +379,67 @@ tSpiderBool SpiderScript_CastValueToBool(tSpiderTypeRef Type, const void *Source
 	}
 }
 
+tSpiderInteger spiderstring_to_int(const tSpiderString *String)
+{
+#if 0
+	const char *ptr = String->Data;
+	const char *end = ptr + String->Length;
+	tSpiderInteger	ret = 0;
+	
+	if( end == ptr )
+		return 0;
+	
+	if( *ptr == '0' && ptr+1 < end )
+	{
+		// Octal/binary/hex
+		ptr ++;
+		if( *ptr == 'x' ) {
+			// Hex
+			ptr ++;
+			if( ptr == end )
+				goto _err;
+		}
+		else if( *ptr == 'b' ) {
+			// Binary
+			ptr ++;
+			if( ptr == end )
+				goto _err;
+			
+			while( ptr < end ) {
+				if( !('0' <= *ptr && 
+			}
+		}
+		else {
+			// Octal
+			while( ptr < end ) {
+				if( !('0' <= *ptr && *ptr <= '7') )
+					goto _err;
+				ret *= 8;
+				ret += *ptr - '0';
+				ptr ++;
+			}
+		}
+	}
+	else {
+		// Decimal
+		while( ptr < end )
+		{
+			if( !isdigit(*ptr) )
+				goto _err;
+			ret *= 10;
+			ret += *ptr - '0';
+			ptr ++;
+			rem --;
+		}
+	}
+	return ret;
+_err:
+	return 0;
+#else
+	tSpiderInteger ret = strtoll(String->Data, NULL, 0);
+	return ret;
+#endif
+}
 /**
  * \brief Cast one object to another
  * \brief Type	Destination type
@@ -405,7 +466,7 @@ tSpiderInteger SpiderScript_CastValueToInteger(tSpiderTypeRef Type, const void *
 	case SS_DATATYPE_REAL:
 		return *(const tSpiderReal*)Source;
 	case SS_DATATYPE_STRING:
-		return strtoll( ((const tSpiderString*)Source)->Data, NULL, 0);
+		return spiderstring_to_int( (const tSpiderString*)Source );
 	default:
 		return 0;
 	}
@@ -440,15 +501,15 @@ tSpiderReal SpiderScript_CastValueToReal(tSpiderTypeRef Type, const void *Source
 
 tSpiderString *SpiderScript_CreateString_Fmt(const char *Format, ...)
 {
-	tSpiderString	*ret;
-	 int	len;
+	size_t	len;
 	va_list	args;
 	
 	va_start(args, Format);
 	len = vsnprintf(NULL, 0, Format, args);
 	va_end(args);
 	
-	ret = SpiderScript_CreateString(len+1, NULL);	// Does memset, but meh
+	tSpiderString	*ret = malloc( sizeof(tSpiderString) + len + 1 );
+	ret->RefCount = 1;
 	ret->Length = len;
 	
 	va_start(args, Format);

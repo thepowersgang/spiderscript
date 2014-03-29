@@ -77,9 +77,7 @@ int Bytecode_int_IsStackEntTrue(tSpiderScript *Script, tBC_StackEnt *Ent)
 		case SS_DATATYPE_REAL:
 			return !(-.5f < Ent->Real && Ent->Real < 0.5f);
 		case SS_DATATYPE_STRING:
-			return SpiderScript_CastValueToBool(
-				(tSpiderTypeRef){&gSpiderScript_IntegerType,0}, Ent->String
-				);
+			return SpiderScript_CastValueToBool(TYPE_STRING, Ent->String);
 		default:
 			break;
 		}
@@ -712,7 +710,8 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				SpiderScript_RuntimeError(Script, "Global slot %i empty", slot);
 				bError = 1; break;
 			}
-			DEBUG_F("GETGLOBAL R%i = #%i %s [", op->DstReg, slot, globals[slot]->Name);
+			DEBUG_F("GETGLOBAL R%i = #%i %s [%p=", op->DstReg, slot, globals[slot]->Name,
+				globals[slot]->Ptr);
 			
 			PRESET_DEREF(*reg_dst);
 			Bytecode_int_SetFromSpiderValue(Script, reg_dst, globals[slot]->Type, globals[slot]->Ptr);
@@ -723,7 +722,6 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			 int	slot = OP_REG2(op);
 			STATE_HDR();
 			
-			DEBUG_F("SETGLOBAL %i = R%i ", slot, op->DstReg); PRINT_STACKVAL(*reg_dst); DEBUG_F("\n");
 			if( slot >= imp_global_count ) {
 				SpiderScript_RuntimeError(Script, "Loading from invalid slot %i (%i max) - %s",
 					slot, imp_global_count, Fcn->Name);
@@ -733,6 +731,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				SpiderScript_RuntimeError(Script, "Global slot %i empty", slot);
 				bError = 1; break;
 			}
+			DEBUG_F("SETGLOBAL #%i %s = R%i ", slot, globals[slot]->Name, op->DstReg);
+			PRINT_STACKVAL(*reg_dst);
+			DEBUG_F("\n");
 		
 			if( !SS_TYPESEQUAL(reg_dst->Type, globals[slot]->Type) ) {
 				SpiderScript_RuntimeError(Script,
@@ -747,7 +748,24 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			// Deref existing
 			Bytecode_int_DereferenceValue(globals[slot]->Type, globals[slot]->Ptr);
 			Bytecode_int_RefStackValue(Script, reg_dst);
-			Bytecode_int_GetSpiderValue(Script, reg_dst, &globals[slot]->Ptr);
+			if( SS_ISTYPEREFERENCE(globals[slot]->Type) )
+				globals[slot]->Ptr = reg_dst->String;
+			else {
+				void *ptr = globals[slot]->Ptr;
+				switch(globals[slot]->Type.Def->Core)
+				{
+				case SS_DATATYPE_REAL:    *(tSpiderReal*)ptr    = reg_dst->Real;	break;
+				case SS_DATATYPE_INTEGER: *(tSpiderInteger*)ptr = reg_dst->Integer;	break;
+				case SS_DATATYPE_BOOLEAN: *(tSpiderBool*)ptr    = reg_dst->Integer;	break;
+				default:
+					SpiderScript_RuntimeError(Script,
+						"Saving to global, unhandled type %s",
+						SpiderScript_GetTypeName(Script, globals[slot]->Type)
+						);
+					bError = 1;
+					break;
+				}
+			}
 			} break;
 
 		// Array index (get or set)

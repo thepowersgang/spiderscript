@@ -275,4 +275,8 @@ extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest,
 extern tSpiderTypeRef	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest,
 	tSpiderObject *Object, int ElementIndex, tSpiderTypeRef NewType, void *NewValue);
 
+// exec.c
+extern void	AST_RuntimeMessage(tSpiderScript *Script, tAST_Node *Node, const char *Type, const char *Format, ...);
+extern void	AST_RuntimeError(tSpiderScript *Script, tAST_Node *Node, const char *Format, ...);
+
 #endif
