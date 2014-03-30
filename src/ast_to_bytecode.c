@@ -802,14 +802,14 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		}
 		
 		if( Node->Type == NODETYPE_BREAK ) {
-			if( bi->BreakTarget == 0 ) {
+			if( bi->BreakTarget == -1 ) {
 				AST_NODEERROR("Break target invalid");
 				return 1;
 			}
 			Bytecode_AppendJump(Block->Func->Handle, bi->BreakTarget);
 		}
 		else {
-			if( bi->ContinueTarget == 0 ) {
+			if( bi->ContinueTarget == -1 ) {
 				AST_NODEERROR("Continue target invalid");
 				return 1;
 			}
@@ -1289,6 +1289,9 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 int BC_PrepareBlock(tAST_BlockInfo *Block, tAST_BlockInfo *ChildBlock)
 {
 	Bytecode_AppendEnterContext(Block->Func->Handle);	// Create a new block
+	ChildBlock->ContinueTarget = -1;
+	ChildBlock->BreakTarget = -1;
+	ChildBlock->Tag = NULL;
 	ChildBlock->Parent = Block;
 	ChildBlock->Func = Block->Func;
 	ChildBlock->OrigNumGlobals = Block->Func->NumGlobals;
