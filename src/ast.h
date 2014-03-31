@@ -81,18 +81,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
-	// 42
+	// 43
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
-	// 46
+	// 47
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
-	// 49
+	// 50
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract
@@ -213,6 +213,7 @@ extern size_t	AST_WriteScript(void *Buffer, tSpiderScript *Script);
 extern size_t	AST_WriteNode(void *Buffer, size_t Offset, tAST_Node *Node);
 
 extern tScript_Class	*AST_AppendClass(tParser *Parser, const char *Name);
+extern bool	AST_IsClassFinal(tScript_Class *Class);
 extern int	AST_FinaliseClass(tParser *Parser, tScript_Class *Class);
 extern int	AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type);
 extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable);

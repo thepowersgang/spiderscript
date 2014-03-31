@@ -281,17 +281,31 @@ int Parse_NamespaceContent(tParser *Parser)
 
 int Parse_ClassDefinition(tParser *Parser)
 {
-	char *name;
-	tScript_Class	*class;
-	
 	// Get name of the class and create the definition
 	SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT);
-	name = strndup( Parser->Cur.TokenStr, Parser->Cur.TokenLen );
-	class = AST_AppendClass(Parser, name);
+	char *name = strndup( Parser->Cur.TokenStr, Parser->Cur.TokenLen );
+	tScript_Class *class = AST_AppendClass(Parser, name);
+
+	if( GetToken(Parser) == TOK_SEMICOLON )
+	{
+		// Forward definition
+		DEBUGS1("DefCLASS %s Forward", name);
+		free(name);
+		return 0;
+	}
+
+	DEBUGS1("DefCLASS %s Full", name);
 	free(name);
 	
-	if( SyntaxAssert(Parser, GetToken(Parser), TOK_BRACE_OPEN) ) {
+	if( SyntaxAssert(Parser, Parser->Cur.Token, TOK_BRACE_OPEN) )
+	{
 		// No need to free the class, as it's in-tree now
+		return -1;
+	}
+
+	if( class == NULL || AST_IsClassFinal(class) )
+	{
+		SyntaxError(Parser, "Redefinition of class '%s'", class->Name);
 		return -1;
 	}
 
@@ -411,6 +425,7 @@ _return:
  */
 tAST_Node *Parse_DoCodeBlock(tParser *Parser, tAST_Node *CodeNode)
 {
+	DEBUGS2("DoCodeBlock");
 	tAST_Node	*ret;
 	
 	// Check if we are being called for a one-liner
@@ -775,7 +790,13 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			    && LookAhead(Parser) != TOK_RWD_DEFAULT
 				)
 			{
-				AST_AppendNode(code, Parse_DoBlockLine(Parser, code));
+				tAST_Node *node = Parse_DoBlockLine(Parser, code);
+				if(!node) {
+					AST_FreeNode(code);
+					AST_FreeNode(caseval);
+					goto _switch_err_ret;
+				}
+				AST_AppendNode(code, node);
 			}
 			AST_AppendNode(ret, AST_NewBinOpN(Parser, NODETYPE_CASE, caseval, code));
 		}
@@ -1503,7 +1524,7 @@ tAST_Node *Parse_DoFunctionArgs(tParser *Parser, tAST_Node *FcnNode)
 			}
 			DEBUGS2("--");
 			AST_AppendFunctionCallArg( FcnNode, arg );
-		} while(GetToken(Parser) == TOK_COMMA);
+		} while(GetToken(Parser) == TOK_COMMA && Parser->Cur.Token != TOK_INVAL);
 		
 		if( SyntaxAssert( Parser, Parser->Cur.Token, TOK_PAREN_CLOSE ) ) {
 			AST_FreeNode(FcnNode);

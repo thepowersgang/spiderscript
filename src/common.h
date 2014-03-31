@@ -11,8 +11,8 @@
 
 // ---
 #if DEBUG
-# define DEBUGS2_DOWN()	dbg_indent++
-# define DEBUGS2_UP()	dbg_indent--
+# define DEBUGS2_DOWN()	dbg_indent++; printf("%*s%s\n", dbg_indent, ">", __func__)
+# define DEBUGS2_UP()	printf("%*s%s\n", dbg_indent, "<", __func__); dbg_indent--
 static int dbg_indent = 0;
 #else
 # define DEBUGS2_DOWN()	do{}while(0)

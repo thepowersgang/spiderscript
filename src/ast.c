@@ -15,16 +15,18 @@ extern void	SyntaxError_(tParser *Parser, int Line, const char *Message, ...);
 // === CODE ===
 tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 {
-	tScript_Class	*ret;
-
 	// TODO: Prepend namespace?
 
 	// Check if there is already a class/type of this name
-	if( SpiderScript_GetType(Parser->Script, Name) != SS_ERRPTR ) {
+	const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, Name);
+	if( type != SS_ERRPTR )
+	{
+		if( type && type->Class == SS_TYPECLASS_SCLASS )
+			return type->SClass;
 		return NULL;
 	}
 	
-	ret = malloc( sizeof(tScript_Class) + strlen(Name) + 1 );
+	tScript_Class	*ret = malloc( sizeof(tScript_Class) + strlen(Name) + 1 );
 	if( !ret )	return NULL;	
 
 	ret->Next = NULL;
@@ -32,6 +34,8 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 	ret->FirstProperty = NULL;
 	ret->nProperties = 0;
 	ret->nFunctions = 0;
+	ret->Functions = NULL;
+	ret->Properties = NULL;
 	strcpy(ret->Name, Name);
 
 	ret->TypeInfo.Class = SS_TYPECLASS_SCLASS;
@@ -44,6 +48,11 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 	Parser->Script->LastClass = ret;
 	
 	return ret;
+}
+
+bool AST_IsClassFinal(tScript_Class *Class)
+{
+	return (Class->Functions != NULL);
 }
 
 int AST_FinaliseClass(tParser *Parser, tScript_Class *Class)
@@ -435,6 +444,8 @@ tAST_Node *AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bP
 
 tAST_Node *AST_NewIterator(tParser *Parser, const char *Tag, tAST_Node *Value, const char *ItName, const char *ValName, tAST_Node *Code)
 {
+	if( !Value )
+		return NULL;
 	tAST_Node	*ret;
 	if(!Tag)	Tag = "";
 	size_t	strlens = strlen(Tag) + 1 + strlen(ValName) + 1 + (ItName ? strlen(ItName)+1 : 0);
@@ -507,6 +518,8 @@ tAST_Node *AST_NewBinOpN(tParser *Parser, int Operation, tAST_Node *Left, tAST_N
 tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right)
 {
 	if( !Left || !Right ) {
+		AST_FreeNode(Left);
+		AST_FreeNode(Right);
 		SyntaxError_(Parser, -__LINE__, "NULL passed to _NewBinOp");
 		return NULL;
 	}

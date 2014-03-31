@@ -68,6 +68,10 @@ const struct {
 int GetToken(tParser *File)
 {
 	 int	ret;
+
+	if( File->ErrorHit ) {
+		return TOK_INVAL;
+	}
 	
 	if( File->NextState.Token != TOK_INVAL ) {
 		// Save Last
@@ -420,8 +424,8 @@ int GetToken(tParser *File)
 		}
 		// Syntax Error
 		ret = TOK_INVAL;
+		File->ErrorHit = 1;
 		SyntaxError_(File, -1, "Unknown symbol '%c'", *File->CurPos);
-		
 		break;
 	}
 	// Return
