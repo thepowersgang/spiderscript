@@ -104,6 +104,8 @@ int Parse_IncludeFile(tParser *Parser, const char *NewFile, int NewFileLen, tAST
 		path[len + NewFileLen] = 0;
 	}
 
+	// TODO: Detect duplicate includes?
+
 	FILE	*fp = fopen(path, "r");
 	if( !fp ) {
 		SyntaxError(Parser, "Can't open '%s': %s", path, strerror(errno));
@@ -123,7 +125,9 @@ int Parse_IncludeFile(tParser *Parser, const char *NewFile, int NewFileLen, tAST
 	}
 	data[flen] = 0;
 	fclose(fp);
-	
+
+	// TODO: Hash 'data' and check against list of loaded files	
+
 	int rv = Parse_BufferInt(Parser->Script, data, path, RootCode, Depth+1);
 
 	free(data);
@@ -176,7 +180,9 @@ int Parse_BufferInt(tSpiderScript *Script, const char *Buffer, const char *Filen
 		case TOK_RWD_INCLUDE: {
 			if( SyntaxAssert(Parser, GetToken(Parser), TOK_STR) )
 				goto error_return;
-			int rv = Parse_IncludeFile(Parser, Parser->Cur.TokenStr+1, Parser->Cur.TokenLen-2, MainCode, Depth);
+			int rv = Parse_IncludeFile(Parser,
+				Parser->Cur.TokenStr+1, Parser->Cur.TokenLen-2,
+				MainCode, Depth);
 			if( rv < 0 )
 				goto error_return;
 			if( SyntaxAssert(Parser, GetToken(Parser), TOK_SEMICOLON) )
@@ -297,6 +303,8 @@ int Parse_ClassDefinition(tParser *Parser)
 	DEBUGS1("DefCLASS %s Full", name);
 	free(name);
 	
+	// TODO: Support 'Extends/Implements'
+	
 	if( SyntaxAssert(Parser, Parser->Cur.Token, TOK_BRACE_OPEN) )
 	{
 		// No need to free the class, as it's in-tree now
@@ -355,7 +363,10 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 				break;
 			}
 			def = Parse_GetIdent(Parser, GETIDENTMODE_FUNCTIONDEF, NULL);
-			if( !def ) { rv = -1; goto _return; }
+			if( !def ) {
+				rv = -1;
+				goto _return;
+			}
 			DEBUGS1("Arg '%s'", def->DefVar.Name);
 			def->NextSibling = NULL;
 			*arg_next_ptr = def;
@@ -377,6 +388,7 @@ int Parse_FunctionDefinition(tScript_Class *Class, tParser *Parser, tSpiderTypeR
 		goto _return;
 	}
 
+	// Function attributes (after definition)
 	for( bool loop = true; loop; )
 	{
 		switch(GetToken(Parser))
