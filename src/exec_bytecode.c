@@ -508,6 +508,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	 int	last_line = 0;
 	 int	itype;
 	tBC_StackEnt	*reg_dst, *reg1, *reg2;
+	tBC_StackEnt	tmp_ent;
 
 	if( num_registers > MAX_REGISTERS ) {
 		SpiderScript_RuntimeError(Script, "Function requested %i registers, %i max",
@@ -1145,8 +1146,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			// Get RVal
 			Bytecode_int_GetSpiderValue(Script, reg2, &ptr);
 			
-			PRESET_DEREF(*reg_dst);
-			itype = AST_ExecuteNode_BinOp_String(Script, &reg_dst->Boolean, ast_op,
+			itype = AST_ExecuteNode_BinOp_String(Script, &tmp_ent.Boolean, ast_op,
 				reg1->String, reg2->Type.Def->Core, ptr);
 			if( itype == -1 ) {
 				SpiderScript_RuntimeError(Script,
@@ -1157,8 +1157,10 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 				bError = 1;
 				break;
 			}
-			reg_dst->Type.ArrayDepth = 0;
-			reg_dst->Type.Def = SpiderScript_GetCoreType(itype);
+			tmp_ent.Type.ArrayDepth = 0;
+			tmp_ent.Type.Def = SpiderScript_GetCoreType(itype);
+			PRESET_DEREF(*reg_dst);
+			*reg_dst = tmp_ent;
 			DEBUG_F(" = ("); PRINT_STACKVAL(*reg_dst); DEBUG_F(")\n");
 			break;
 
