@@ -1,84 +1,96 @@
 /*
- * SpiderScript Library
+ * SpiderScript library
  * - By John Hodge (thePowersGang)
- *
- * bytecode_gen.h
- * - Bytecode Generation header
+ * 
+ * bytecodev2.h
+ * - Infinite register machine bytecode generation
  */
-#ifndef _BYTECODE_GEN_H_
-#define _BYTECODE_GEN_H_
+#ifndef _BYTECODE_V2_H
+#define _BYTECODE_V2_H
 
-#include "common.h"
-#include "ast.h"
-#include "bytecode.h"
+#include <stdbool.h>
 
-typedef struct sStringList	tStringList;
-typedef struct sString	tString;
-
-struct sString
-{
-	tString	*Next;
-	 int	Length;
-	 int	RefCount;
-	char	Data[];
+enum eBC_UniOp {
+	UNIOP_LOGICNOT,
+	UNIOP_BITNOT,
+	UNIOP_NEG
+};
+enum eBC_BinOp {
+	BINOP_LOGICAND,
+	BINOP_LOGICOR,
+	BINOP_LOGICXOR,
+	
+	BINOP_EQ,
+	BINOP_NE,
+	BINOP_LT,
+	BINOP_LE,
+	BINOP_GT,
+	BINOP_GE,
+	
+	BINOP_ADD,
+	BINOP_SUB,
+	BINOP_MUL,
+	BINOP_DIV,
+	BINOP_MOD,
+	BINOP_BITAND,
+	BINOP_BITOR,
+	BINOP_BITXOR,
+	BINOP_BITSHIFTLEFT,
+	BINOP_BITSHIFTRIGHT,
+	BINOP_BITROTATELEFT,
 };
 
-struct sStringList
-{
-	tString	*Head;
-	tString	*Tail;
-	 int	Count;
-};
+extern int	Bytecode_int_GetTypeIdx(tSpiderScript *Script, tSpiderTypeRef Type);
 
+extern tBC_Function	*Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *ScriptFcn);
+extern  int	Bytecode_CommitFunction(tBC_Function *Handle, int MaxReg, int MaxGlobal);
+extern void	Bytecode_DeleteFunction(tBC_Function *Handle);
 
-extern int	Bytecode_ConvertScript(tSpiderScript *Script, const char *DestFile);
-extern tBC_Function	*Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *Fcn);
-extern tBC_Function	*Bytecode_NewBlankFunction(void);
-extern void	Bytecode_DeleteFunction(tBC_Function *Fcn);
-
-extern char *Bytecode_SerialiseFunction(const tBC_Function *Function, int *Length, tStringList *Strings);
-extern int	StringList_GetString(tStringList *List, const char *String, int Length);
-extern tBC_Function	*Bytecode_CreateFunction(tSpiderScript *Script, tScript_Function *Fcn);
-
-extern int	Bytecode_AllocateLabel(tBC_Function *Handle);
-extern void	Bytecode_SetLabel(tBC_Function *Handle, int Label);
-// Bytecode adding
-// - Flow Control
-extern void	Bytecode_AppendJump(tBC_Function *Handle, int Label);
-extern void	Bytecode_AppendCondJump(tBC_Function *Handle, int Label);
-extern void	Bytecode_AppendCondJumpNot(tBC_Function *Handle, int Label);
-extern void	Bytecode_AppendReturn(tBC_Function *Handle);
-// - Operation Stack
-//  > Load/Store
-extern void	Bytecode_AppendLoadVar(tBC_Function *Handle, const char *Name);
-extern void	Bytecode_AppendSaveVar(tBC_Function *Handle, const char *Name);	// (Obj->)?var = 
-extern void	Bytecode_AppendConstInt(tBC_Function *Handle, uint64_t Value);
-extern void	Bytecode_AppendConstReal(tBC_Function *Handle, double Value);
-extern void	Bytecode_AppendConstString(tBC_Function *Handle, const void *Data, size_t Length);
-extern void	Bytecode_AppendConstNull(tBC_Function *Handle, tSpiderTypeRef Type);
-//  > Scoping
-extern void	Bytecode_AppendElement(tBC_Function *Handle, const char *Name);	// Obj->SubObj
-extern void	Bytecode_AppendSetElement(tBC_Function *Handle, const char *Name);	// Set an object member
-extern void	Bytecode_AppendIndex(tBC_Function *Handle);	// Index into an array
-extern void	Bytecode_AppendSetIndex(tBC_Function *Handle);	// Write an array element
-//  > Function Calls
-extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderTypeRef Type, int ArgumentCount);
-extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, int Index, int ArgumentCount);
-extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, int ID, int ArgumentCount);
-//  > Manipulation
-extern void	Bytecode_AppendBinOp(tBC_Function *Handle, int Operation);
-extern void	Bytecode_AppendUniOp(tBC_Function *Handle, int Operation);
-extern void	Bytecode_AppendCast(tBC_Function *Handlde, tSpiderScript_CoreType CoreType);
-extern void	Bytecode_AppendDuplicate(tBC_Function *Handlde);
-extern void	Bytecode_AppendDelete(tBC_Function *Handle);
-extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, tSpiderTypeRef DataType);
-// - Context
-//   TODO: Are contexts needed? Should variables be allocated like labels?
 extern void	Bytecode_AppendEnterContext(tBC_Function *Handle);
 extern void	Bytecode_AppendLeaveContext(tBC_Function *Handle);
-//extern void	Bytecode_AppendImportNamespace(tBC_Function *Handle, const char *Name);
-extern void	Bytecode_AppendDefineVar(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type);
-extern void	Bytecode_AppendImportGlobal(tBC_Function *Handle, const char *Name, tSpiderTypeRef Type);
+extern void	Bytecode_AppendPos(tBC_Function *Handle, const char *Filename, int Line);
+
+extern  int	Bytecode_AllocateLabel(tBC_Function *Handle);
+extern void	Bytecode_SetLabel(tBC_Function *Handle, int Label);
+extern void	Bytecode_AppendJump(tBC_Function *Handle, int Label);
+extern void	Bytecode_AppendCondJump(tBC_Function *Handle, int Label, int CReg);
+extern void	Bytecode_AppendCondJumpNot(tBC_Function *Handle, int Label, int CReg);
+
+extern void	Bytecode_AppendConstNull(tBC_Function *Handle, int DstReg, tSpiderTypeRef Type);
+extern void	Bytecode_AppendConstInt(tBC_Function *Handle, int DstReg, tSpiderInteger Value);
+extern void	Bytecode_AppendConstReal(tBC_Function *Handle, int DstReg, tSpiderReal Value);
+extern void	Bytecode_AppendConstString(tBC_Function *Handle, int DstReg, const void *Data, size_t Len);
+
+extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, int RetReg, tSpiderTypeRef Type, int SizeReg); 
+extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
+extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
+extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
+
+extern void	Bytecode_AppendReturn(tBC_Function *Handle, int ReturnReg);
+
+extern void	Bytecode_AppendClearReg(tBC_Function *Handle, int Reg);
+extern void	Bytecode_AppendMov(tBC_Function *Handle, int DstReg, int SrcReg);
+extern void	Bytecode_AppendBinOpBool(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);
+extern void	Bytecode_AppendBinOpInt(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);
+extern void	Bytecode_AppendBinOpReal(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);
+extern void	Bytecode_AppendBinOpString(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);
+extern void	Bytecode_AppendBinOpRef(tBC_Function *Handle, int DstReg, int Op, int LReg, int RReg);
+
+extern void	Bytecode_AppendUniInt(tBC_Function *Handle, int DstReg, int Op, int SrcReg);
+extern void	Bytecode_AppendFloatNegate(tBC_Function *Handle, int DstReg, int SrcReg);
+
+extern void	Bytecode_AppendIndex(tBC_Function *Handle, int DstReg, int ArrReg, int IdxReg);
+extern void	Bytecode_AppendSetIndex(tBC_Function *Handle, int ArrReg, int IdxReg, int ValReg);
+extern void	Bytecode_AppendElement(tBC_Function *Handle, int DstReg, int ObjReg, int ElementIndex);
+extern void	Bytecode_AppendSetElement(tBC_Function *Handle, int ObjReg, int ElementIndex, int ValReg);
+
+extern void	Bytecode_AppendCast(tBC_Function *Handle, int DstReg, tSpiderScript_CoreType Type, int SrcReg);
+
+extern void	Bytecode_AppendDefineVar(tBC_Function *Handle, int Reg, const char *Name, tSpiderTypeRef Type);
+
+extern void	Bytecode_AppendImportGlobal(tBC_Function *Handle, int Slot, const char *Name, tSpiderTypeRef Type);
+extern void	Bytecode_AppendSaveGlobal(tBC_Function *Handle, int Slot, int SrcReg);
+extern void	Bytecode_AppendReadGlobal(tBC_Function *Handle, int Slot, int DstReg);
 
 #endif
 

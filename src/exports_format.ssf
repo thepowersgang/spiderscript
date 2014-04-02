@@ -1,0 +1,21 @@
+/*
+ * Acess2 - SpiderScript
+ * - Script Exports (Lang. Namespace)
+ */
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <spiderscript.h>
+
+@NAMESPACE Lang
+@{
+
+//@FUNCTION String MkStr(String Format, ...)
+//@{
+//	@RETURN NULL;
+//@}
+
+@}	// NAMESPACE Lang
+
+// vim: ft=c
+

@@ -81,7 +81,7 @@ tSpiderReal AST_ExecuteNode_UniOp_Real(tSpiderScript *Script, int Operation, tSp
 	case NODETYPE_NEGATE:	return -Value;
 	default:
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("Exec,UniOP,Real unknown op %i", Operation)
+			"Exec,UniOP,Real unknown op %i", Operation
 			);
 		return 0;
 	}
@@ -248,7 +248,7 @@ int AST_ExecuteNode_BinOp_Real(tSpiderScript *Script, void *RetData,
 	case NODETYPE_DIVIDE:	*ret_r = Left / right;	return SS_DATATYPE_REAL;
 	default:
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("Exec,BinOp,Real unknown op %i", Op)
+			"Exec,BinOp,Real unknown op %i", Op
 			);
 		return -1;
 	}
@@ -293,7 +293,7 @@ int AST_ExecuteNode_BinOp_String(tSpiderScript *Script, void *RetData,
 
 	default:
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("Exec,BinOp,String unknown op %i", Op)
+			"Exec,BinOp,String unknown op %i", Op
 			);
 		return -1;
 	}
@@ -306,20 +306,22 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 
 	// Quick sanity check
 	if( !Array ) {
-		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, strdup("Indexed a NULL array"));
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, "Indexed a NULL array");
 		return -1;
 	}
 
 	// Array?
 	if( Index < 0 || Index >= Array->Length ) {
 		// TODO: Include extra information
-		SpiderScript_ThrowException(Script, SS_EXCEPTION_INDEX_OOB, strdup("Index out of bounds"));
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_INDEX_OOB, "Index out of bounds (0<=%i<%i)",
+			Index, Array->Length
+			);
 		return -1;
 	}
 
 	size = SpiderScript_int_GetTypeSize(Array->Type);
 	if( size == -1 ) {
-		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG, strdup("Array type unhandled"));
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG, "Array type unhandled");
 		return -1;
 	}
 
@@ -328,7 +330,7 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
 		if( !SS_TYPESEQUAL(NewType, Array->Type) ) {
 			// TODO: Implicit casting?
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
-				strdup("Type mismatch assiging to array element"));
+				"Type mismatch assiging to array element");
 			return -1;
 		}
 		if( SS_GETARRAYDEPTH(NewType) ) {
@@ -382,56 +384,46 @@ int AST_ExecuteNode_Index(tSpiderScript *Script, void *RetData,
  * \param NewData	Pointer to data to store in element
  */
 tSpiderTypeRef AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
-	tSpiderObject *Object, const char *ElementName, tSpiderTypeRef NewType, void *NewData)
+	tSpiderObject *Object, int ElementIndex, tSpiderTypeRef NewType, void *NewData)
 {
 	tSpiderTypeRef	type = {0,0};
 	const char	*className;
-	 int	i;
+	const char	*elename;
 
 	if( !Object || !Object->TypeDef ) {
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF,
-			strdup("Tried to access an element of NULL"));
+			"Tried to access an element of NULL");
 		return type;
 	}
 	
 	if( Object->TypeDef->Class == SS_TYPECLASS_NCLASS ) {
 		tSpiderClass *nc = Object->TypeDef->NClass;
-		for( i = 0; i < nc->NAttributes; i ++ )
-		{
-			if( strcmp(ElementName, nc->AttributeDefs[i].Name) == 0 )
-				break ;
-		}
-		if( i == nc->NAttributes ) {
+		if( ElementIndex >= nc->NAttributes ) {
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_BADELEMENT,
-				mkstr("No attribute %s of %s", ElementName, nc->Name)
+				"Element index %i out of range in %s", ElementIndex, nc->Name
 				);
 			return type;
 		}
-		type = nc->AttributeDefs[i].Type;
+		type = nc->AttributeDefs[ElementIndex].Type;
+		elename = nc->AttributeDefs[ElementIndex].Name;
 		className = nc->Name;
 	}
 	else if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS ) {
 		tScript_Class	*sc = Object->TypeDef->SClass;
-		tScript_Var *at;
-		for( i = 0, at = sc->FirstProperty; at; at = at->Next, i ++ )
-		{
-			if( strcmp(ElementName, at->Name) == 0 )
-				break;
-		}
-		if( !at ) {
+		if( ElementIndex >= sc->nProperties ) {
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_BADELEMENT,
-				mkstr("No attribute %s of %s", ElementName, sc->Name)
+				"Element index %i out of range in %s", ElementIndex, sc->Name
 				);
 			return type;
 		}
-		type = at->Type;
+		type = sc->Properties[ElementIndex]->Type;
+		elename = sc->Properties[ElementIndex]->Name;
 		className = sc->Name;
 	}
 	else {
 		type.Def = Object->TypeDef;
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
-			mkstr("Unable to get element of type %s",
-				SpiderScript_GetTypeName(Script, type))
+			"Unable to get element of type %s", SpiderScript_GetTypeName(Script, type)
 			);
 		type.Def = NULL;
 		return type;
@@ -440,60 +432,60 @@ tSpiderTypeRef AST_ExecuteNode_Element(tSpiderScript *Script, void *RetData,
 	int size = SpiderScript_int_GetTypeSize(type);
 	if( size == -1 ) {
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
-			mkstr("Type of element %s of %s is invalid (%i)",
-				ElementName, className, type)
+			"Type of element %s of %s is invalid (%i)", elename, className, type
 			);
 		return (tSpiderTypeRef){0,0};
 	}
 	
+	void	**attr_ptr = &Object->Attributes[ElementIndex];
 	if( NewData )
 	{
 		if( !SS_TYPESEQUAL(type, NewType) ) {
 			SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
-				mkstr("Assignment of element '%s' of '%s' mismatch (%s should be %s)",
-					ElementName, className,
-					SpiderScript_GetTypeName(Script, NewType),
-					SpiderScript_GetTypeName(Script, type)
-					)
+				"Assignment of element '%s' of '%s' mismatch (%s should be %s)",
+				elename, className,
+				SpiderScript_GetTypeName(Script, NewType),
+				SpiderScript_GetTypeName(Script, type)
 				);
 			return (tSpiderTypeRef){0,0};
 		}
-		if( SS_GETARRAYDEPTH(NewType) ) {
-			SpiderScript_DereferenceArray( Object->Attributes[i] );
-			Object->Attributes[i] = NewData;
-			SpiderScript_ReferenceArray( Object->Attributes[i] );
+		if( SS_GETARRAYDEPTH(type) ) {
+			SpiderScript_ReferenceArray( NewData );
+			SpiderScript_DereferenceArray( *attr_ptr );
+			*attr_ptr = NewData;
 		}
-		else if( SS_ISTYPEOBJECT(NewType) ) {
-			SpiderScript_DereferenceObject( Object->Attributes[i] );
-			Object->Attributes[i] = NewData;
-			SpiderScript_ReferenceObject  ( Object->Attributes[i] );
+		else if( SS_ISTYPEOBJECT(type) ) {
+			SpiderScript_ReferenceObject( NewData );
+			SpiderScript_DereferenceObject( *attr_ptr );
+			*attr_ptr = NewData;
 		}
-		else if( SS_ISCORETYPE(NewType, SS_DATATYPE_STRING) ) {
-			SpiderScript_DereferenceString( Object->Attributes[i] );
-			Object->Attributes[i] = NewData;
-			SpiderScript_ReferenceString  ( Object->Attributes[i] );
+		else if( SS_ISCORETYPE(type, SS_DATATYPE_STRING) ) {
+			SpiderScript_ReferenceString( NewData );
+			SpiderScript_DereferenceString( *attr_ptr );
+			*attr_ptr = NewData;
 		}
 		else {
-			memcpy(Object->Attributes[i], NewData, size);
+			memcpy(*attr_ptr, NewData, size);
 		}
 	}
 	else {
-		if( SS_GETARRAYDEPTH(NewType) ) {
-			SpiderScript_ReferenceArray( Object->Attributes[i] );
-			*(void**)RetData = Object->Attributes[i];
+		if( SS_GETARRAYDEPTH(type) ) {
+			SpiderScript_ReferenceArray( *attr_ptr );
+			*(void**)RetData = *attr_ptr;
 		}
-		else if( SS_ISTYPEOBJECT(NewType) ) {
-			SpiderScript_ReferenceObject  ( Object->Attributes[i] );
-			*(void**)RetData = Object->Attributes[i];
+		else if( SS_ISTYPEOBJECT(type) ) {
+			SpiderScript_ReferenceObject( *attr_ptr );
+			*(void**)RetData = *attr_ptr;
 		}
-		else if( SS_ISCORETYPE(NewType, SS_DATATYPE_STRING) ) {
-			SpiderScript_ReferenceString  ( Object->Attributes[i] );
-			*(void**)RetData = Object->Attributes[i];
+		else if( SS_ISCORETYPE(type, SS_DATATYPE_STRING) ) {
+			SpiderScript_ReferenceString( *attr_ptr );
+			*(void**)RetData = *attr_ptr;
 		}
 		else {
-			memcpy(RetData, Object->Attributes[i], size);
+			memcpy(RetData, *attr_ptr, size);
 		}
 	}
+	
 	return type;
 }
 

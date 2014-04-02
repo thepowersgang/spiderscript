@@ -1,5 +1,7 @@
 /*
  * SpiderScript Library Header
+ *
+ * PUBLIC
  */
 #ifndef _SPIDERSCRIPT_H_
 #define _SPIDERSCRIPT_H_
@@ -32,6 +34,7 @@ enum eSpiderScript_InternalTypes
 typedef struct sSpiderScript	tSpiderScript;
 
 typedef struct sSpiderVariant	tSpiderVariant;
+typedef struct sSpiderBacktrace	tSpiderBacktrace;
 typedef struct sSpiderNamespace	tSpiderNamespace;
 typedef struct sSpiderFcnProto	tSpiderFcnProto;
 typedef struct sSpiderFunction	tSpiderFunction;
@@ -136,6 +139,14 @@ struct sSpiderVariant
 		const char *Name;
 		tSpiderTypeRef	Type;
 	}	Constants[];	//!< Number of constants
+};
+
+struct sSpiderBacktrace
+{
+	const char	*Function;
+	size_t	Offset;
+	const char	*File;
+	unsigned int	Line;
 };
 
 struct sSpiderString
@@ -279,7 +290,50 @@ struct sSpiderFunction
  * \return Script suitable for execution
  */
 SS_EXPORT extern tSpiderScript	*SpiderScript_ParseFile(tSpiderVariant *Variant, const char *Filename);
+/**
+ * \brief Load a script from bytecode
+ */
+SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
+SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Buf, size_t Len);
+/**
+ * \brief Convert a script to bytecode and save to a file
+ */
+SS_EXPORT extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
+SS_EXPORT extern int	SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr);
+/**
+ * \brief Save the AST of a script to a file
+ */
+SS_EXPORT extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
 
+/**
+ * \brief Free a script
+ * \param Script	Script structure to free
+ */
+SS_EXPORT extern void	SpiderScript_Free(tSpiderScript *Script);
+
+enum eSpiderScript_TraceLevel
+{
+	SS_TRACE_NONE,
+	// SS_TRACE_CALLS,
+	SS_TRACE_OPCODES,
+	SS_TRACE_REGDUMP,
+};
+
+/**
+ * \brief Set the execution tracing level
+ * \param Level	Tracing level, see eSpiderScript_TraceLevel
+ * \note Tracing is performed to stdout
+ */
+SS_EXPORT extern void	SpiderScript_SetTraceLevel(tSpiderScript *Script, enum eSpiderScript_TraceLevel Level);
+
+
+/**
+ * \name Execution
+ * \{
+ */
+/**
+ * \brief Execute a function
+ */
 SS_EXPORT extern int	SpiderScript_ExecuteFunction(tSpiderScript *Script, const char *Function,
 	tSpiderTypeRef *RetType, void *RetData,
 	int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
@@ -301,31 +355,14 @@ SS_EXPORT extern int	SpiderScript_CreateObject(tSpiderScript *Script, const char
 	void **Ident
 	);
 
-SS_EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script, const tSpiderScript_TypeDef *TypeCode,
+SS_EXPORT extern int	SpiderScript_CreateObject_Type(tSpiderScript *Script,
+	const tSpiderScript_TypeDef *TypeCode,
 	tSpiderObject **RetData, int NArguments, const tSpiderTypeRef *ArgTypes, const void * const Arguments[],
 	void **Ident
 	);
 /**
- * \brief Convert a script to bytecode and save to a file
+ * \}
  */
-SS_EXPORT extern int	SpiderScript_SaveBytecode(tSpiderScript *Script, const char *DestFile);
-SS_EXPORT extern int	SpiderScript_SaveBytecodeMem(tSpiderScript *Script, void **BufferPtr, size_t *SizePtr);
-/**
- * \brief Load a script from bytecode
- */
-SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecode(tSpiderVariant *Variant, const char *Filename);
-SS_EXPORT extern tSpiderScript	*SpiderScript_LoadBytecodeBuf(tSpiderVariant *Variant, const void *Buf, size_t Len);
-/**
- * \brief Save the AST of a script to a file
- */
-SS_EXPORT extern int	SpiderScript_SaveAST(tSpiderScript *Script, const char *Filename);
-
-/**
- * \brief Free a script
- * \param Script	Script structure to free
- */
-SS_EXPORT extern void	SpiderScript_Free(tSpiderScript *Script);
-
 /**
  * \name Exception Handling
  * \{
@@ -333,26 +370,31 @@ SS_EXPORT extern void	SpiderScript_Free(tSpiderScript *Script);
 enum eSpiderScript_Exceptions
 {
 	SS_EXCEPTION_NONE = 0,	// No exception
+	SS_EXCEPTION_FORCEEXIT,	// Forced exit (no error)
 	SS_EXCEPTION_GENERIC,	// Generic error
 	SS_EXCEPTION_BUG,	// Bug in the engine
+	SS_EXCEPTION_MEMORY,	// Out of memory
 	SS_EXCEPTION_NULLDEREF,	// Derefence of a NULL array/string/object
 	SS_EXCEPTION_INDEX_OOB,	// Array index out of bounds
 	SS_EXCEPTION_BADELEMENT,	// TODO: Is this needed?
 	SS_EXCEPTION_ARGUMENT,	// Invalid argument
 	SS_EXCEPTION_TYPEMISMATCH,	// Type mismatch
-	SS_EXCEPTION_NAMEERROR	// Invalid name/ID
+	SS_EXCEPTION_NAMEERROR,	// Invalid name/ID
+	SS_EXCEPTION_ARITH,
 };
 
 SS_EXPORT extern int	SpiderScript_ThrowException(tSpiderScript *Script, int ExceptionID, char *Message, ...);
 SS_EXPORT extern int	SpiderScript_GetException(tSpiderScript *Script, const char **Message);
+SS_EXPORT extern const tSpiderBacktrace	*SpiderScript_GetBacktrace(tSpiderScript *Script, int *Size);
 SS_EXPORT extern void	SpiderScript_SetCatchTarget(tSpiderScript *Script, jmp_buf *Target, jmp_buf *OldTargetSaved);
 SS_EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
 
 
+SS_EXPORT extern int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Location);
+SS_EXPORT extern int SpiderScript_ThrowException_ForceExit(tSpiderScript *Script, int ExitCode);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName, int Exp, int Got);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCount(tSpiderScript *Script, const char *Name, int Exp, int Got);
-SS_EXPORT extern int SpiderScript_ThrowException_ArgErrorC(tSpiderScript *Script, const char *CName, const char *FName, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
-SS_EXPORT extern int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *Name, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
+SS_EXPORT extern int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *CName, const char *Name, int Num, tSpiderTypeRef Expected, tSpiderTypeRef Got);
 /**
  * \}
  */

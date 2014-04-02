@@ -97,8 +97,9 @@ tSpiderObject *SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_
 	size = 0;
 	for( i = 0, at = Class->FirstProperty; at; at = at->Next, i ++ )
 	{
-		ret->Attributes[i] = (char*)(ret->Attributes + n_attr) + size;
-		size += SpiderScript_int_GetTypeSize(at->Type);
+		size_t	elesize = SpiderScript_int_GetTypeSize(at->Type);
+		ret->Attributes[i] = (elesize ? (char*)(ret->Attributes + n_attr) + size : NULL);
+		size += elesize;
 	}
 	
 	return ret;
@@ -212,7 +213,12 @@ tSpiderArray *SpiderScript_CreateArray(tSpiderTypeRef InnerType, int ItemCount)
 {
 	 int	ent_size;
 	tSpiderArray	*ret;
-	
+
+	if( ItemCount < 0 ) {
+		fprintf(stderr, "BUG: -ve value (%i) passed to CreateArray\n", ItemCount);
+		return NULL;
+	}	
+
 	// Get the size of one entry (reference types are zero sized, but need 1 pointer)
 	ent_size = SpiderScript_int_GetTypeSize(InnerType);
 	if( ent_size == 0 )	ent_size = sizeof(void*);
@@ -287,6 +293,18 @@ void SpiderScript_DereferenceArray(const tSpiderArray *_Array)
 
 int SpiderScript_StringCompare(const tSpiderString *s1, const tSpiderString *s2)
 {
+	if( !s1 )
+	{
+		if( s2 )
+			return -1;
+		else
+			return 0;
+	}
+	else if( !s2 )
+	{
+		return 1;
+	}
+	
 	 int	cmp;
 	if( s1->Length > s2->Length )
 		cmp = memcmp(s1->Data, s2->Data, s2->Length);
@@ -318,15 +336,16 @@ tSpiderString *SpiderScript_StringConcat(const tSpiderString *Str1, const tSpide
 	ret = malloc( sizeof(tSpiderString) + newLen + 1 );
 	ret->RefCount = 1;
 	ret->Length = newLen;
-	if(Str1)
+	size_t	ofs = 0;
+	if(Str1) {
 		memcpy(ret->Data, Str1->Data, Str1->Length);
-	if(Str2) {
-		if(Str1)
-			memcpy(ret->Data+Str1->Length, Str2->Data, Str2->Length);
-		else
-			memcpy(ret->Data, Str2->Data, Str2->Length);
+		ofs += Str1->Length;
 	}
-	ret->Data[ newLen ] = '\0';
+	if(Str2) {
+		memcpy(ret->Data+ofs, Str2->Data, Str2->Length);
+		ofs += Str2->Length;
+	}
+	ret->Data[ ofs ] = '\0';
 	return ret;
 }
 
@@ -360,6 +379,67 @@ tSpiderBool SpiderScript_CastValueToBool(tSpiderTypeRef Type, const void *Source
 	}
 }
 
+tSpiderInteger spiderstring_to_int(const tSpiderString *String)
+{
+#if 0
+	const char *ptr = String->Data;
+	const char *end = ptr + String->Length;
+	tSpiderInteger	ret = 0;
+	
+	if( end == ptr )
+		return 0;
+	
+	if( *ptr == '0' && ptr+1 < end )
+	{
+		// Octal/binary/hex
+		ptr ++;
+		if( *ptr == 'x' ) {
+			// Hex
+			ptr ++;
+			if( ptr == end )
+				goto _err;
+		}
+		else if( *ptr == 'b' ) {
+			// Binary
+			ptr ++;
+			if( ptr == end )
+				goto _err;
+			
+			while( ptr < end ) {
+				if( !('0' <= *ptr && 
+			}
+		}
+		else {
+			// Octal
+			while( ptr < end ) {
+				if( !('0' <= *ptr && *ptr <= '7') )
+					goto _err;
+				ret *= 8;
+				ret += *ptr - '0';
+				ptr ++;
+			}
+		}
+	}
+	else {
+		// Decimal
+		while( ptr < end )
+		{
+			if( !isdigit(*ptr) )
+				goto _err;
+			ret *= 10;
+			ret += *ptr - '0';
+			ptr ++;
+			rem --;
+		}
+	}
+	return ret;
+_err:
+	return 0;
+#else
+	tSpiderInteger ret = strtoll(String->Data, NULL, 0);
+	return ret;
+#endif
+}
 /**
  * \brief Cast one object to another
  * \brief Type	Destination type
@@ -386,7 +466,7 @@ tSpiderInteger SpiderScript_CastValueToInteger(tSpiderTypeRef Type, const void *
 	case SS_DATATYPE_REAL:
 		return *(const tSpiderReal*)Source;
 	case SS_DATATYPE_STRING:
-		return strtoll( ((const tSpiderString*)Source)->Data, NULL, 0);
+		return spiderstring_to_int( (const tSpiderString*)Source );
 	default:
 		return 0;
 	}
@@ -421,15 +501,15 @@ tSpiderReal SpiderScript_CastValueToReal(tSpiderTypeRef Type, const void *Source
 
 tSpiderString *SpiderScript_CreateString_Fmt(const char *Format, ...)
 {
-	tSpiderString	*ret;
-	 int	len;
+	size_t	len;
 	va_list	args;
 	
 	va_start(args, Format);
 	len = vsnprintf(NULL, 0, Format, args);
 	va_end(args);
 	
-	ret = SpiderScript_CreateString(len+1, NULL);	// Does memset, but meh
+	tSpiderString	*ret = malloc( sizeof(tSpiderString) + len + 1 );
+	ret->RefCount = 1;
 	ret->Length = len;
 	
 	va_start(args, Format);

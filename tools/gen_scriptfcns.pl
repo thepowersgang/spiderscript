@@ -279,7 +279,7 @@ sub gettype
 	}
 	else {
 		if( $ident !~ $gIdentRegex ) {
-			die "$code is not an ident";
+			die "$ident is not an ident";
 		}
 		$code = "TYPE_".$ident;
 		$code =~ s/\./_z_/g;
@@ -306,6 +306,7 @@ my $gClassDestructor;
 my %gClassProperties;	# Name->TypeCode
 
 my $bInFunction = 0;
+my $gbFcnIsVariable = 0;
 my @gFcnArgs;	# Names
 my %gFcnArgs_C;	# Name->Cast
 my %gFcnArgs_V;	# Name->Value
@@ -313,6 +314,37 @@ my %gFcnArgs_I;	# Name->Index
 my $gFcnRetType_C;	# C Datatype
 my $gFcnRetType_V;	# Integral type code
 my $indent;
+
+sub parse_args
+{
+	my @args = @{$_[0]};
+	#print @args,"\n";
+	
+	my $argc = scalar @gFcnArgs;
+	my $is_variable = 0;
+
+	foreach my $arg (@args) {
+		!$is_variable or die "Argument after '...'";
+		if( $arg eq "..." ) {
+			$is_variable = 1;
+		}
+		else {
+			my $argname;
+			my $typesym;
+			my $code;
+			my $cast;
+			($typesym, $argname) = split(/\s+/, $arg, 2);
+			($code, $cast) = gettype($typesym);
+			push @gFcnArgs, $argname;
+			$gFcnArgs_C{$argname} = $cast;
+			$gFcnArgs_V{$argname} = $code;
+			$gFcnArgs_I{$argname} = $argc;
+			$argc++;
+		}
+	}
+	
+	return ($argc, $is_variable)
+}
 
 sub function_header
 {
@@ -325,13 +357,24 @@ sub function_header
 	foreach my $arg (@gFcnArgs) {
 		print OUTFILE "$gFcnArgs_V{$arg}, ";
 	}
-	print OUTFILE "{NULL,0}}\n",$indent,"};\n";
+	print OUTFILE "{NULL,0}},\n";
+	print OUTFILE $indent,"\t.bVariableArgs = $gbFcnIsVariable,\n";
+	print OUTFILE $indent,"};\n";
 	print OUTFILE $indent,"tSpiderFunction gExports_fcn_$symbol = {\n";
 	print OUTFILE $indent,"\t.Next=$prev, .Name = \"$fcnname\",\n";
 	print OUTFILE $indent,"\t.Handler = Exports_fcn_$symbol, .Prototype = &gExports_fcnp_$symbol\n";
 	print OUTFILE "\t};\n";
 	print OUTFILE $indent,"__SFCN_PROTO(Exports_fcn_$symbol)\n";
 	print OUTFILE $indent,"{\n";
+
+	my $argc = scalar @gFcnArgs;
+	if( $gbFcnIsVariable ) {
+		#print OUTFILE $indent,"\tassert(NArgs >= $argc);\n";
+		print OUTFILE $indent,"\tconst int VArgC = NArgs - $argc; __SS_BUGCHECK(VArgC>=0);\n";
+		print OUTFILE $indent,"\tconst void *const*VArgV = &Args[$argc]; __SS_BUGCHECK(VArgV);\n";
+	} else {
+		#print OUTFILE $indent,"\tassert(NArgs == $argc);\n";
+	}
 	
 	# TODO: Do argument validation
 	foreach my $arg (keys %gFcnArgs_C)
@@ -343,6 +386,7 @@ sub function_header
 		} else {
 			print OUTFILE $indent,"\t$cast $arg = *(const $cast*)Args[$gFcnArgs_I{$arg}];\n";
 		}
+		print OUTFILE $indent,"\t$arg = $arg;\n";
 	}
 }
 
@@ -355,6 +399,7 @@ open(INFILE, "<", $infile) or die "Couldn't open ", $infile, " for reading";
 # Open output and append header
 open(OUTFILE, ">", $gOutFilePath) or die "Couldn't open ", $gOutFilePath, " for writing";
 print OUTFILE "#define __SFCN_PROTO(n) int n(tSpiderScript*Script,void*RetData,int NArgs,const tSpiderTypeRef*ArgTypes,const void*const Args[])\n";
+print OUTFILE "#define __SS_BUGCHECK(cnd)	do{if(!(cnd)){return SpiderScript_ThrowException(Script,SS_EXCEPTION_BUG,\"Assertion failure '\"#cnd\"'\");}}while(0)\n";
 #print OUTFILE "#define __SFCN_DEF(i,p,r,n,a...)	tSpiderFunction gExports_fcn_##i = {.Next=p,.Name=n,.Handler=Exports_fcn_##i,.Prototype={.ReturnType=r,.ArgTypes={a}}}\n";
 print OUTFILE "#include <spiderscript.h>\n";
 print OUTFILE "#include <$gHeaderFile>\n";
@@ -454,19 +499,8 @@ while(<INFILE>)
 		# Parse parameters
 		my @args = split(/\s*,\s*/, $argspecs);
 		my $argc = 0;
-		foreach my $arg (@args) {
-			my $argname;
-			my $typesym;
-			my $code;
-			my $cast;
-			($typesym, $argname) = split(/\s+/, $arg, 2);
-			($code, $cast) = gettype($typesym);
-			push @gFcnArgs, $argname;
-			$gFcnArgs_C{$argname} = $cast;
-			$gFcnArgs_V{$argname} = $code;
-			$gFcnArgs_I{$argname} = $argc;
-			$argc++;
-		}
+		#print $symbol, @args, "\n";
+		($argc, $gbFcnIsVariable) = parse_args(\@args);
 
 		$bInFunction = 1;
 		
@@ -474,7 +508,7 @@ while(<INFILE>)
 		$gFcnRetType_C = "tSpiderObject*";
 		$gClassConstructor = "&gExports_fcn_$symbol";		
 
-		function_header($symbol, "NULL", "__construct");
+		function_header($symbol, "NULL", "__construct", $gbFcnIsVariable);
 
 		$expecting_open_brace = 1;
 		next ;
@@ -557,26 +591,15 @@ while(<INFILE>)
 			$argc ++;
 		}
 
-		foreach my $arg (@args) {
-			my $argname;
-			my $typesym;
-			my $code;
-			my $cast;
-			($typesym, $argname) = split(/\s+/, $arg, 2);
-			($code, $cast) = gettype($typesym);
-			push @gFcnArgs, $argname;
-			$gFcnArgs_C{$argname} = $cast;
-			$gFcnArgs_V{$argname} = $code;
-			$gFcnArgs_I{$argname} = $argc;
-			$argc++;
-		}
+		#print $fcnpath, @args, "\n";
+		($argc, $gbFcnIsVariable) = parse_args(\@args);
 	
 		($gFcnRetType_V,$gFcnRetType_C) = gettype($rettype);
 
 		if( $gCurClass eq "" ) {
-			function_header($symbol, $gLastFunction, $fcnpath);
+			function_header($symbol, $gLastFunction, $fcnpath, $gbFcnIsVariable);
 		} else {
-			function_header($symbol, $gClassLastFunction, $fcnpath);
+			function_header($symbol, $gClassLastFunction, $fcnpath, $gbFcnIsVariable);
 		}
 
 		if( $gCurClass eq "" )
@@ -645,14 +668,22 @@ while(<INFILE>)
 	sub macro_TYPEOF
 	{
 		my $arg = $_[0];
-		if( ! exists $gFcnArgs_V{$arg} ) {
-			die "Argument $arg does not exist";
+		if( $arg =~ /^\[(.+)\]$/ )
+		{
+			# TODO: Emit Assertion to ensure index is valid
+			return "ArgTypes[".(scalar @gFcnArgs)."+($_[0])]";
 		}
-		if( $gFcnArgs_V{$arg} =~ "gSpiderScript_AnyType" ) {
-			return "ArgTypes[$gFcnArgs_I{$arg}]";
-		}
-		else {
-			return "(tSpiderTypeRef)$gFcnArgs_V{$_[0]}";
+		else
+		{
+			if( ! exists $gFcnArgs_V{$arg} ) {
+				die "Argument $arg does not exist";
+			}
+			if( $gFcnArgs_V{$arg} =~ "gSpiderScript_AnyType" ) {
+				return "ArgTypes[$gFcnArgs_I{$arg}]";
+			}
+			else {
+				return "(tSpiderTypeRef)$gFcnArgs_V{$_[0]}";
+			}
 		}
 	}
 	
@@ -670,20 +701,27 @@ while(<INFILE>)
 	{
 		my $var = $_[0];
 		my $dest = $_[1];
-		if( ! exists $gFcnArgs_V{$var} ) {
+		if( $var =~ /^\[(.+)\]$/ )
+		{
+			# TODO: Emit Assertion to ensure index is valid
+			# TODO: Assert correct type too
+			my $base = scalar %gFcnArgs_V;
+			$var = "({int idx=($_[0]);__SS_BUGCHECK($base+idx<NArgs);VArgV[idx];})";
+			#$var = "Args[$base+($_[0])]";
+		}
+		elsif( ! exists $gFcnArgs_V{$var} ) {
 			die "Argument $var does not exist";
 		}
-		if( $gFcnArgs_V{$var} =~ "gSpiderScript_AnyType" )
+		elsif( not $gFcnArgs_V{$var} =~ "gSpiderScript_AnyType" )
 		{
-			if( $dest =~ /\*$/ ) {
-				return "(($dest)$var)";
-			}
-			else {
-				return "(*($dest*)$var)";
-			}
+			die "Can't cast strictly typed argument $_[0]";
+		}
+
+		if( $dest =~ /\*$/ ) {
+			return "(($dest)$var)";
 		}
 		else {
-			die "Can't cast strictly typed argument $_[0]";
+			return "(*($dest*)$var)";
 		}
 	}
 	
@@ -717,7 +755,7 @@ while(<INFILE>)
 
 	if( $has_been_meta )
 	{
-#		print OUTFILE "#line $line \"$infile\"\n";
+		print OUTFILE "#line $line \"$infile\"\n";
 	}
 
 	if( $bInFunction && $gCurClass ne "" )
@@ -730,14 +768,15 @@ while(<INFILE>)
 	s/\@TYPECODE\(\s*([^\)]+)\s*\)/macro_TYPE($1)/ge;
 	if( $bInFunction )
 	{
-		s/\@TYPEOF\(\s*($gIdentRegex)\s*\)/macro_TYPEOF($1)/ge;
+		my $varg_regex = '\[[^\]]+\]';
+		s/\@TYPEOF\(\s*($gIdentRegex|$varg_regex)\s*\)/macro_TYPEOF($1)/ge;
 		s/\@TYPE\(\s*([^\)]+)\s*\)/macro_TYPE($1)/ge;
 		s/\@RETURN\b([^;]*);/macro_RETURN($1)/ge;
-		s/\@BOOLEAN\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderBool")/ge;
-		s/\@INTEGER\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderInteger")/ge;
-		s/\@REAL\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderReal")/ge;
-		s/\@STRING\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderString*")/ge;
-		s/\@ARRAY\(\s*($gIdentRegex)\s*\)/macro_CAST($1, "const tSpiderArray*")/ge;
+		s/\@BOOLEAN\(\s*($gIdentRegex|$varg_regex)\s*\)/macro_CAST($1, "const tSpiderBool")/ge;
+		s/\@INTEGER\(\s*($gIdentRegex|$varg_regex)\s*\)/macro_CAST($1, "const tSpiderInteger")/ge;
+		s/\@REAL\(\s*($gIdentRegex|$varg_regex)\s*\)/macro_CAST($1, "const tSpiderReal")/ge;
+		s/\@STRING\(\s*($gIdentRegex|$varg_regex)\s*\)/macro_CAST($1, "const tSpiderString*")/ge;
+		s/\@ARRAY\(\s*($gIdentRegex|$varg_regex)\s*\)/macro_CAST($1, "const tSpiderArray*")/ge;
 		s/\@($gIdentRegex)/getvalue($1)/ge;
 	}
 	

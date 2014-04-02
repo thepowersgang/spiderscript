@@ -13,7 +13,7 @@ OBJ  = main.o lex.o parse.o ast.o values.o
 OBJ += ast_to_bytecode.o bytecode_gen.o bytecode_makefile.o
 OBJ += exec.o exec_bytecode.o exec_ast.o types.o ast_optimise.o
 OBJ += exceptions.o
-EXPORT_FILES := exports.ssf
+EXPORT_FILES := exports.ssf exports_stringmap.ssf exports_format.ssf
 BIN = ../libspiderscript.so
 
 LD = $(CC)
@@ -25,6 +25,11 @@ LDFLAGS += -shared
 OBJ += $(patsubst %.c,%.o,.exports/_index.c $(EXPORT_FILES:%.ssf=.exports/%.c))
 OBJ := $(addprefix $(OBJDIR),$(OBJ))
 
+GENSFCNS := ../tools/gen_scriptfcns.pl
+GENSFCNS_EXEC := perl $(GENSFCNS)
+#GENSFCNS := ../tools/gen_scriptfcns.py
+#GENSFCNS_EXEC := python $(GENSFCNS)
+
 .PHONY:	all clean
 
 all: $(BIN)
@@ -34,19 +39,20 @@ clean:
 	$(RM) -r obj .exports/
 
 $(BIN): $(OBJ)
-	$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
+	@echo [LD] -o $(BIN)
+	@$(LD) $(LDFLAGS) -o $(BIN) $(OBJ)
 
-export_types.gen.h: $(EXPORT_FILES) ../tools/gen_scriptfcns.pl
+export_types.gen.h: $(EXPORT_FILES) $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	perl ../tools/gen_scriptfcns.pl --mkhdr-lang $@ $(EXPORT_FILES)
+	$(GENSFCNS_EXEC) --mkhdr-lang $@ $(EXPORT_FILES)
 
-.exports/_index.c: $(EXPORT_FILES) export_types.gen.h ../tools/gen_scriptfcns.pl
+.exports/_index.c: $(EXPORT_FILES) export_types.gen.h $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	perl ../tools/gen_scriptfcns.pl -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
+	$(GENSFCNS_EXEC) -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
 
-.exports/%.c: %.ssf export_types.gen.h ../tools/gen_scriptfcns.pl
+.exports/%.c: %.ssf export_types.gen.h $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	perl ../tools/gen_scriptfcns.pl -H export_types.gen.h $@ $<
+	$(GENSFCNS_EXEC) -H export_types.gen.h $@ $<
 
 $(OBJ): $(OBJDIR)%.o: %.c
 	@mkdir -p $(dir $@)

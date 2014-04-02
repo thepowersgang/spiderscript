@@ -6,29 +6,40 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <spiderscript.h>
+#include <ctype.h>	// isblank
 
-@FUNCTION Integer sizeof( * Value )
+@FUNCTION Integer len( * Value )
 @{
 	if( SS_GETARRAYDEPTH( @TYPEOF(Value) ) )
 	{
+		if( !Value )	@RETURN 0;
 		@RETURN @ARRAY(Value)->Length;
 	}
 
 	if( SS_ISTYPEOBJECT( @TYPEOF(Value) ) )
 	{
+		// TODO: Call an operator overload?
 		@RETURN 0;
 	}	
 
-	if( SS_ISCORETYPE(@TYPEOF(Value), SS_DATATYPE_INTEGER) )
+	if( SS_ISCORETYPE(@TYPEOF(Value), SS_DATATYPE_STRING) )
+	{
+		if( !Value )	@RETURN 0;
 		@RETURN @STRING(Value)->Length;
-	
+	}
+
+	// Actually an invalid operation	
 	@RETURN 0;
+@}
+
+@FUNCTION Integer sizeof( * Value )
+@{
+	return Exports_fcn_len(Script, RetData, NArgs, ArgTypes, Args);
 @}
 
 @FUNCTION void exit()
 @{
-	exit(0);
-//	return -1;	// TODO: Return RV_CLEANEXIT
+	return SpiderScript_ThrowException_ForceExit(Script, 0);
 @}
 
 @FUNCTION Boolean isnull( * Value )
@@ -40,145 +51,6 @@
 
 @NAMESPACE Lang
 @{
-
-@CLASS StringMap
-@{
-	typedef struct s_StringMap_Entry	t_StringMap_Entry;
-	struct s_StringMap_Entry
-	{
-		t_StringMap_Entry	*Next;
-		const tSpiderString	*Key;
-		const tSpiderString	*Value;
-	};
-	#define N_STRINGMAP_BUCKETS	256
-	typedef struct
-	{
-		 int	nItems;
-		t_StringMap_Entry	*Buckets[N_STRINGMAP_BUCKETS];
-	} t_StringMap_Info;
-	@CONSTRUCTOR ()
-	@{
-		tSpiderObject	*this;
-
-		this = SpiderScript_AllocateObject(Script, @CLASSPTR, sizeof(t_StringMap_Info));		
-
-		t_StringMap_Info *info = this->OpaqueData;
-		info->nItems = 0;
-		memset(info->Buckets, 0, sizeof(info->Buckets));
-		
-		@RETURN this;
-	@}
-	@DESTRUCTOR
-	@{
-		t_StringMap_Info *info = this->OpaqueData;
-		for( int i = 0; i < N_STRINGMAP_BUCKETS; i ++ )
-		{
-			t_StringMap_Entry	*e, *p;
-			
-			for( e = info->Buckets[i]; e; e = p )
-			{
-				p = e->Next;
-				SpiderScript_DereferenceString(e->Key);
-				SpiderScript_DereferenceString(e->Value);
-				free(e);
-			}
-		}
-	@}
-
-	@FUNCTION void set(String Key, String Value)
-	@{
-		t_StringMap_Info *info = this->OpaqueData;
-		if( !Key )	@RETURN ;
-
-		t_StringMap_Entry	**bucket;
-		if( Key->Length == 0 )
-			bucket = &info->Buckets[0];
-		else
-			bucket = &info->Buckets[ (int)Key->Data[0] ];
-		
-		t_StringMap_Entry	*e, *p = NULL;
-		for( e = *bucket; e; p = e, e = e->Next )
-		{
-			// Length sorted
-			if( e->Key->Length > Key->Length )	break;
-			if( e->Key->Length < Key->Length )	continue;
-			// Data sorted
-			int cmp = memcmp(e->Key->Data, Key->Data, Key->Length);
-			if( cmp > 0 )	break;
-			if( cmp < 0 )	continue ;
-			
-			// Ok, just update this then
-			SpiderScript_DereferenceString(e->Value);
-			SpiderScript_ReferenceString(Value);
-			e->Value = Value;
-			@RETURN ;
-		}
-		
-		e = malloc(sizeof(*e));
-		SpiderScript_ReferenceString(Key);
-		e->Key = Key;
-		SpiderScript_ReferenceString(Value);
-		e->Value = Value;
-		if( p ) {
-			e->Next = p->Next;
-			p->Next = e;
-		}
-		else {
-			e->Next = *bucket;
-			*bucket = e;
-		}
-		info->nItems ++;
-	@}
-
-	@FUNCTION String get(String Key)
-	@{
-		t_StringMap_Info *info = this->OpaqueData;
-		if( !Key )	@RETURN NULL;
-
-		t_StringMap_Entry	**bucket;
-		if( Key->Length == 0 )
-			bucket = &info->Buckets[0];
-		else
-			bucket = &info->Buckets[ (int)Key->Data[0] ];
-
-		t_StringMap_Entry	*e;
-		for( e = *bucket; e; e = e->Next )
-		{
-			// Length sorted
-			if( e->Key->Length > Key->Length )	break;
-			if( e->Key->Length < Key->Length )	continue;
-			// Data sorted
-			int cmp = memcmp(e->Key->Data, Key->Data, Key->Length);
-			if( cmp > 0 )	break;
-			if( cmp < 0 )	continue ;
-			
-			// Ok, just update this then
-			SpiderScript_ReferenceString(e->Value);
-			@RETURN e->Value;
-		}
-		@RETURN NULL;
-	@}
-
-	@FUNCTION String[] keys()
-	@{
-		t_StringMap_Info *info = this->OpaqueData;
-		tSpiderTypeRef	strtype = {&gSpiderScript_StringType, 0};
-		tSpiderArray	*ret = SpiderScript_CreateArray(strtype, info->nItems);
-		 int	j = 0;		
-
-		for( int i = 0; i < N_STRINGMAP_BUCKETS; i ++ )
-		{
-			t_StringMap_Entry	*e;
-			
-			for( e = info->Buckets[i]; e; e = e->Next ) {
-				SpiderScript_ReferenceString(e->Key);
-				ret->Strings[j++] = (void*)e->Key;
-			}
-		}
-		
-		@RETURN ret;
-	@}
-@}
 
 int compare_spiderstring_ptrs(const void *s1, const void *s2)
 {
@@ -228,6 +100,9 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 
 @FUNCTION String[] Split(String Haystack, String Needle)
 @{
+	if( !Haystack )	return SpiderScript_ThrowException_NullRef(Script, "Lang.Strings.Split - Haystack");
+	if( !Needle )	return SpiderScript_ThrowException_NullRef(Script, "Lang.Strings.Split - Needle");
+	
 	 int	haystack_len, needle_len;
 	const void	*haystack, *needle, *end;
 	 int	ofs, slen;
@@ -258,6 +133,45 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	tSpiderArray *ret = SpiderScript_CreateArray(@TYPEOF(Haystack), nSubStrs);
 	memcpy(ret->Strings, strings, nSubStrs*sizeof(tSpiderString*));
 	free(strings);
+
+	@RETURN ret;
+@}
+
+@FUNCTION String Join(String[] Array, String Joiner)
+@{
+	if( !Array ) {
+		return SpiderScript_ThrowException_NullRef(Script, "Join - Input array NULL");
+	}
+	if( !Joiner ) {
+		return SpiderScript_ThrowException_NullRef(Script, "Join - Joiner NULL");
+	}
+	
+	if( Array->Length == 0 ) {
+		@RETURN SpiderScript_CreateString(0, "");
+	}
+
+	if( !Array->Strings[0] ) {
+		return SpiderScript_ThrowException_NullRef(Script, "Join - Array[0] NULL");
+	}
+	
+	size_t	len = Array->Strings[0]->Length;
+	for( unsigned int i = 1; i < Array->Length; i ++ )
+	{
+		if( !Array->Strings[i] )
+			return SpiderScript_ThrowException_NullRef(Script, "Join - Array[i]");
+		len += Joiner->Length + Array->Strings[i]->Length;
+	}
+	
+	tSpiderString	*ret = SpiderScript_CreateString(len, NULL);
+	size_t	ofs = Array->Strings[0]->Length;
+	memcpy(ret->Data, Array->Strings[0]->Data, Array->Strings[0]->Length);
+	for( unsigned int i = 1; i < Array->Length; i ++ )
+	{
+		memcpy(ret->Data + ofs, Joiner->Data, Joiner->Length);
+		ofs += Joiner->Length;
+		memcpy(ret->Data + ofs, Array->Strings[i]->Data, Array->Strings[i]->Length);
+		ofs += Array->Strings[i]->Length;
+	}
 
 	@RETURN ret;
 @}
@@ -342,9 +256,24 @@ const void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	@RETURN ret;
 @}
 
+@FUNCTION String Trim(String Input)
+@{
+	if( !Input )	@RETURN NULL;
+	const char *base = Input->Data;
+	size_t	len = Input->Length;
+	while( len > 0 && isblank(*base) )
+		base ++, len --;
+	
+	while( len > 0 && isblank(base[len-1]) )
+		len --;
+	
+	@RETURN SpiderScript_CreateString(len, base);
+@}
+
 // TODO: RegexReplace
 
-@} // NAMESPACE Strings	
+@} // NAMESPACE Strings
+
 @} // NAMESPACE Lang
 
 // vim: ft=c

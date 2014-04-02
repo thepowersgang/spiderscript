@@ -4,43 +4,11 @@
 #define _TOKENS_H_
 
 #include <setjmp.h>
+#include <stddef.h>
 
-// Make the scope character ('.') be a symbol, otherwise it's just
-// a ident character
+// Make the scope character ('.') be a token, otherwise it's just
+// a identifier character
 #define USE_SCOPE_CHAR	1
-
-// === TYPES ===
-typedef struct
-{	
-	// Lexer State
-	const char	*BufStart;
-	const char	*CurPos;
-	
-	char	*Filename;
-	
-	 int	LastLine;
-	 int	LastToken, LastTokenLen;
-	const char	*LastTokenStr;
-	
-	 int	NextLine;
-	 int	NextToken, NextTokenLen;
-	const char	*NextTokenStr;
-	
-	 int	CurLine;
-	 int	Token, TokenLen;
-	const char	*TokenStr;
-	
-	jmp_buf	JmpTarget;
-	 int	ErrorHit;
-	
-	struct sSpiderScript	*Script;
-	struct sSpiderVariant	*Variant;
-}	tParser;
-
-// === FUNCTIONS ===
- int	GetToken(tParser *File);
-void	PutBack(tParser *File);
- int	LookAhead(tParser *File);
 
 // === CONSTANTS ===
 enum eTokens
@@ -62,6 +30,8 @@ enum eTokens
 	TOK_RWD_FUNCTION,
 	TOK_RWD_CLASS,
 	TOK_RWD_NAMESPACE,
+	TOK_RWD_AUTO,
+	TOK_RWD_OPERATOR,
 	// - Classes
 	TOK_RWD_GLOBAL,
 	TOK_RWD_CONSTANT,
@@ -96,6 +66,7 @@ enum eTokens
 	TOK_QUESTIONMARK,
 	TOK_COLON,
 	TOK_QMARKCOLON,
+	TOK_ELIPSIS,
 	
 	// Comparisons
 	TOK_REFEQUALS, TOK_REFNOTEQUALS,
@@ -105,7 +76,7 @@ enum eTokens
 	
 	// Operations
 	TOK_BWNOT,	TOK_LOGICNOT,
-	TOK_DIV,	TOK_MUL,
+	TOK_DIV,	TOK_MUL,	TOK_MODULO,
 	TOK_PLUS,	TOK_MINUS,
 	TOK_SHL,	TOK_SHR,
 	TOK_LOGICAND,	TOK_LOGICOR,	TOK_LOGICXOR,
@@ -113,7 +84,7 @@ enum eTokens
 	
 	// Assignment Operations
 	TOK_INCREMENT,  	TOK_DECREMENT,
-	TOK_ASSIGN_DIV, 	TOK_ASSIGN_MUL,
+	TOK_ASSIGN_DIV, 	TOK_ASSIGN_MUL, 	TOK_ASSIGN_MODULO,
 	TOK_ASSIGN_PLUS,	TOK_ASSIGN_MINUS,
 	TOK_ASSIGN_SHL, 	TOK_ASSIGN_SHR,
 	TOK_ASSIGN_LOGICAND, 	TOK_ASSIGN_LOGICOR,	TOK_ASSIGN_LOGXICOR,
@@ -125,6 +96,39 @@ enum eTokens
 	
 	TOK_LAST
 };
+
+// === TYPES ===
+struct sLexerToken
+{
+	 int	Line;
+	enum eTokens	Token;
+	size_t	TokenLen;
+	const char	*TokenStr;
+};
+
+typedef struct
+{	
+	// Lexer State
+	const char	*BufStart;
+	const char	*CurPos;
+	
+	char	*Filename;
+	
+	struct sLexerToken	PrevState;
+	struct sLexerToken	NextState;
+	struct sLexerToken	Cur;
+	
+	jmp_buf	JmpTarget;
+	 int	ErrorHit;
+	
+	struct sSpiderScript	*Script;
+	struct sSpiderVariant	*Variant;
+}	tParser;
+
+// === FUNCTIONS ===
+ int	GetToken(tParser *File);
+void	PutBack(tParser *File);
+ int	LookAhead(tParser *File);
 
 # if WANT_TOKEN_STRINGS
 const char * const csaTOKEN_NAMES[] = {
@@ -142,6 +146,8 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_RWD_FUNCTION",
 	"TOK_RWD_CLASS",
 	"TOK_RWD_NAMESPACE",
+	"TOK_RWD_AUTO",
+	"TOK_RWD_OPERATOR",
 
 	"TOK_RWD_GLOBAL",
 	"TOK_RWD_CONSTANT",
@@ -175,6 +181,7 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_QUESTIONMARK",
 	"TOK_COLON",
 	"TOK_QMARKCOLON",
+	"TOK_ELIPSIS",
 	
 	"TOK_REFEQUALS", "TOK_REFNOTEQUALS",
 	"TOK_EQUALS",	"TOK_NOTEQUALS",
@@ -182,14 +189,14 @@ const char * const csaTOKEN_NAMES[] = {
 	"TOK_GT",	"TOK_GTE",
 	
 	"TOK_BWNOT",	"TOK_LOGICNOT",
-	"TOK_DIV",	"TOK_MUL",
+	"TOK_DIV",	"TOK_MUL",	"TOK_MODULO",
 	"TOK_PLUS",	"TOK_MINUS",
 	"TOK_SHL",	"TOK_SHR",
 	"TOK_LOGICAND",	"TOK_LOGICOR",	"TOK_LOGICXOR",
 	"TOK_AND",	"TOK_OR",	"TOK_XOR",
 	
 	"TOK_INCREMENT",  	"TOK_DECREMENT",
-	"TOK_ASSIGN_DIV",	"TOK_ASSIGN_MUL",
+	"TOK_ASSIGN_DIV",	"TOK_ASSIGN_MUL",	"TOK_ASSIGN_MODULO",
 	"TOK_ASSIGN_PLUS",	"TOK_ASSIGN_MINUS",
 	"TOK_ASSIGN_SHL",	"TOK_ASSIGN_SHR",
 	"TOK_ASSIGN_LOGICAND",	"TOK_ASSIGN_LOGICOR",	"TOK_ASSIGN_LOGICXOR",

@@ -2,6 +2,7 @@
  * Acess2 Init
  * - Script AST Manipulator
  */
+#define	DEBUG	0
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,22 +15,27 @@ extern void	SyntaxError_(tParser *Parser, int Line, const char *Message, ...);
 // === CODE ===
 tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 {
-	tScript_Class	*ret;
-
 	// TODO: Prepend namespace?
 
 	// Check if there is already a class/type of this name
-	if( SpiderScript_GetType(Parser->Script, Name) != SS_ERRPTR ) {
+	const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, Name);
+	if( type != SS_ERRPTR )
+	{
+		if( type && type->Class == SS_TYPECLASS_SCLASS )
+			return type->SClass;
 		return NULL;
 	}
 	
-	ret = malloc( sizeof(tScript_Class) + strlen(Name) + 1 );
+	tScript_Class	*ret = malloc( sizeof(tScript_Class) + strlen(Name) + 1 );
 	if( !ret )	return NULL;	
 
 	ret->Next = NULL;
 	ret->FirstFunction = NULL;
 	ret->FirstProperty = NULL;
 	ret->nProperties = 0;
+	ret->nFunctions = 0;
+	ret->Functions = NULL;
+	ret->Properties = NULL;
 	strcpy(ret->Name, Name);
 
 	ret->TypeInfo.Class = SS_TYPECLASS_SCLASS;
@@ -42,6 +48,28 @@ tScript_Class *AST_AppendClass(tParser *Parser, const char *Name)
 	Parser->Script->LastClass = ret;
 	
 	return ret;
+}
+
+bool AST_IsClassFinal(tScript_Class *Class)
+{
+	return (Class->Functions != NULL);
+}
+
+int AST_FinaliseClass(tParser *Parser, tScript_Class *Class)
+{
+	 int	i;
+	tScript_Var	**properties = malloc(sizeof(void*) * Class->nProperties);
+	i = 0;
+	for( tScript_Var *prop = Class->FirstProperty; prop; prop = prop->Next )
+		properties[i++] = prop;
+	Class->Properties = properties;
+	
+	tScript_Function	**functions = malloc(sizeof(void*) * Class->nFunctions);
+	i = 0;
+	for( tScript_Function *func = Class->FirstFunction; func; func = func->Next )
+		functions[i++] = func;
+	Class->Functions = functions;
+	return 0;
 }
 
 int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type)
@@ -73,18 +101,20 @@ int AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *N
 	return 0;
 }
 
-tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable)
 {
 	tScript_Function	*fcn;
-	 int	arg_count = 0, arg_bytes = 0;
-	tAST_Node	*arg;
+	 int	arg_count = 0;
+	size_t	arg_bytes = 0;
 
 	// Count and size arguments
-	for(arg = FirstArg; arg; arg = arg->NextSibling)
+	for(tAST_Node *arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		arg_count ++;
 		arg_bytes += sizeof(fcn->Arguments[0]) + strlen(arg->DefVar.Name) + 1;
 	}
+	DEBUGS1("Fcn '%s' %i args (%zi bytes)",
+		Name, arg_count, arg_bytes);
 
 	// Allocate information
 	fcn = malloc( sizeof(tScript_Function) + arg_bytes + strlen(Name) + 1 );
@@ -96,12 +126,13 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	fcn->ArgumentCount = arg_count;
 	fcn->ASTFcn = Code;
 	fcn->BCFcn = NULL;
+	fcn->IsVariable = bIsVariable;
 	
 	// Set arguments
 	arg_bytes = strlen(Name) + 1;	// Used as an offset into fcn->Name
 	arg_count = 0;
 
-	for(arg = FirstArg; arg; arg = arg->NextSibling)
+	for(tAST_Node *arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		fcn->Arguments[arg_count].Name = fcn->Name + arg_bytes;
 		strcpy(fcn->Arguments[arg_count].Name, arg->DefVar.Name);
@@ -113,7 +144,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	return fcn;
 }
 
-int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code)
+int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable)
 {
 	tScript_Function	*method;
 	
@@ -127,7 +158,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 	tAST_Node *this_def = AST_NewDefineVar(Parser, ref, "this");
 	this_def->NextSibling = FirstArg;
 
-	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code);
+	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code, bIsVariable);
 	if(!method)	return -1;
 
 	AST_FreeNode(this_def);
@@ -137,6 +168,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 	else
 		Class->FirstFunction = method;
 	Class->LastFunction = method;
+	Class->nFunctions ++;
 	
 	return 0;
 }
@@ -144,7 +176,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 /**
  * \brief Append a function to a script
  */
-int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *Args, tAST_Node *Code)
+int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *Args, tAST_Node *Code, bool bIsVariable)
 {
 	tScript_Function	*fcn;
 
@@ -156,7 +188,7 @@ int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnT
 			return 1;
 	}
 
-	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code);
+	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code, bIsVariable);
 	if(!fcn)	return -1;	
 
 	if(Parser->Script->Functions)
@@ -226,6 +258,10 @@ void AST_FreeNode(tAST_Node *Node)
 		AST_FreeNode(Node->For.Condition);
 		AST_FreeNode(Node->For.Increment);
 		AST_FreeNode(Node->For.Code);
+		break;
+	case NODETYPE_ITERATE:
+		AST_FreeNode(Node->Iterator.Value);
+		AST_FreeNode(Node->Iterator.Code);
 		break;
 	
 	// Asignment
@@ -321,7 +357,7 @@ tAST_Node *AST_int_AllocateNode(tParser *Parser, int Type, int ExtraSize)
 	tAST_Node	*ret = malloc( sizeof(tAST_Node) + ExtraSize );
 	ret->NextSibling = NULL;
 	ret->File = Parser->Filename;	*(int*)(Parser->Filename - sizeof(int)) += 1;
-	ret->Line = Parser->CurLine;
+	ret->Line = Parser->Cur.Line;
 	ret->Type = Type;
 	
 	// Runtime Caching
@@ -406,6 +442,29 @@ tAST_Node *AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bP
 	return ret;
 }
 
+tAST_Node *AST_NewIterator(tParser *Parser, const char *Tag, tAST_Node *Value, const char *ItName, const char *ValName, tAST_Node *Code)
+{
+	if( !Value )
+		return NULL;
+	tAST_Node	*ret;
+	if(!Tag)	Tag = "";
+	size_t	strlens = strlen(Tag) + 1 + strlen(ValName) + 1 + (ItName ? strlen(ItName)+1 : 0);
+	strlens = (strlens + 3) & ~3;
+	ret = AST_int_AllocateNode(Parser, NODETYPE_ITERATE, strlens);
+	ret->Iterator.Value = Value;
+	ret->Iterator.Code = Code;
+	strcpy(ret->Iterator.Tag, Tag);
+	ret->Iterator.ValueVar = ret->Iterator.Tag + strlen(Tag)+1;
+	strcpy(ret->Iterator.ValueVar, ValName);
+	if( ItName ) {
+		ret->Iterator.IndexVar = ret->Iterator.ValueVar + strlen(ValName) + 1;
+		strcpy(ret->Iterator.IndexVar, ItName);
+	}
+	else
+		ret->Iterator.IndexVar = NULL;
+	return ret;
+}
+
 tAST_Node *AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_Node *Value)
 {
 	if( !Dest || !Value ) {
@@ -459,9 +518,9 @@ tAST_Node *AST_NewBinOpN(tParser *Parser, int Operation, tAST_Node *Left, tAST_N
 tAST_Node *AST_NewBinOp(tParser *Parser, int Operation, tAST_Node *Left, tAST_Node *Right)
 {
 	if( !Left || !Right ) {
-		SyntaxError_(Parser, -__LINE__, "NULL passed to _NewBinOp");
 		AST_FreeNode(Left);
 		AST_FreeNode(Right);
+		SyntaxError_(Parser, -__LINE__, "NULL passed to _NewBinOp");
 		return NULL;
 	}
 	return AST_NewBinOpN(Parser, Operation, Left, Right);
@@ -594,6 +653,7 @@ tAST_Node *AST_NewFunctionCall(tParser *Parser, const char *Name)
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
+	ret->FunctionCall.IsVArgPassthrough = false;
 	strcpy(ret->FunctionCall.Name, Name);
 	
 	return ret;
@@ -610,6 +670,7 @@ tAST_Node *AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Nam
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
+	ret->FunctionCall.IsVArgPassthrough = false;
 	strcpy(ret->FunctionCall.Name, Name);
 	
 	return ret;
@@ -623,6 +684,7 @@ tAST_Node *AST_NewCreateObject(tParser *Parser, const char *Name)
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
+	ret->FunctionCall.IsVArgPassthrough = false;
 	strcpy(ret->FunctionCall.Name, Name);
 	
 	return ret;
@@ -650,6 +712,19 @@ void AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg)
 		Node->FunctionCall.LastArg = Arg;
 	}
 	Node->FunctionCall.NumArgs ++;
+}
+
+void AST_SetCallVArgPassthrough(tAST_Node *Node)
+{
+	if( Node->Type != NODETYPE_FUNCTIONCALL
+	 && Node->Type != NODETYPE_CREATEOBJECT
+	 && Node->Type != NODETYPE_METHODCALL)
+	{
+		fprintf(stderr, "BUG REPORT: AST_AppendFunctionCallArg on an invalid node type (%i)\n", Node->Type);
+		return ;
+	}
+	
+	Node->FunctionCall.IsVArgPassthrough = true;
 }
 
 /*

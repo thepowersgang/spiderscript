@@ -7,7 +7,30 @@
 
 #include <spiderscript.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
+// ---
+#if DEBUG
+# define DEBUGS2_DOWN()	dbg_indent++; printf("%*s%s\n", dbg_indent, ">", __func__)
+# define DEBUGS2_UP()	printf("%*s%s\n", dbg_indent, "<", __func__); dbg_indent--
+static int dbg_indent = 0;
+#else
+# define DEBUGS2_DOWN()	do{}while(0)
+# define DEBUGS2_UP()	do{}while(0)
+#endif
+#if DEBUG >= 2
+# define DEBUGS2(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
+#else
+# define DEBUGS2(...)	do{}while(0)
+#endif
+#if DEBUG >= 1
+# define DEBUGS1(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
+#else
+# define DEBUGS1(...)	do{}while(0)
+#endif
+// ---
+
+#define MAX_BACKTRACE_SIZE	8
 #define CONSTRUCTOR_NAME	"__constructor"
 #define BC_NS_SEPARATOR	'@'
 
@@ -19,6 +42,7 @@ typedef struct sScript_Var	tScript_Var;
 struct sSpiderScript
 {
 	tSpiderVariant	*Variant;
+	enum eSpiderScript_TraceLevel	BytecodeTraceLevel;
 	
 	tScript_Function	*Functions;
 	tScript_Function	*LastFunction;
@@ -28,6 +52,8 @@ struct sSpiderScript
 	
 	 int	CurException;
 	char	*CurExceptionString;
+	 int	BacktraceSize;
+	tSpiderBacktrace	Backtrace[MAX_BACKTRACE_SIZE];;
 	
 	tScript_Var	*FirstGlobal;
 	tScript_Var	*LastGlobal;
@@ -55,6 +81,7 @@ struct sScript_Function
 	struct sAST_Node	*ASTFcn;
 	struct sBC_Function	*BCFcn;
 
+	bool	IsVariable;
 	 int	ArgumentCount;
 	tScript_Arg	Arguments[];
 };
@@ -78,7 +105,11 @@ struct sScript_Class
 	
 	tScript_Var	*FirstProperty;
 	tScript_Var	*LastProperty;
+	
 	 int	nProperties;
+	tScript_Var	**Properties;
+	 int	nFunctions;
+	tScript_Function	**Functions;
 
 	char	Name[];
 };
@@ -120,13 +151,22 @@ extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, t
 
 extern int	SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeCode);
 
-extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
+extern const char	*SpiderScript_int_GetFunctionName(tSpiderScript *Script, int FunctionID);
+extern const char	*SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef ObjType, int MethodID);
 
+extern void	SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...);
+extern void	SpiderScript_PushBacktrace(tSpiderScript *Script, const char *FcnName, size_t Ofs, const char *FileName, unsigned int Line);
 
 extern int	SpiderScript_int_LoadBytecode(tSpiderScript *Script, const char *Name);
 extern int	SpiderScript_int_LoadBytecodeMem(tSpiderScript *Script, const void *Buffer, size_t Size);
 
 extern tSpiderFunction	*gpExports_First;
 extern char *SpiderScript_FormatTypeStr1(tSpiderScript *Script, const char *Template, tSpiderTypeRef Type1);
+
+
+typedef struct sBC_Function	tBC_Function;
+
+extern tBC_Function	*Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *Fcn);
+
 #endif
 

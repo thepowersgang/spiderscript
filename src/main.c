@@ -139,6 +139,8 @@ void SpiderScript_Free(tSpiderScript *Script)
 			n = fcn->Next;
 			free(fcn);
 		}
+		if(sc->Functions)	free(sc->Functions);
+		if(sc->Properties)	free(sc->Properties);
 		n = sc->Next;
 		free(sc);
 	}	
@@ -163,6 +165,11 @@ void SpiderScript_Free(tSpiderScript *Script)
 		free(Script->BCTypes);
 
 	free(Script);
+}
+
+void SpiderScript_SetTraceLevel(tSpiderScript *Script, enum eSpiderScript_TraceLevel Level)
+{
+	Script->BytecodeTraceLevel = Level;
 }
 
 void SpiderScript_RuntimeError(tSpiderScript *Script, const char *Format, ...)

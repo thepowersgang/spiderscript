@@ -4,6 +4,7 @@
 #define _AST_H_
 
 #include <spiderscript.h>
+#include <stdbool.h>
 #include "tokens.h"
 #include "common.h"
 
@@ -59,17 +60,18 @@ enum eAST_NodeTypes
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_TERNARY,	//!< Ternary / Null-Coalescing
 	NODETYPE_LOOP,	//!< Looping Construct
-	
-	// 29
-	NODETYPE_INDEX,	//!< Index into an array
+	NODETYPE_ITERATE,	//!< Iteration construct (foreach)
 	
 	// 30
+	NODETYPE_INDEX,	//!< Index into an array
+	
+	// 31
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
 	NODETYPE_LOGICALXOR,	//!< Logical XOR operator
 	
-	// 34
+	// 35
 	NODETYPE_REFEQUALS,	//!< References are equal
 	NODETYPE_REFNOTEQUALS,	//!< References differ
 	NODETYPE_EQUALS,	//!< Comparison Equals
@@ -79,18 +81,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
-	// 41
+	// 43
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
-	// 45
+	// 47
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
-	// 48
+	// 50
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract
@@ -109,6 +111,8 @@ struct sAST_Node
 	
 	void	*BlockState;	//!< BlockState pointer (for cache integrity)
 	 int	BlockIdent;	//!< Ident (same as above)
+	
+	tSpiderTypeRef	DataType;	// Datatype used for codegen
 	void	*ValueCache;	//!< Cached value / pointer
 	
 	union
@@ -137,6 +141,7 @@ struct sAST_Node
 			tAST_Node	*Object;
 			tAST_Node	*FirstArg;
 			tAST_Node	*LastArg;
+			bool	IsVArgPassthrough;
 			 int	NumArgs;
 			char	Name[];
 		}	FunctionCall;
@@ -155,6 +160,13 @@ struct sAST_Node
 			tAST_Node	*Code;
 			char	Tag[];
 		}	For;
+		struct {
+			tAST_Node	*Value;
+			char	*ValueVar;	// Local (after tag)
+			char	*IndexVar;	// Local (after tag)
+			tAST_Node	*Code;
+			char	Tag[];
+		}	Iterator;
 		
 		/**
 		 * \note Used for \a NODETYPE_VARIABLE and \a NODETYPE_CONSTANT
@@ -201,9 +213,11 @@ extern size_t	AST_WriteScript(void *Buffer, tSpiderScript *Script);
 extern size_t	AST_WriteNode(void *Buffer, size_t Offset, tAST_Node *Node);
 
 extern tScript_Class	*AST_AppendClass(tParser *Parser, const char *Name);
+extern bool	AST_IsClassFinal(tScript_Class *Class);
+extern int	AST_FinaliseClass(tParser *Parser, tScript_Class *Class);
 extern int	AST_AppendClassProperty(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef Type);
-extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
-extern int	AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code);
+extern int	AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable);
+extern int	AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable);
 
 extern tAST_Node	*AST_NewNop(tParser *Parser);
 
@@ -222,6 +236,7 @@ extern tAST_Node	*AST_NewFunctionCall(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewCreateObject(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Name);
 extern void	AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg);
+extern void	AST_SetCallVArgPassthrough(tAST_Node *Node);
 extern tAST_Node	*AST_NewCreateArray(tParser *Parser, tSpiderTypeRef InnerType, tAST_Node *Size);
 
 extern tAST_Node	*AST_NewCodeBlock(tParser *Parser);
@@ -230,6 +245,7 @@ extern void	AST_AppendNode(tAST_Node *Parent, tAST_Node *Child);
 extern tAST_Node	*AST_NewIf(tParser *Parser, tAST_Node *Condition, tAST_Node *True, tAST_Node *False);
 extern tAST_Node	*AST_NewTernary(tParser *Parser, tAST_Node *Condition, tAST_Node *True, tAST_Node *False);
 extern tAST_Node	*AST_NewLoop(tParser *Parser, const char *Tag, tAST_Node *Init, int bPostCheck, tAST_Node *Condition, tAST_Node *Increment, tAST_Node *Code);
+extern tAST_Node	*AST_NewIterator(tParser *Parser, const char *Tag, tAST_Node *Value, const char *ItName, const char *ValName, tAST_Node *Code);
 
 extern tAST_Node	*AST_NewAssign(tParser *Parser, int Operation, tAST_Node *Dest, tAST_Node *Value);
 extern tAST_Node	*AST_NewCast(tParser *Parser, tSpiderTypeRef Target, tAST_Node *Value);
@@ -239,6 +255,9 @@ extern tAST_Node	*AST_NewUniOp(tParser *Parser, int Operation, tAST_Node *Value)
 extern tAST_Node	*AST_NewBreakout(tParser *Parser, int Type, const char *DestTag);
 
 extern void	AST_FreeNode(tAST_Node *Node);
+
+// ast_optimise.c
+extern tAST_Node	*AST_Optimise(tAST_Node *Node);
 
 // exec_ast.h
 extern tSpiderScript_CoreType	AST_ExecuteNode_UniOp_GetType(tSpiderScript *Script, int Op, tSpiderScript_CoreType Type);
@@ -255,6 +274,10 @@ extern int	AST_ExecuteNode_BinOp_String (tSpiderScript *Script, void *Dest,
 extern int	AST_ExecuteNode_Index(tSpiderScript *Script, void *Dest,
 	tSpiderArray *Array, int Index, tSpiderTypeRef NewType, void *NewValue);
 extern tSpiderTypeRef	AST_ExecuteNode_Element(tSpiderScript *Script, void *Dest,
-	tSpiderObject *Object, const char *Element, tSpiderTypeRef NewType, void *NewValue);
+	tSpiderObject *Object, int ElementIndex, tSpiderTypeRef NewType, void *NewValue);
+
+// exec.c
+extern void	AST_RuntimeMessage(tSpiderScript *Script, tAST_Node *Node, const char *Type, const char *Format, ...);
+extern void	AST_RuntimeError(tSpiderScript *Script, tAST_Node *Node, const char *Format, ...);
 
 #endif
