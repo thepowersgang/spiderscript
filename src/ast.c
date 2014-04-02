@@ -155,7 +155,7 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
 	}
 
 	tSpiderTypeRef	ref = {.Def = &Class->TypeInfo, .ArrayDepth = 0};
-	tAST_Node *this_def = AST_NewDefineVar(Parser, ref, "this");
+	tAST_Node *this_def = AST_NewDefineVar(Parser, ref, "$this");
 	this_def->NextSibling = FirstArg;
 
 	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code, bIsVariable);
@@ -676,8 +676,10 @@ tAST_Node *AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Nam
 	return ret;
 }
 
-tAST_Node *AST_NewCreateObject(tParser *Parser, const char *Name)
+tAST_Node *AST_NewCreateObject(tParser *Parser, const tSpiderScript_TypeDef *Type)
 {
+	// TODO: Don't relookup the class name
+	const char *Name = SpiderScript_GetTypeName(Parser->Script, (tSpiderTypeRef){.Def=Type});
 	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_CREATEOBJECT, strlen(Name) + 1 );
 	
 	ret->FunctionCall.Object = NULL;

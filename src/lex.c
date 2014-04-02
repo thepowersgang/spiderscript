@@ -330,70 +330,54 @@ int GetToken(tParser *File)
 		ret = TOK_BWNOT;
 		break;
 	
-	// Variables
-	// \$[0-9]+ or \$[_a-zA-Z][_a-zA-Z0-9]*
-	case '$':
-		// Numeric Variable
-		if( isdigit( *File->CurPos ) ) {
+	case '0' ... '9':
+		File->CurPos --;
+		
+		ret = TOK_INTEGER;
+		if( *File->CurPos == '0' && File->CurPos[1] == 'x' )
+		{
+			File->CurPos += 2;
+			while(('0' <= *File->CurPos && *File->CurPos <= '9')
+			   || ('A' <= *File->CurPos && *File->CurPos <= 'F')
+			   || ('a' <= *File->CurPos && *File->CurPos <= 'f') )
+			{
+				File->CurPos ++;
+			}
+		}
+		else
+		{
 			while( isdigit(*File->CurPos) )
 				File->CurPos ++;
-		}
-		// Ident Variable
-		else {
-			while( is_ident(*File->CurPos) || isdigit(*File->CurPos) )
+			
+//				printf("*File->CurPos = '%c'\n", *File->CurPos);
+			
+			// Decimal
+			if( *File->CurPos == '.' )
+			{
+				ret = TOK_REAL;
 				File->CurPos ++;
+				while( isdigit(*File->CurPos) )
+					File->CurPos ++;
+			}
+			// Exponent
+			if( *File->CurPos == 'e' || *File->CurPos == 'E' )
+			{
+				ret = TOK_REAL;
+				File->CurPos ++;
+				if(*File->CurPos == '-' || *File->CurPos == '+')
+					File->CurPos ++;
+				while( isdigit(*File->CurPos) )
+					File->CurPos ++;
+			}
+			
+//				printf(" ret = %i\n", ret);
 		}
-		ret = TOK_VARIABLE;
 		break;
-	
+	// Variables
+	case '$':
 	// Default (Numbers and Identifiers)
 	default:
 		File->CurPos --;
-		
-		// Numbers
-		if( isdigit(*File->CurPos) )
-		{
-			ret = TOK_INTEGER;
-			if( *File->CurPos == '0' && File->CurPos[1] == 'x' )
-			{
-				File->CurPos += 2;
-				while(('0' <= *File->CurPos && *File->CurPos <= '9')
-				   || ('A' <= *File->CurPos && *File->CurPos <= 'F')
-				   || ('a' <= *File->CurPos && *File->CurPos <= 'f') )
-				{
-					File->CurPos ++;
-				}
-			}
-			else
-			{
-				while( isdigit(*File->CurPos) )
-					File->CurPos ++;
-				
-//				printf("*File->CurPos = '%c'\n", *File->CurPos);
-				
-				// Decimal
-				if( *File->CurPos == '.' )
-				{
-					ret = TOK_REAL;
-					File->CurPos ++;
-					while( isdigit(*File->CurPos) )
-						File->CurPos ++;
-				}
-				// Exponent
-				if( *File->CurPos == 'e' || *File->CurPos == 'E' )
-				{
-					ret = TOK_REAL;
-					File->CurPos ++;
-					if(*File->CurPos == '-' || *File->CurPos == '+')
-						File->CurPos ++;
-					while( isdigit(*File->CurPos) )
-						File->CurPos ++;
-				}
-				
-//				printf(" ret = %i\n", ret);
-			}
-			break;
-		}
 	
 		// Identifier
 		if( is_ident(*File->CurPos) )
@@ -478,6 +462,7 @@ int is_ident(char ch)
 	if('a' <= ch && ch <= 'z')	return 1;
 	if('A' <= ch && ch <= 'Z')	return 1;
 	if(ch == '_')	return 1;
+	if(ch == '$')	return 1;
 	#if !USE_SCOPE_CHAR
 	if(ch == '.')	return 1;
 	#endif

@@ -233,7 +233,7 @@ extern tAST_Node	*AST_NewConstant(tParser *Parser, const char *Name);
 extern tAST_Node	*AST_NewClassElement(tParser *Parser, tAST_Node *Object, const char *Name);
 
 extern tAST_Node	*AST_NewFunctionCall(tParser *Parser, const char *Name);
-extern tAST_Node	*AST_NewCreateObject(tParser *Parser, const char *Name);
+extern tAST_Node	*AST_NewCreateObject(tParser *Parser, const tSpiderScript_TypeDef *Type);
 extern tAST_Node	*AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Name);
 extern void	AST_AppendFunctionCallArg(tAST_Node *Node, tAST_Node *Arg);
 extern void	AST_SetCallVArgPassthrough(tAST_Node *Node);
