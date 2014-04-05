@@ -208,6 +208,8 @@ int GetToken(tParser *File)
 		ret = TOK_PLUS;
 		break;
 	case '-':
+		if( isdigit(*File->CurPos) )
+			goto _number;
 		if( *File->CurPos == '-' ) {
 			File->CurPos ++;
 			ret = TOK_DECREMENT;
@@ -332,7 +334,7 @@ int GetToken(tParser *File)
 	
 	case '0' ... '9':
 		File->CurPos --;
-		
+	_number:
 		ret = TOK_INTEGER;
 		if( *File->CurPos == '0' && File->CurPos[1] == 'x' )
 		{
@@ -348,8 +350,6 @@ int GetToken(tParser *File)
 		{
 			while( isdigit(*File->CurPos) )
 				File->CurPos ++;
-			
-//				printf("*File->CurPos = '%c'\n", *File->CurPos);
 			
 			// Decimal
 			if( *File->CurPos == '.' )
@@ -375,7 +375,7 @@ int GetToken(tParser *File)
 		break;
 	// Variables
 	case '$':
-	// Default (Numbers and Identifiers)
+	// Default (Identifiers)
 	default:
 		File->CurPos --;
 	

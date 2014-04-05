@@ -788,13 +788,20 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// Special case for `return null;`
 		Block->NullType = Block->Func->Function->ReturnType;
 		
-		ret = AST_ConvertNode(Block, Node->UniOp.Value, &vreg);
-		if(ret)	return ret;
-		ret = _AssertRegType(Block, Node->UniOp.Value, vreg, Block->Func->Function->ReturnType);
-		if(ret)	return ret;
-		
-		Bytecode_AppendReturn(Block->Func->Handle, vreg);
-		_ReleaseRegister(Block, vreg);
+		if( Node->UniOp.Value->Type == NODETYPE_NOP)
+		{
+			Bytecode_AppendReturn(Block->Func->Handle, 0);
+		}
+		else
+		{
+			ret = AST_ConvertNode(Block, Node->UniOp.Value, &vreg);
+			if(ret)	return ret;
+			ret = _AssertRegType(Block, Node->UniOp.Value, vreg, Block->Func->Function->ReturnType);
+			if(ret)	return ret;
+			
+			Bytecode_AppendReturn(Block->Func->Handle, vreg);
+			_ReleaseRegister(Block, vreg);
+		}
 		NO_RESULT();
 		break;
 	

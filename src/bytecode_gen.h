@@ -11,11 +11,13 @@
 #include <stdbool.h>
 
 enum eBC_UniOp {
+	UNIOP_NONE,
 	UNIOP_LOGICNOT,
 	UNIOP_BITNOT,
 	UNIOP_NEG
 };
 enum eBC_BinOp {
+	BINOP_NONE,
 	BINOP_LOGICAND,
 	BINOP_LOGICOR,
 	BINOP_LOGICXOR,

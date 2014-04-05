@@ -504,7 +504,11 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 	// Return from a method
 	case TOK_RWD_RETURN:
 		GetToken(Parser);
-		ret = AST_NewUniOp(Parser, NODETYPE_RETURN, Parse_DoExpr0(Parser));
+		if( LookAhead(Parser) != TOK_SEMICOLON )
+			ret = Parse_DoExpr0(Parser);
+		else
+			ret = AST_NewNop(Parser);
+		ret = AST_NewUniOp(Parser, NODETYPE_RETURN, ret);
 		break;
 
 	//case TOK_RWD_DELETE:
@@ -1524,12 +1528,18 @@ tAST_Node *Parse_GetString(tParser *Parser)
  */
 tAST_Node *Parse_GetNumeric(tParser *Parser)
 {
-	uint64_t	value = 0;
+	int64_t	value = 0;
 	const char	*pos;
+	bool	 neg = false;
 	GetToken( Parser );
 	pos = Parser->Cur.TokenStr;
 	//printf("pos = %p, *pos = %c\n", pos, *pos);
-		
+
+	if( *pos == '-' ) {
+		neg = true;
+		pos ++;
+	}
+	
 	if( *pos == '0' )
 	{
 		pos ++;
@@ -1567,7 +1577,7 @@ tAST_Node *Parse_GetNumeric(tParser *Parser)
 		}
 	}
 	
-	return AST_NewInteger( Parser, value );
+	return AST_NewInteger( Parser, (neg ? -value : value) );
 }
 
 tAST_Node *Parse_DoFunctionArgs(tParser *Parser, tAST_Node *FcnNode)
