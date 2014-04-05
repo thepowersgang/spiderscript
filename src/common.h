@@ -18,13 +18,14 @@ static int dbg_indent = 0;
 # define DEBUGS2_DOWN()	do{}while(0)
 # define DEBUGS2_UP()	do{}while(0)
 #endif
+#define _DEBUGS(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
 #if DEBUG >= 2
-# define DEBUGS2(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
+# define DEBUGS2(s, v...)	_DEBUGS(s,v)
 #else
 # define DEBUGS2(...)	do{}while(0)
 #endif
 #if DEBUG >= 1
-# define DEBUGS1(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
+# define DEBUGS1(s, v...)	_DEBUGS(s,v)
 #else
 # define DEBUGS1(...)	do{}while(0)
 #endif
@@ -76,14 +77,12 @@ struct sScript_Function
 	// char	*Namespace;
 	char	*Name;
 
-	tSpiderTypeRef	ReturnType;
-	
 	struct sAST_Node	*ASTFcn;
 	struct sBC_Function	*BCFcn;
 
-	bool	IsVariable;
 	 int	ArgumentCount;
-	tScript_Arg	Arguments[];
+	char	**ArgNames;
+	tSpiderFcnProto	Prototype;
 };
 
 struct sScript_Var

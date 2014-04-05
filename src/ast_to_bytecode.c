@@ -155,7 +155,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 	// Parse arguments
 	for( int i = 0; i < Fcn->ArgumentCount; i ++ )
 	{
-		int rv = BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Arguments[i].Type, Fcn->Arguments[i].Name, NULL);
+		int rv = BC_Variable_Define(&bi, Fcn->ASTFcn, Fcn->Prototype.Args[i], Fcn->ArgNames[i], NULL);
 		if(rv) {
 			AST_RuntimeError(Script, Fcn->ASTFcn, "Error in creating arguments");
 			BC_Variable_Clear(&bi);
@@ -786,7 +786,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 	// Return
 	case NODETYPE_RETURN:
 		// Special case for `return null;`
-		Block->NullType = Block->Func->Function->ReturnType;
+		Block->NullType = Block->Func->Function->Prototype.ReturnType;
 		
 		if( Node->UniOp.Value->Type == NODETYPE_NOP)
 		{
@@ -796,7 +796,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		{
 			ret = AST_ConvertNode(Block, Node->UniOp.Value, &vreg);
 			if(ret)	return ret;
-			ret = _AssertRegType(Block, Node->UniOp.Value, vreg, Block->Func->Function->ReturnType);
+			ret = _AssertRegType(Block, Node->UniOp.Value, vreg, Block->Func->Function->Prototype.ReturnType);
 			if(ret)	return ret;
 			
 			Bytecode_AppendReturn(Block->Func->Handle, vreg);
@@ -1355,6 +1355,8 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		return -1;
 	}
 	
+	const tSpiderFcnProto	*proto;
+	bool	explicit_this = false;
 	if( def->Class == SS_TYPECLASS_SCLASS )
 	{
 		tScript_Class	*sc = def->SClass;
@@ -1364,80 +1366,64 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		{
 			if( strcmp(sf->Name, CONSTRUCTOR_NAME) == 0 )
 				break; 
+			// TODO: Handle overloaded functions
 		}
 	
-		if( sf )
-		{
-			// Argument count check
-			if( 1+NArgs < sf->ArgumentCount || (!sf->IsVariable && 1+NArgs != sf->ArgumentCount) )
-			{
-				AST_NODEERROR( "Constructor for %s takes %i%s arguments, passed %i",
-					Name, sf->ArgumentCount, (sf->IsVariable ? "+" : ""),NArgs);
-				return -1;
-			}
-			// Type checks
-			// - Arg 1 of a script class's constructor is the implicit 'this'
-			for( int i = 0; i < sf->ArgumentCount-1; i ++ )
-			{
-				ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
-				if(ret)	return ret;
-				if( !SS_TYPESEQUAL(sf->Arguments[i+1].Type, type) ) {
-					// Sad to be chucked
-					AST_NODEERROR( "Arg %i of %s constructor expected %s, given %s",
-						i, Name,
-						SpiderScript_GetTypeName(script, sf->Arguments[i+1].Type),
-						SpiderScript_GetTypeName(script, type)
-						);
-					return -1;
-				}
-			}
-		}
-		else
-		{
-			// No constructor, no arguments
-			if( NArgs != 0 ) {
-				AST_NODEERROR(
-					"Class %s has no constructor, no arguments allowed", Name);
-				return -1;
-			}
-		}
+		proto = (sf ? &sf->Prototype : NULL);
+		explicit_this = true;
 	}
 	else if( def->Class == SS_TYPECLASS_NCLASS )
 	{
 		tSpiderClass	*nc = def->NClass;
 		tSpiderFunction *nf = nc->Constructor;
-		 int	minArgc = 0;
-		 int	bVariable = 0;
 
-		if( !nf ) {
-			minArgc = 0;
-			bVariable = 0;
-		}
-		else {
-			for( minArgc = 0; nf->Prototype->Args[minArgc].Def; minArgc ++ )
-				;
-			bVariable = nf->Prototype->bVariableArgs;
-		}
+		// TODO: Allow overloaded constructors
+
+		proto = (nf ? nf->Prototype : NULL);
+	}
+	else
+	{
+		AST_NODEERROR("Construction of non-object");
+		return -1;
+	}
+	
+	if( proto )
+	{
+		 int	minArgc = 0;
+		for( ; proto->Args[minArgc].Def; minArgc ++ )
+			;
+		bool bVariable = proto->bVariableArgs;
+		 int	ofs = (explicit_this ? 1 : 0);
+
 		// Argument count check
-		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
-			AST_NODEERROR( "Constructor %s takes %i arguments, passed %i",
-				Name, minArgc, NArgs);
+		if( ofs+NArgs < minArgc || (!bVariable && ofs+NArgs > minArgc) ) {
+			AST_NODEERROR( "Constructor %s takes %i%s arguments, passed %i",
+				Name, minArgc, (bVariable ? "+" : ""), NArgs);
 			return -1;
 		}
 		// Type checks
-		for( int i = 0; i < NArgs; i ++ )
+		for( int i = ofs; i < minArgc; i ++ )
 		{
-			ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
+			ret = _GetRegisterInfo(Block, ArgRegs[i-ofs], &type, NULL);
 			if(ret) return ret;
-			if( !SS_TYPESEQUAL(nf->Prototype->Args[i], type) ) {
+			if( !SS_TYPESEQUAL(proto->Args[i], type) ) {
 				// Sad to be chucked
 				AST_NODEERROR( "Argument %i of constructor %s should be %s, given %s",
-					i, Name,
-					SpiderScript_GetTypeName(script, nf->Prototype->Args[i]),
+					i-ofs, Name,
+					SpiderScript_GetTypeName(script, proto->Args[i]),
 					SpiderScript_GetTypeName(script, type)
 					);
 				return -1;
 			}
+		}
+	}
+	else
+	{
+		if( NArgs > 0 )
+		{
+			AST_NODEERROR("Constructor for %s takes no arguments",
+				Name);
+			return -1;
 		}
 	}
 
@@ -1471,12 +1457,12 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
  */
 int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough)
 {
+	tSpiderScript	*Script = Block->Func->Script;
 	 int	id = 0;
 	 int	ret;
 	tSpiderTypeRef	ret_type;
 	tRegister	retreg;
-	tScript_Function *sf = NULL;
-	tSpiderFunction  *nf = NULL;
+	const tSpiderFcnProto	*proto = NULL;
 	
 	DEBUGS1("BC_CallFunction '%s'", Name);
 
@@ -1502,31 +1488,35 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 		if( thistype.Def->Class == SS_TYPECLASS_NCLASS )
 		{
 			tSpiderClass *nc = thistype.Def->NClass;
+			tSpiderFunction  *nf;
 			for( nf = nc->Methods; nf; nf = nf->Next, id ++ )
 			{
-				if( strcmp(nf->Name, Name) == 0 ) {
+				if( strcmp(nf->Name, Name) == 0 )
 					break;
-				}
+				// TODO: Overloads
 			}
 			if( !nf ) {
 				AST_NODEERROR("Class %s does not have a method '%s'", nc->Name, Name);
 				return -1;
 			}
+			proto = nf->Prototype;
 		}
 		else if( thistype.Def->Class == SS_TYPECLASS_SCLASS )
 		{
 			tScript_Class	*sc = thistype.Def->SClass;
+			tScript_Function *sf;
 			// Script class
 			for( sf = sc->FirstFunction; sf; sf = sf->Next, id ++ )
 			{
-				if( strcmp(sf->Name, Name) == 0 ) {
+				if( strcmp(sf->Name, Name) == 0 )
 					break;
-				}
+				// TODO: Overloads
 			}
 			if( !sf ) {
 				AST_NODEERROR("Class %s does not have a method '%s'", sc->Name, Name);
 				return -1;
 			}
+			proto = &sf->Prototype;
 		}
 		else
 		{
@@ -1547,85 +1537,54 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 		
 		// TODO: Assuming the internals is hacky
 		if( id >> 16 )
-			nf = ident;
+			proto = ((tSpiderFunction*)ident)->Prototype;
 		else
-			sf = ident;
+			proto = &((tScript_Function*)ident)->Prototype;
 	}
-
-	if( sf )
+	
+	if( !proto )
 	{
+		AST_NODEERROR("Can't find '%s'", Name);
+		return -1;
+	}
+	else
+	{
+		 int	minArgc = 0;
+		for( ; proto->Args[minArgc].Def; minArgc ++ )
+			;
+		bool bVariable = proto->bVariableArgs;
+
+		DEBUGS1("minArgc = %i, bVariable = %i", minArgc, bVariable);
+
 		// Argument count check
-		if( NArgs < sf->ArgumentCount || (!sf->IsVariable && NArgs != sf->ArgumentCount) )
-		{
+		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
 			AST_NODEERROR("%s takes %i%s arguments, passed %i",
-				Name, sf->ArgumentCount, (sf->IsVariable ? "+" : ""),
+				Name, minArgc, (bVariable ? "+" : ""),
 				NArgs);
 			return -1;
 		}
 		// Type checks
-		for( int i = 0; i < sf->ArgumentCount; i ++ )
+		for( int i = 0; i < minArgc; i ++ )
 		{
 			tSpiderTypeRef	type;
 			ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
-			if(ret)	return ret;
-			if( !SS_TYPESEQUAL(sf->Arguments[i].Type, type) ) {
-				// Sad to be chucked
-				AST_NODEERROR("Argument %i of %s should be %s, given %s",
-					i, Name,
-					SpiderScript_GetTypeName(Block->Func->Script, sf->Arguments[i].Type),
-					SpiderScript_GetTypeName(Block->Func->Script, type)
-					);
-				return -1;
-			}
-		}
-	
-		ret_type = sf->ReturnType;	
-	}
-	else if( nf )
-	{
-		 int	minArgc = 0;
-		 int	bVariable = 0;
-		
-		for( minArgc = 0; nf->Prototype->Args[minArgc].Def != NULL; minArgc ++ )
-			;
-		bVariable = !!(nf->Prototype->bVariableArgs);
-		DEBUGS1("minArgc = %i, bVariable = %i", minArgc, bVariable);
-
-		// Check argument count
-		if( NArgs < minArgc || (!bVariable && NArgs > minArgc) ) {
-			AST_NODEERROR("%s takes %i%s arguments, passed %i",
-				Name, minArgc, (bVariable?"+":""), NArgs);
-			return -1;
-		}
-
-		// Check argument types (and passing too few arguments)
-		for( int i = 0; i < minArgc; i ++ )
-		{
-			tSpiderTypeRef	argtype = nf->Prototype->Args[i];
+			if(ret) return ret;
 			// undefined = any type
-			if( SS_ISCORETYPE(argtype, SS_DATATYPE_UNDEF) ) {
+			if( SS_ISCORETYPE(proto->Args[i], SS_DATATYPE_UNDEF) ) {
 				continue ;
 			}
-			tSpiderTypeRef  type;
-			ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
-			if(ret) return ret;
-			
-			if( !SS_TYPESEQUAL(argtype, type) ) {
-				AST_NODEERROR("Argument %i of %s should be %s, given %s",
+			if( !SS_TYPESEQUAL(proto->Args[i], type) ) {
+				// Sad to be chucked
+				AST_NODEERROR( "Argument %i of %s should be %s, given %s",
 					i, Name,
-					SpiderScript_GetTypeName(Block->Func->Script, argtype),
-					SpiderScript_GetTypeName(Block->Func->Script, type)
+					SpiderScript_GetTypeName(Script, proto->Args[i]),
+					SpiderScript_GetTypeName(Script, type)
 					);
 				return -1;
 			}
 		}
-	
-		ret_type = nf->Prototype->ReturnType;
-	}
-	else
-	{
-		AST_NODEERROR("Can't find '%s'", Name);
-		return -1;
+		
+		ret_type = proto->ReturnType;
 	}
 
 	ret = _AllocateRegister(Block, Node, ret_type, NULL, &retreg);

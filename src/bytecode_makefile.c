@@ -16,6 +16,7 @@
 
 #define MAGIC_STR	"SSBC\r\n\xBC\x58"
 #define MAGIC_STR_LEN	(sizeof(MAGIC_STR)-1)
+#define MAGIC_VERSION	1001
 
 #define DEBUG	0
 #if DEBUG
@@ -150,7 +151,8 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	// Get size of function metadata in memory (and load arguments)
 	 int	datasize = 0;
 	datasize += sizeof(tScript_Function);
-	datasize += n_args * sizeof(ret->Arguments[0]);
+	datasize += n_args * (sizeof(char*) + sizeof(ret->Prototype.Args[0]));
+	datasize += sizeof(ret->Prototype.Args[0]);
 	size_t	len = _get_str(State, NULL, namestr) + 1;
 	_ASSERT_R(len, !=, -1, NULL);
 	datasize += len;
@@ -158,26 +160,27 @@ tScript_Function *_get_fcn(t_loadstate *State)
 	{
 		args[i].Name = _get16(State);
 		args[i].Type = _get16(State);
-		len = _get_str(State, NULL, args[i].Name) + 1;
+		len = _get_str(State, NULL, args[i].Name);
 		_ASSERT_R(len, !=, -1, NULL);
-		datasize += len;
+		datasize += len + 1;
 	}
 
 	// Create and populate metadata structure
 	ret = malloc( datasize );
 	ret->Next = NULL;
-	ret->Name = (void*)&ret->Arguments[n_args];
+	ret->ArgNames = (void*)&ret->Prototype.Args[n_args+1];
+	ret->Name = (void*)&ret->ArgNames[n_args];
 	_get_str(State, ret->Name, namestr);
 	ret->ArgumentCount = n_args;
-	ret->ReturnType = _get_type(State, ret_type);
-	ret->IsVariable = (flags & 1);
+	ret->Prototype.ReturnType = _get_type(State, ret_type);
+	ret->Prototype.bVariableArgs = (flags & 1);
 	ret->ASTFcn = NULL;
 	char *nameptr = ret->Name + _get_str(State, NULL, namestr) + 1;
 	for( int i = 0; i < n_args; i ++ )
 	{
-		ret->Arguments[i].Name = nameptr;
+		ret->ArgNames[i] = nameptr;
 		int len = _get_str(State, nameptr, args[i].Name);
-		ret->Arguments[i].Type = _get_type(State, args[i].Type);
+		ret->Prototype.Args[i] = _get_type(State, args[i].Type);
 		nameptr += len + 1;
 	}
 	
@@ -256,6 +259,12 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 			return -1;
 		}
 	}
+	// Check version
+	const int	file_ver  = _get16(State);
+	if( file_ver != MAGIC_VERSION ) {
+		TRACE("Version mismatch %i != %i", file_ver, MAGIC_VERSION);
+		return -1;
+	}
 	
 	
 	// Get counts
@@ -266,7 +275,7 @@ int SpiderScript_int_LoadBytecodeStream(tSpiderScript *Script, FILE *fp)
 	const int	n_str     = _get16(State);
 	const off_t	ofs_str   = _get32(State);
 	// TODO: Validation	
-
+	
 	TRACE("Header %ic %it %ig %if %is@%lx", n_class, n_types, n_globals, n_fcn, n_str, ofs_str);
 
 	// Load string table
@@ -534,15 +543,17 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 		_put32( 0 );	// Code length
 		
 		// Prototype
-		_put16( Bytecode_int_GetTypeIdx(Script, fcn->ReturnType) );
-		_put8(fcn->IsVariable ? 1 : 0);
+		_put16( Bytecode_int_GetTypeIdx(Script, fcn->Prototype.ReturnType) );
+		uint8_t	flags = 0;
+		if(fcn->Prototype.bVariableArgs)	flags |= 0x1;
+		_put8(flags);
 		_put16( fcn->ArgumentCount );
 		for( int i = 0; i < fcn->ArgumentCount; i ++ )
 		{
 			_put16( StringList_GetString(&strings,
-				fcn->Arguments[i].Name, strlen(fcn->Arguments[i].Name))
+				fcn->ArgNames[i], strlen(fcn->ArgNames[i]))
 				);
-			_put16( Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type) );
+			_put16( Bytecode_int_GetTypeIdx(Script, fcn->Prototype.Args[i]) );
 		}
 		return 0;
 	}
@@ -577,9 +588,9 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 	// Pre-scan types (ensure all types used are in the table)
 	for(fcn = Script->Functions; fcn; fcn = fcn->Next, fcn_count ++)
 	{
-		Bytecode_int_GetTypeIdx(Script, fcn->ReturnType);
+		Bytecode_int_GetTypeIdx(Script, fcn->Prototype.ReturnType);
 		for( int i = 0; i < fcn->ArgumentCount; i ++ )
-			Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type);
+			Bytecode_int_GetTypeIdx(Script, fcn->Prototype.Args[i]);
 	}
 	for( sc = Script->FirstClass; sc; sc = sc->Next, class_count ++ )
 	{
@@ -589,9 +600,9 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 		}
 		for(fcn = sc->FirstFunction; fcn; fcn = fcn->Next)
 		{
-			Bytecode_int_GetTypeIdx(Script, fcn->ReturnType);
+			Bytecode_int_GetTypeIdx(Script, fcn->Prototype.ReturnType);
 			for( int i = 0; i < fcn->ArgumentCount; i ++ )
-				Bytecode_int_GetTypeIdx(Script, fcn->Arguments[i].Type);
+				Bytecode_int_GetTypeIdx(Script, fcn->Prototype.Args[i]);
 		}
 	}
 

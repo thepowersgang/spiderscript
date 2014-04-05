@@ -246,7 +246,7 @@ struct sSpiderFcnProto
 	 int	bVariableArgs;
 
 	/**
-	 * \brief Argument types (NULL terminated)
+	 * \brief Argument types (NULL/void terminated)
 	 * 
 	 */
 	tSpiderTypeRef	Args[];

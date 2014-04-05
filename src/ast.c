@@ -111,8 +111,10 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	for(tAST_Node *arg = FirstArg; arg; arg = arg->NextSibling)
 	{
 		arg_count ++;
-		arg_bytes += sizeof(fcn->Arguments[0]) + strlen(arg->DefVar.Name) + 1;
+		arg_bytes += sizeof(tSpiderTypeRef);
+		arg_bytes += sizeof(char*) + strlen(arg->DefVar.Name) + 1;
 	}
+	arg_bytes += sizeof(tSpiderTypeRef);
 	DEBUGS1("Fcn '%s' %i args (%zi bytes)",
 		Name, arg_count, arg_bytes);
 
@@ -120,54 +122,73 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 	fcn = malloc( sizeof(tScript_Function) + arg_bytes + strlen(Name) + 1 );
 	if(!fcn)	return NULL;
 	fcn->Next = NULL;
-	fcn->Name = (char*)&fcn->Arguments[arg_count];
+	fcn->ArgNames = (void*)&fcn->Prototype.Args[arg_count+1];
+	fcn->Name = (char*)&fcn->ArgNames[arg_count];
 	strcpy(fcn->Name, Name);
-	fcn->ReturnType = ReturnType;
 	fcn->ArgumentCount = arg_count;
 	fcn->ASTFcn = Code;
 	fcn->BCFcn = NULL;
-	fcn->IsVariable = bIsVariable;
+	fcn->Prototype.ReturnType = ReturnType;
+	fcn->Prototype.bVariableArgs = bIsVariable;
 	
 	// Set arguments
-	arg_bytes = strlen(Name) + 1;	// Used as an offset into fcn->Name
+	char *pos = fcn->Name + strlen(Name) + 1;
 	arg_count = 0;
-
 	for(tAST_Node *arg = FirstArg; arg; arg = arg->NextSibling)
 	{
-		fcn->Arguments[arg_count].Name = fcn->Name + arg_bytes;
-		strcpy(fcn->Arguments[arg_count].Name, arg->DefVar.Name);
-		fcn->Arguments[arg_count].Type = arg->DefVar.DataType;
-		arg_bytes += strlen(arg->DefVar.Name) + 1;
+		strcpy(pos, arg->DefVar.Name);
+		fcn->ArgNames[arg_count] = pos;
+		pos += strlen(arg->DefVar.Name) + 1;
+		fcn->Prototype.Args[arg_count] = arg->DefVar.DataType;
 		arg_count ++;
 	}
+	fcn->Prototype.Args[arg_count].ArrayDepth = 0;
+	fcn->Prototype.Args[arg_count].Def = NULL;
 
 	return fcn;
 }
 
-int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable)
+int AST_int_AppendFunction(tScript_Function **Head, tScript_Function **Tail, tScript_Function *Fcn)
 {
-	tScript_Function	*method;
-	
 	// Check for duplicates
-	for( method = Class->FirstFunction; method; method = method->Next ) {
-		if( strcmp(method->Name, Name) == 0 )
-			return 1;
+	for( tScript_Function *f = *Head; f; f = f->Next )
+	{
+		DEBUGS1("%p == %p", f->Name, Fcn->Name);
+		DEBUGS1("%s == %s", f->Name, Fcn->Name);
+		if( strcmp(f->Name, Fcn->Name) != 0 )
+			continue ;
+		if( f->ArgumentCount != Fcn->ArgumentCount )
+			continue ;
+		if( memcmp(f->Prototype.Args, Fcn->Prototype.Args, sizeof(tSpiderTypeRef)*f->ArgumentCount) )
+			continue ;
+		return 1;
 	}
 
+	if(*Head)
+		(*Tail)->Next = Fcn;
+	else
+		*Head = Fcn;
+	*Tail = Fcn;
+	return 0;
+}
+
+int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *FirstArg, tAST_Node *Code, bool bIsVariable)
+{
+	// Create first off
 	tSpiderTypeRef	ref = {.Def = &Class->TypeInfo, .ArrayDepth = 0};
 	tAST_Node *this_def = AST_NewDefineVar(Parser, ref, "$this");
 	this_def->NextSibling = FirstArg;
 
-	method = AST_int_MakeFunction(Name, ReturnType, this_def, Code, bIsVariable);
-	if(!method)	return -1;
-
+	tScript_Function *method = AST_int_MakeFunction(Name, ReturnType, this_def, Code, bIsVariable);
 	AST_FreeNode(this_def);
+	if(!method)	return -1;
 	
-	if(Class->FirstFunction)
-		Class->LastFunction->Next = method;
-	else
-		Class->FirstFunction = method;
-	Class->LastFunction = method;
+	if( AST_int_AppendFunction(&Class->FirstFunction, &Class->LastFunction, method) )
+	{
+		free(method);
+		return 1;
+	}
+
 	Class->nFunctions ++;
 	
 	return 0;
@@ -178,25 +199,17 @@ int AST_AppendMethod(tParser *Parser, tScript_Class *Class, const char *Name, tS
  */
 int AST_AppendFunction(tParser *Parser, const char *Name, tSpiderTypeRef ReturnType, tAST_Node *Args, tAST_Node *Code, bool bIsVariable)
 {
-	tScript_Function	*fcn;
-
 	// TODO: Prepend namespace
 
-	for( fcn = Parser->Script->Functions; fcn; fcn = fcn->Next )
-	{
-		if( strcmp(fcn->Name, Name) == 0 )
-			return 1;
-	}
-
-	fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code, bIsVariable);
+	tScript_Function *fcn = AST_int_MakeFunction(Name, ReturnType, Args, Code, bIsVariable);
 	if(!fcn)	return -1;	
 
-	if(Parser->Script->Functions)
-		Parser->Script->LastFunction->Next = fcn;
-	else
-		Parser->Script->Functions = fcn;
-	Parser->Script->LastFunction = fcn;
-	
+	if( AST_int_AppendFunction(&Parser->Script->Functions, &Parser->Script->LastFunction, fcn) )
+	{
+		free(fcn);
+		return 1;
+	}
+
 	return 0;
 }
 

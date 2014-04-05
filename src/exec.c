@@ -255,7 +255,7 @@ int SpiderScript_int_ExecuteFunction(tSpiderScript *Script, int FunctionID,
 		if( FunctionIdent )
 			*FunctionIdent = (void*)( (intptr_t)sfcn | 1 );
 		if( RetType )
-			*RetType = sfcn->ReturnType;
+			*RetType = sfcn->Prototype.ReturnType;
 
 		// Execute!
 		return Bytecode_ExecuteFunction(Script, sfcn, RetData, NArguments, ArgTypes, Arguments);
@@ -354,10 +354,10 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 			// Type checking (eventually will not be needed)
 			for( i = 1; i < NArguments; i ++ )
 			{
-				if( !SS_TYPESEQUAL(ArgTypes[i],sf->Arguments[i].Type) )
+				if( !SS_TYPESEQUAL(ArgTypes[i],sf->Prototype.Args[i]) )
 				{
 					return SpiderScript_ThrowException_ArgError(Script, sc->Name, sf->Name,
-						i+1, sf->Arguments[i].Type, ArgTypes[i]);
+						i+1, sf->Prototype.Args[i], ArgTypes[i]);
 				}
 			}
 		}
@@ -418,7 +418,7 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 		if( FunctionIdent )
 			*FunctionIdent = (void*)( (intptr_t)sf | 1 );
 		if( RetType )
-			*RetType = sf->ReturnType;
+			*RetType = sf->Prototype.ReturnType;
 		return Bytecode_ExecuteFunction(Script, sf, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else if( fcn )

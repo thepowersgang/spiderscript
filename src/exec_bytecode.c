@@ -349,14 +349,14 @@ int Bytecode_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn,
 	for( int i = 0; i < NArguments; i ++ )
 		Bytecode_int_DerefStackValue(Script, &args[i]);
 
-	if( ret == 0 && Fcn->ReturnType.Def != NULL )
+	if( ret == 0 && Fcn->Prototype.ReturnType.Def != NULL )
 	{
-		if( !SS_TYPESEQUAL(Fcn->ReturnType, retval.Type) )
+		if( !SS_TYPESEQUAL(Fcn->Prototype.ReturnType, retval.Type) )
 		{
 			SpiderScript_RuntimeError(Script, "'%s' returned type %s not stated %s",
 				Fcn->Name,
 				SpiderScript_GetTypeName(Script, retval.Type),
-				SpiderScript_GetTypeName(Script, Fcn->ReturnType)
+				SpiderScript_GetTypeName(Script, Fcn->Prototype.ReturnType)
 				);
 			return -1;
 		}
@@ -522,9 +522,9 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	}
 	
 
-	if( ArgCount < Fcn->ArgumentCount || (!Fcn->IsVariable && ArgCount != Fcn->ArgumentCount) ) {
+	if( ArgCount < Fcn->ArgumentCount || (!Fcn->Prototype.bVariableArgs && ArgCount != Fcn->ArgumentCount) ) {
 		return SpiderScript_ThrowException_ArgCount(Script, Fcn->Name,
-			(Fcn->IsVariable ? -Fcn->ArgumentCount : Fcn->ArgumentCount), ArgCount);
+			(Fcn->Prototype.bVariableArgs ? -Fcn->ArgumentCount : Fcn->ArgumentCount), ArgCount);
 	}
 	const int	VArgC = ArgCount - Fcn->ArgumentCount;
 	const tBC_StackEnt	**VArgs = Args + Fcn->ArgumentCount;
@@ -542,7 +542,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 	{
 		i --;
 		registers[i].Integer = 0;
-		registers[i].Type = Fcn->Arguments[i].Type;
+		registers[i].Type = Fcn->Prototype.Args[i];
 	}
 	for( ; i --; )
 	{
@@ -1139,6 +1139,7 @@ int Bytecode_int_ExecuteFunction(tSpiderScript *Script, tScript_Function *Fcn, i
 			DEBUG_F("BINOP_STR_%s R%i = ", opstr, op->DstReg);
 			
 			_BC_ASSERTTYPE(reg1->Type, TYPE_STRING, "reg1");
+			_BC_ASSERTTYPE(reg2->Type, TYPE_STRING, "reg2");	// TODO: others?
 
 			DEBUG_F("R%i [", OP_REG2(op)); PRINT_STACKVAL(*reg1); DEBUG_F("] ");
 			DEBUG_F("R%i [", OP_REG3(op)); PRINT_STACKVAL(*reg2); DEBUG_F("]\n");
