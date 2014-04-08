@@ -253,9 +253,12 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 		switch( l->Type )
 		{
 		case NODETYPE_INTEGER:	l->ConstInt = ~l->ConstInt;	break;
-		default:	break;
+		default:
+			return Node;
 		}
-		break;
+		Node->UniOp.Value = NULL;
+		AST_FreeNode(Node);
+		return l;
 	case NODETYPE_LOGICALNOT:
 		l = _OPT(Node->UniOp.Value);
 		switch( l->Type )
@@ -267,18 +270,24 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 			l->Type = NODETYPE_BOOLEAN;
 			l->ConstBoolean = (l->ConstInt != 0);
 			break;
-		default:	break;
+		default:
+			return Node;
 		}
-		break;
+		Node->UniOp.Value = NULL;
+		AST_FreeNode(Node);
+		return l;
 	case NODETYPE_NEGATE:
 		l = _OPT(Node->UniOp.Value);
 		switch( l->Type )
 		{
 		case NODETYPE_INTEGER:	l->ConstInt  = -l->ConstInt;	break;
 		case NODETYPE_REAL:	l->ConstReal = -l->ConstReal;	break;
-		default:	break;
+		default:
+			return Node;
 		}
-		break;
+		Node->UniOp.Value = NULL;
+		AST_FreeNode(Node);
+		return l;
 	
 	case NODETYPE_INDEX:
 	case NODETYPE_REFEQUALS:
@@ -355,12 +364,38 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 		break;
 	
 	case NODETYPE_BITROTATELEFT:
-	case NODETYPE_BWAND:	case NODETYPE_LOGICALAND:
-	case NODETYPE_BWOR: 	case NODETYPE_LOGICALOR:
-	case NODETYPE_BWXOR:	case NODETYPE_LOGICALXOR:
+	case NODETYPE_BWAND:
+	case NODETYPE_BWOR:
+	case NODETYPE_BWXOR:
+		l = _OPT(Node->BinOp.Left);
+		r = _OPT(Node->BinOp.Right);
+		
+		if( l->Type == r->Type && l->Type == NODETYPE_INTEGER ) {
+			switch(Node->Type)
+			{
+			case NODETYPE_BWAND:	l->ConstInt &= r->ConstInt;	break;
+			case NODETYPE_BWOR:	l->ConstInt |= r->ConstInt;	break;
+			case NODETYPE_BWXOR:	l->ConstInt ^= r->ConstInt;	break;
+			case NODETYPE_BITROTATELEFT:
+				// TODO: Rotate left
+				return Node;
+			default:
+				// Oops
+				return Node;
+			}
+			Node->BinOp.Left = NULL;
+			AST_FreeNode(Node);
+			return l;
+		}
+		break;
+
+	case NODETYPE_LOGICALOR:
+	case NODETYPE_LOGICALXOR:
+	case NODETYPE_LOGICALAND:
 		l = _OPT(Node->BinOp.Left);
 		r = _OPT(Node->BinOp.Right);
 		break;
+
 	case NODETYPE_EQUALS:	case NODETYPE_NOTEQUALS:
 	case NODETYPE_GREATERTHAN:	case NODETYPE_GREATERTHANEQUAL:
 	case NODETYPE_LESSTHAN:	case NODETYPE_LESSTHANEQUAL:

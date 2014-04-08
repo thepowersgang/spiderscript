@@ -113,6 +113,11 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 		arg_count ++;
 		arg_bytes += sizeof(tSpiderTypeRef);
 		arg_bytes += sizeof(char*) + strlen(arg->DefVar.Name) + 1;
+		
+		if( arg->DefVar.InitialValue ) {
+			// Oops, TODO: default arguments
+			return NULL;
+		}
 	}
 	arg_bytes += sizeof(tSpiderTypeRef);
 	DEBUGS1("Fcn '%s' %i args (%zi bytes)",
@@ -140,6 +145,7 @@ tScript_Function *AST_int_MakeFunction(const char *Name, tSpiderTypeRef ReturnTy
 		fcn->ArgNames[arg_count] = pos;
 		pos += strlen(arg->DefVar.Name) + 1;
 		fcn->Prototype.Args[arg_count] = arg->DefVar.DataType;
+		
 		arg_count ++;
 	}
 	fcn->Prototype.Args[arg_count].ArrayDepth = 0;

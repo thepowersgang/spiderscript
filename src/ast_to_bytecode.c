@@ -47,6 +47,7 @@ typedef struct sAST_FuncInfo
 	 int	MaxRegisters;
 	 int	NumAllocatedRegs;
 	struct sRegInfo {
+		const struct sAST_BlockInfo	*Block;
 		tAST_Node	*Node;
 		tSpiderTypeRef	Type;
 		void	*Info;
@@ -95,10 +96,10 @@ const tVariable	*BC_Variable_Lookup(tAST_BlockInfo *Block, tAST_Node *Node, cons
  int	BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *VarNode, tRegister *Result);
 void	BC_Variable_Delete(tAST_BlockInfo *Block, tVariable *Var);
 void	BC_Variable_Clear(tAST_BlockInfo *Block);
- int	BC_BinOp(tAST_BlockInfo *Block, int Operation, tRegister RegOut, tRegister RegL, tRegister RegR);
+ int	BC_BinOp(tAST_Node *Node, tAST_BlockInfo *Block, int Operation, tRegister RegOut, tRegister RegL, tRegister RegR);
 // - Type stack
  int	_AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Type, void *Info, tRegister *RegPtr);
-void	_DumpRegisters(const tAST_BlockInfo *Block);
+void	_DumpRegisters(const tAST_BlockInfo *Block, bool OnlyThis);
  int	_ReferenceRegister(tAST_BlockInfo *Block, tRegister Reg);
  int	_GetRegisterInfo(tAST_BlockInfo *Block, tRegister Register, tSpiderTypeRef *Type, void **Info);
  int	_AssertRegType(tAST_BlockInfo *Block, tAST_Node *Node, tRegister Register, tSpiderTypeRef Type);
@@ -175,7 +176,7 @@ tBC_Function *Bytecode_ConvertFunction(tSpiderScript *Script, tScript_Function *
 
 	if( fi.NumAllocatedRegs ) {
 		AST_RuntimeError(Script, Fcn->ASTFcn, "Leaked regs when converting %s", Fcn->Name);
-		_DumpRegisters(&bi);
+		_DumpRegisters(&bi, false);
 	}
 
 	Bytecode_CommitFunction(ret, fi.MaxRegisters+1, fi.MaxGlobals+1);
@@ -292,7 +293,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 				break;
 			}
 			// TODO: Check if this operation is valid
-			BC_BinOp(Block, op, reg1, reg1, reg2);
+			BC_BinOp(Node, Block, op, reg1, reg1, reg2);
 			_ReleaseRegister(Block, reg2);
 		}
 		else
@@ -332,7 +333,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		Bytecode_AppendConstInt(Block->Func->Handle, rreg, 1);
 
 		// Operation
-		BC_BinOp(Block, (Node->Type == NODETYPE_POSTDEC ? BINOP_SUB : BINOP_ADD),
+		BC_BinOp(Node, Block, (Node->Type == NODETYPE_POSTDEC ? BINOP_SUB : BINOP_ADD),
 			vreg, vreg, rreg);
 		_ReleaseRegister(Block, rreg);
 
@@ -669,8 +670,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		}
 		
 		Block = parentBlock;
-		_ReleaseRegister(Block, vreg);
 		BC_FinaliseBlock(Block, Node, &blockInfo);
+		_ReleaseRegister(Block, vreg);
 		NO_RESULT();
 		break; }
 
@@ -749,7 +750,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 				//void *infoptr = NULL;
 				//_GetRegisterInfo(Block, node->BinOp.Left, reg1, &infoptr);
 				//ASSERT(infoptr != NULL);
-				BC_BinOp(Block, BINOP_EQ, reg1, reg1, vreg);
+				BC_BinOp(Node, Block, BINOP_EQ, reg1, reg1, vreg);
 				Bytecode_AppendCondJump(Block->Func->Handle, case_labels[i], reg1);
 				_ReleaseRegister(Block, reg1);
 			}
@@ -1290,7 +1291,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			}
 			ret = _AllocateRegister(Block, Node, type, NULL, &rreg);
 			if(ret)	return ret;
-			BC_BinOp(Block, op, rreg, reg1, reg2);
+			BC_BinOp(Node, Block, op, rreg, reg1, reg2);
 		}
 		else
 		{
@@ -1330,8 +1331,14 @@ int BC_PrepareBlock(tAST_BlockInfo *Block, tAST_BlockInfo *ChildBlock)
 int BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInfo *ChildBlock)
 {
 	BC_Variable_Clear(ChildBlock);
-	if(ChildBlock->OrigNumAllocatedRegs != ParentBlock->Func->NumAllocatedRegs) {
-		AST_RuntimeMessage(ParentBlock->Func->Script, Node, "bug", "Leaked registers");
+	if(ChildBlock->OrigNumAllocatedRegs > ParentBlock->Func->NumAllocatedRegs) {
+		AST_RuntimeMessage(ParentBlock->Func->Script, Node, "bug", "Leaked registers (%i>%i)",
+			ChildBlock->OrigNumAllocatedRegs, ParentBlock->Func->NumAllocatedRegs);
+		_DumpRegisters(ChildBlock, true);
+	}
+	if(ChildBlock->OrigNumAllocatedRegs < ParentBlock->Func->NumAllocatedRegs) {
+		AST_RuntimeMessage(ParentBlock->Func->Script, Node, "bug", "Over-freed registers (%i<%i)",
+			ChildBlock->OrigNumAllocatedRegs, ParentBlock->Func->NumAllocatedRegs);
 	}
 	// Clean up imported globals
 	assert(ParentBlock->Func->NumGlobals >= ChildBlock->OrigNumGlobals);
@@ -1608,7 +1615,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	return 0;
 }
 
-int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tRegister reg2)
+int BC_BinOp(tAST_Node *Node, tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tRegister reg2)
 {
 	 int	ret;
 	tSpiderTypeRef	type;
@@ -1633,6 +1640,10 @@ int BC_BinOp(tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tReg
 		Bytecode_AppendBinOpReal(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	case SS_DATATYPE_STRING:
+		if( Op != BINOP_ADD && Op != BINOP_EQ && Op != BINOP_NE ) {
+			AST_NODEERROR("String relational comparison not implemented");
+			return 1;
+		}
 		Bytecode_AppendBinOpString(Block->Func->Handle, Op, rreg, reg1, reg2);
 		break;
 	default:
@@ -2120,6 +2131,7 @@ int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Typ
 		struct sRegInfo	*ri = &Block->Func->Registers[i];
 		if( ri->Type.Def == NULL )
 		{
+			ri->Block = Block;
 			ri->Node = Node;
 			ri->Type = Type;
 			ri->Info = Info;
@@ -2133,15 +2145,16 @@ int _AllocateRegister(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef Typ
 		}
 	}
 	AST_NODEERROR("Out of avaliable registers");
-	_DumpRegisters(Block);
+	_DumpRegisters(Block, false);
 	return 1;
 }
-void _DumpRegisters(const tAST_BlockInfo *Block)
+void _DumpRegisters(const tAST_BlockInfo *Block, bool OnlyThis)
 {
 	for( int i = 0; i < MAX_REGISTERS; i ++ )
 	{
 		const struct sRegInfo	*ri = &Block->Func->Registers[i];
 		if(ri->Type.Def == NULL)	continue ;
+		if(OnlyThis && ri->Block != Block)	continue;
 		tAST_Node *Node = ri->Node;
 		AST_NODEERROR("[%i] %s %p NT%i", i,
 			SpiderScript_GetTypeName(Block->Func->Script, ri->Type),
@@ -2199,6 +2212,7 @@ int _ReleaseRegister(tAST_BlockInfo *Block, int Register)
 			// Emit dereference
 			Bytecode_AppendClearReg(Block->Func->Handle, Register);
 		}
+		ri->Block = NULL;
 		ri->Type.Def = NULL;
 		Block->Func->NumAllocatedRegs --;
 	}

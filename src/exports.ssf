@@ -49,6 +49,17 @@
 	@RETURN 0;
 @}
 
+@FUNCTION Integer Random( Integer Max )
+@{
+	if( Max > RAND_MAX ) {
+		tSpiderInteger	val = rand();
+		val *= RAND_MAX;
+		val += rand();
+		@RETURN val % Max;
+	}
+	@RETURN rand() % Max;
+@}
+
 @NAMESPACE Lang
 @{
 
