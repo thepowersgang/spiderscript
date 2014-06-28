@@ -25,10 +25,10 @@ LDFLAGS += -shared
 OBJ += $(patsubst %.c,%.o,.exports/_index.c $(EXPORT_FILES:%.ssf=.exports/%.c))
 OBJ := $(addprefix $(OBJDIR),$(OBJ))
 
-GENSFCNS := ../tools/gen_scriptfcns.pl
-GENSFCNS_EXEC := perl $(GENSFCNS)
-#GENSFCNS := ../tools/gen_scriptfcns.py
-#GENSFCNS_EXEC := python $(GENSFCNS)
+#GENSFCNS := ../tools/gen_scriptfcns.pl
+#GENSFCNS_EXEC := perl $(GENSFCNS)
+GENSFCNS := ../tools/gen_scriptfcns.py
+GENSFCNS_EXEC := python $(GENSFCNS)
 
 .PHONY:	all clean
 
@@ -44,15 +44,18 @@ $(BIN): $(OBJ)
 
 export_types.gen.h: $(EXPORT_FILES) $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	$(GENSFCNS_EXEC) --mkhdr-lang $@ $(EXPORT_FILES)
+	#perl $(GENSFCNS) --mkhdr-lang -o $@ $(EXPORT_FILES)
+	python $(GENSFCNS) --lang -M mkhdr -o $@ $(EXPORT_FILES)
 
 .exports/_index.c: $(EXPORT_FILES) export_types.gen.h $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	$(GENSFCNS_EXEC) -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
+	#perl $(GENSFCNS) -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
+	python $(GENSFCNS) -H export_types.gen.h -M index -o $@ $(EXPORT_FILES)
 
 .exports/%.c: %.ssf export_types.gen.h $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	$(GENSFCNS_EXEC) -H export_types.gen.h $@ $<
+	#perl $(GENSFCNS) -H export_types.gen.h $@ $<
+	python $(GENSFCNS) -H export_types.gen.h -o $@ $<
 
 $(OBJ): $(OBJDIR)%.o: %.c
 	@mkdir -p $(dir $@)

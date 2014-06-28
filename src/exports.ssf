@@ -34,6 +34,7 @@
 
 @FUNCTION Integer sizeof( * Value )
 @{
+	(void)Value;
 	return Exports_fcn_len(Script, RetData, NArgs, ArgTypes, Args);
 @}
 
