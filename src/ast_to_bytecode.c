@@ -863,7 +863,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 			if(ret)	return ret;
 			
 			Bytecode_AppendMov(Block->Func->Handle, var->Register, vreg);
-			_ReleaseRegister(Block, vreg);
+			SET_RESULT(vreg, 0);
 		}
 		else
 		{
@@ -879,10 +879,13 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 				if(ret)	return -1;
 				
 				Bytecode_AppendMov(Block->Func->Handle, var->Register, vreg);
-				_ReleaseRegister(Block, vreg);
+				SET_RESULT(vreg, 0);
+			}
+			else
+			{
+				NO_RESULT();
 			}
 		}
-		NO_RESULT();
 		break;
 	// Define/Import a global variable
 	case NODETYPE_DEFGLOBAL:
@@ -2038,6 +2041,11 @@ int BC_Variable_GetValue(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ValR
 {
 	assert(ValRegPtr);
 	 int	ret;
+
+	{
+		
+	}
+
 	{
 		 int	index;
 		const tScript_Var *global = BC_Variable_LookupGlobal(Block, Node, Node->Variable.Name, &index);
