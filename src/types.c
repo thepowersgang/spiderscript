@@ -68,6 +68,8 @@ const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
 		return Type.Def->SClass->Name;
 	case SS_TYPECLASS_FCNPTR:
 		return "#FcnPtr";
+	case SS_TYPECLASS_GENERIC:
+		return "#Generic";
 	}
 	return "#UNK";
 }
@@ -187,6 +189,12 @@ const tSpiderScript_TypeDef *SpiderScript_GetTypeEx(tSpiderScript *Script, const
 	}
 
 //	printf("Type '%.*s' undefined\n", NameLen, Name);
+	return SS_ERRPTR;
+}
+
+const tSpiderScript_TypeDef *SpiderScript_CreateGeneric(tSpiderScript *Script,
+	const tSpiderScript_TypeDef *Template, const tSpiderTypeRef InnerType)
+{
 	return SS_ERRPTR;
 }
 

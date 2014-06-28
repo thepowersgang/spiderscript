@@ -675,7 +675,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 				goto _for_err_ret;
 			
 			// Condition
-			if( LookAhead(Parser) != TOK_SEMICOLON && !(cond = Parse_DoExpr0(Parser)) )
+			if( LookAhead(Parser) != TOK_SEMICOLON && !(cond = Parse_VarDefList(Parser, NULL, NULL)) )
 				goto _for_err_ret;
 			
 			// SEPARATOR
@@ -735,7 +735,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			goto _do_err_ret;
 		if( SyntaxAssert( Parser, GetToken(Parser), TOK_PAREN_OPEN ) )
 			goto _do_err_ret;
-		// Condition 
+		// Condition: Definitions are valid
 		if( !(cond = Parse_DoExpr0(Parser)) )
 			goto _do_err_ret;
 		if( SyntaxAssert( Parser, GetToken(Parser), TOK_PAREN_CLOSE ) )
@@ -772,7 +772,8 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 
 		if( SyntaxAssert( Parser, GetToken(Parser), TOK_PAREN_OPEN ) )
 			goto _while_err_ret;
-		if( !(cond = Parse_DoExpr0(Parser)) )
+		// Condition allows variable definition.
+		if( !(cond = Parse_VarDefList(Parser, NULL, NULL)) )
 			goto _while_err_ret;
 		if( SyntaxAssert( Parser, GetToken(Parser), TOK_PAREN_CLOSE ) )
 			goto _while_err_ret;
@@ -854,6 +855,7 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			return ret;
 		if( ret->Type != NODETYPE_DEFVAR ) {
 			// Oops?
+			SyntaxError(Parser, "Global definition invalid");
 			AST_FreeNode(ret);
 			return NULL;
 		}
@@ -862,6 +864,34 @@ tAST_Node *Parse_DoBlockLine(tParser *Parser, tAST_Node *CodeNode)
 			// Nope?
 		}
 		break;
+	// Constants
+	case TOK_RWD_CONSTANT: {
+		bool is_global = false;
+		GetToken(Parser);
+		if( GetToken(Parser) == TOK_RWD_GLOBAL )
+			is_global = true;
+		else
+			PutBack(Parser);
+		if( SyntaxAssert(Parser, LookAhead(Parser), TOK_IDENT) )
+			return NULL;
+		// Expecting variable definition
+		ret = Parse_GetIdent(Parser, GETIDENTMODE_EXPR, NULL);
+		if( !ret || ret == SS_ERRPTR )
+			return ret;
+		if( ret->Type != NODETYPE_DEFVAR ) {
+			// Oops?
+			SyntaxError(Parser, "Constant definition invalid");
+			AST_FreeNode(ret);
+			return NULL;
+		}
+		ret->Type = (is_global ? NODETYPE_DEFCONSTLOCAL : NODETYPE_DEFCONSTGLOBAL);
+		if( !ret->DefVar.InitialValue )
+		{
+			// Nope?
+			SyntaxError(Parser, "const defined without a value");
+		}
+		
+		break; }
 
 	// Auto-detected variable types
 	case TOK_RWD_AUTO:
@@ -895,6 +925,9 @@ tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 {
 	tAST_Node	*ret;
 	tSpiderTypeRef	type;
+
+	if( Class == NULL && LookAhead(Parser) != TOK_IDENT )
+		return Parse_DoExpr0(Parser);
 
 	enum eGetIdentMode	mode;
 	if( Class == NULL )
@@ -1709,7 +1742,7 @@ char *Parse_ReadIdent(tParser *Parser)
 int Parse_int_GetArrayDepth(tParser *Parser)
 {
 	 int	level = 0;
-	if( Parser->Cur.Token == TOK_SQUARE_OPEN )
+	if( GetToken(Parser) == TOK_SQUARE_OPEN )
 	{
 		do {
 			if( SyntaxAssert(Parser, GetToken(Parser), TOK_SQUARE_CLOSE) )
@@ -1717,7 +1750,69 @@ int Parse_int_GetArrayDepth(tParser *Parser)
 			level ++;
 		} while(GetToken(Parser) == TOK_SQUARE_OPEN);
 	}
+	PutBack(Parser);
 	return level;
+}
+
+tSpiderTypeRef Parse_int_GetMetaType(tParser *Parser, const tSpiderScript_TypeDef *BaseType)
+{
+	tSpiderTypeRef ret = {SS_ERRPTR, 0};
+	// Support Generic<SubType>
+	if( LookAhead(Parser) == TOK_LT )
+	{
+		GetToken(Parser);
+		// Template!
+		// 1. Check if 'BaseType' is a templated type
+		if( !BaseType || BaseType->Class != SS_TYPECLASS_NCLASS || BaseType->NClass->NMetaArgs == 0 ) {
+			SyntaxError(Parser, "Type '%s' doesn't take parameters",
+				SpiderScript_GetTypeName(Parser->Script, (tSpiderTypeRef){.Def=BaseType}));
+			return ret;
+		}
+		// 2. Get inner type
+		char *tname = Parse_ReadIdent(Parser);
+		if( !tname )	return ret;
+		PutBack(Parser);	// Parse_ReadIdent noms
+		// - Create a stack-allocated copy of tname to avoid having to free it later
+		char name[strlen(tname)+1];
+		strcpy(name, tname);
+		free(tname);
+		// Resolve the type
+		const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
+		if( type == SS_ERRPTR ) {
+			SyntaxError(Parser, "Expected type within generic");
+			return ret;
+		}
+		tSpiderTypeRef inner = Parse_int_GetMetaType(Parser, type);
+		// - Hacky way of allowing List<List<Integer>>
+		if( LookAhead(Parser) == TOK_SHR ) {
+			// If token is '>>', shift read pos backwards
+			GetToken(Parser);
+			Parser->CurPos --;
+		}
+		else {
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_GT) )
+				return ret;
+		}
+		
+		ret.Def = SpiderScript_CreateGeneric(Parser->Script, BaseType, inner);
+	}
+	else
+	{
+		if( BaseType && BaseType->Class == SS_TYPECLASS_NCLASS && BaseType->NClass->NMetaArgs > 0 ) {
+			SyntaxError(Parser, "Type '%s' requires %i parameters",
+				SpiderScript_GetTypeName(Parser->Script, (tSpiderTypeRef){.Def=BaseType}),
+				BaseType->NClass->NMetaArgs);
+			return ret;
+		}
+		ret.Def = BaseType;
+	}
+	
+	int level = Parse_int_GetArrayDepth(Parser);
+	if( level < 0 )	return (tSpiderTypeRef){SS_ERRPTR,0};
+	
+	ret.ArrayDepth = level;
+	
+	return ret;
 }
 
 tAST_Node *Parse_DoNew(tParser *Parser, const tSpiderScript_TypeDef *type, int level)
@@ -1771,12 +1866,17 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	
 	// Resolve the type, but don't check yet
 	const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
-	if( type != SS_ERRPTR ) {
-		level = Parse_int_GetArrayDepth(Parser);
-		if( level < 0 ) {
+	tSpiderTypeRef	ref;
+	DEBUGS1("type = (%p) %s", type, (type != SS_ERRPTR ? SpiderScript_GetTypeName(Parser->Script, (tSpiderTypeRef){type,0}) : ""));
+	if( type != SS_ERRPTR )
+	{
+		PutBack(Parser);	// Parse_ReadIdent noms
+		ref = Parse_int_GetMetaType(Parser, type);
+		if( ref.Def == SS_ERRPTR ) {
 			DEBUGS2_UP();
 			return NULL;
 		}
+		GetToken(Parser);
 	}
 	
 	// If the type is invalid, and we're at the root of a function
@@ -1800,7 +1900,6 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 			SyntaxError(Parser, "Unknown type '%s'", name);
 			return NULL;
 		}
-		tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = level};
 
 		if( Mode != GETIDENTMODE_CLASS ) {
 			SyntaxError(Parser, "Operator override outside of class (Mode %i)", Mode);
@@ -1834,8 +1933,6 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 			return NULL;
 		}
 
-		tSpiderTypeRef	ref = {.Def = type, .ArrayDepth = level};
-		
 		if( LookAhead(Parser) == TOK_PAREN_OPEN )
 		{
 			if( Mode != GETIDENTMODE_ROOT
@@ -1902,7 +1999,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 				SyntaxError(Parser, "Unknown type '%s'", name);
 				return NULL;
 			}
-			ret = Parse_DoNew(Parser, type, level);
+			ret = Parse_DoNew(Parser, ref.Def, ref.ArrayDepth);
 			if(!ret)
 				return NULL;
 		}

@@ -39,6 +39,7 @@ typedef struct sSpiderNamespace	tSpiderNamespace;
 typedef struct sSpiderFcnProto	tSpiderFcnProto;
 typedef struct sSpiderFunction	tSpiderFunction;
 typedef struct sSpiderClass	tSpiderClass;
+typedef struct sSpiderGenericInst	tSpiderGenericInst;
 
 typedef char	tSpiderBool;
 typedef int64_t	tSpiderInteger;
@@ -60,9 +61,11 @@ struct sSpiderScript_TypeDef
 		SS_TYPECLASS_NCLASS,
 		SS_TYPECLASS_SCLASS,
 		SS_TYPECLASS_FCNPTR,
+		SS_TYPECLASS_GENERIC,
 	} Class;
 	union {
 		tSpiderScript_CoreType	Core;	
+		tSpiderGenericInst	*Generic;
 		tSpiderClass	*NClass;
 		struct sScript_Class	*SClass;
 		tSpiderFcnProto	*FcnPtr;
@@ -85,6 +88,7 @@ SS_EXPORT extern const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSp
 SS_EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetCoreType(tSpiderScript_CoreType Type);
 SS_EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetType(tSpiderScript *Script, const char *Name);
 SS_EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_GetTypeEx(tSpiderScript *Script, const char *Name, int Length);
+SS_EXPORT extern const tSpiderScript_TypeDef	*SpiderScript_CreateGeneric(tSpiderScript *Script, const tSpiderScript_TypeDef *Template, const tSpiderTypeRef InnerType);
 
 //#define SS_MAKEARRAYN(_type, _lvl)	((_type) + 0x10000*(_lvl))
 #define SS_MAKEARRAY(_type)	((_type) + 0x10000)
@@ -201,7 +205,7 @@ struct sSpiderClass
 	/**
 	 * \brief Clean up and destroy the object
 	 * \param This	Object instace
-	 * \note The object pointer (\a This) should not be free'd by this function
+		 * \note The object pointer (\a This) should not be free'd by this function
 	 */
 	void	(*Destructor)(tSpiderObject *This);
 
@@ -209,6 +213,13 @@ struct sSpiderClass
 	 * \brief Method Definitions (linked list)
 	 */
 	tSpiderFunction	*Methods;
+	
+	/**
+	 * \brief Number of template arguments
+	 * 
+	 * If non-zero, class is invalid without being pointed to by a sSpiderGenericInst
+	 */
+	 int	NMetaArgs;
 	
 	/**
 	 * \brief Number of attributes
@@ -222,6 +233,17 @@ struct sSpiderClass
 		char	bReadOnly;	//!< Allow writes to the attribute?
 		char	bMethod;	//!< IO Goes via GetSetAttribute function
 	}	AttributeDefs[];
+};
+
+/**
+ * \brief Generic class
+ */
+struct sSpiderGenericInst
+{
+	const char	*Name;	// Name with parameters
+	tSpiderScript_TypeDef	Def;	// Definition
+	const tSpiderScript_TypeDef	*Template;
+	tSpiderTypeRef	InnerTypes[];
 };
 
 /**

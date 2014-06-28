@@ -36,10 +36,12 @@ enum eAST_NodeTypes
 	// 9
 	NODETYPE_DEFVAR,	//!< Define a variable
 	NODETYPE_DEFGLOBAL,	//!< Define a script-global variable
+	NODETYPE_DEFCONSTLOCAL,	//!< 
+	NODETYPE_DEFCONSTGLOBAL,	//!< 
 	NODETYPE_ELEMENT,	//!< Reference a class attribute
 	NODETYPE_CAST,	//!< Cast a value to another (Uniop)
 	
-	// 13
+	// 15
 	NODETYPE_RETURN,	//!< Return from a function (reserved word)
 	NODETYPE_BREAK, 	//!< Break out of a loop
 	NODETYPE_CONTINUE,	//!< Next loop iteration
@@ -52,26 +54,26 @@ enum eAST_NodeTypes
 	NODETYPE_CREATEOBJECT,	//!< Create an object
 	NODETYPE_CREATEARRAY,	//!< Create an empty array
 
-	// 24
+	// 26
 	NODETYPE_SWITCH,
 	NODETYPE_CASE,
 	
-	// 26
+	// 28
 	NODETYPE_IF,	//!< Conditional
 	NODETYPE_TERNARY,	//!< Ternary / Null-Coalescing
 	NODETYPE_LOOP,	//!< Looping Construct
 	NODETYPE_ITERATE,	//!< Iteration construct (foreach)
 	
-	// 30
+	// 32
 	NODETYPE_INDEX,	//!< Index into an array
 	
-	// 31
+	// 33
 	NODETYPE_LOGICALNOT,	//!< Logical NOT operator
 	NODETYPE_LOGICALAND,	//!< Logical AND operator
 	NODETYPE_LOGICALOR, 	//!< Logical OR operator
 	NODETYPE_LOGICALXOR,	//!< Logical XOR operator
 	
-	// 35
+	// 37
 	NODETYPE_REFEQUALS,	//!< References are equal
 	NODETYPE_REFNOTEQUALS,	//!< References differ
 	NODETYPE_EQUALS,	//!< Comparison Equals
@@ -81,18 +83,18 @@ enum eAST_NodeTypes
 	NODETYPE_GREATERTHAN,	//!< Comparison Greater Than
 	NODETYPE_GREATERTHANEQUAL,	//!< Comparison Greater Than or Equal
 	
-	// 43
+	// 45
 	NODETYPE_BWNOT,	//!< Bitwise NOT
 	NODETYPE_BWAND,	//!< Bitwise AND
 	NODETYPE_BWOR,	//!< Bitwise OR
 	NODETYPE_BWXOR,	//!< Bitwise XOR
 	
-	// 47
+	// 49
 	NODETYPE_BITSHIFTLEFT,	//!< Bitwise Shift Left (Grow)
 	NODETYPE_BITSHIFTRIGHT,	//!< Bitwise Shift Right (Shrink)
 	NODETYPE_BITROTATELEFT,	//!< Bitwise Rotate Left (Grow)
 	
-	// 50
+	// 52
 	NODETYPE_NEGATE,	//!< Negagte
 	NODETYPE_ADD,	//!< Add
 	NODETYPE_SUBTRACT,	//!< Subtract

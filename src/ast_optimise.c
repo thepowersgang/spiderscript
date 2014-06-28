@@ -238,6 +238,8 @@ tAST_Node *AST_Optimise(tAST_Node *const Node)
 	// Define a variable
 	case NODETYPE_DEFVAR:
 	case NODETYPE_DEFGLOBAL:
+	case NODETYPE_DEFCONSTLOCAL:
+	case NODETYPE_DEFCONSTGLOBAL:
 		_OPT(Node->DefVar.InitialValue);
 		break;
 	

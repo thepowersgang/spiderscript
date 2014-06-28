@@ -316,6 +316,8 @@ void AST_FreeNode(tAST_Node *Node)
 	// Define a variable
 	case NODETYPE_DEFVAR:
 	case NODETYPE_DEFGLOBAL:
+	case NODETYPE_DEFCONSTLOCAL:
+	case NODETYPE_DEFCONSTGLOBAL:
 		AST_FreeNode(Node->DefVar.InitialValue);
 		break;
 	

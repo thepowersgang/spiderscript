@@ -654,6 +654,9 @@ int SpiderScript_int_SaveBytecodeStream(tSpiderScript *Script, FILE *fp)
 		case SS_TYPECLASS_FCNPTR:
 			_ASSERT_R( Script->BCTypes[i].Def->Class, !=, SS_TYPECLASS_FCNPTR, -1 );
 			break;
+		case SS_TYPECLASS_GENERIC: {
+			_ASSERT_R( Script->BCTypes[i].Def->Class, !=, SS_TYPECLASS_GENERIC, -1 );
+			break; }
 		}
 	}
 
