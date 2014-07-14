@@ -386,7 +386,6 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int
 	tSpiderTypeRef	arg_types[arg_count];
 	tSpiderTypeRef	rettype = {0,0};
 	tBC_StackEnt	ret;
-	tSpiderObject	*obj = NULL;
 
 	// Read arguments
 	for( int i = 0; i < arg_count; i ++ )
@@ -432,7 +431,7 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int
 		
 		rv = SpiderScript_int_ConstructObject(Script, rettype.Def, &ret.Object,
 			arg_count, arg_types, args, &op->CacheEnt);
-		if(rv < 0 && SpiderScript_GetException(Script,NULL)!=SS_EXCEPTION_FORCEEXIT)
+		if(rv < 0 && SpiderScript_GetException(Script,NULL) != SS_EXCEPTION_FORCEEXIT)
 			SpiderScript_RuntimeError(Script, "Creating object %s failed",
 				SpiderScript_GetTypeName(Script, rettype));
 	}
@@ -445,16 +444,17 @@ int Bytecode_int_CallExternFunction(tSpiderScript *Script, tBC_Op *op, const int
 		}
 		else
 		{
-			obj = (void*)args[0];
-			
-			DEBUG_F("- Object %s %p\n", SpiderScript_GetTypeName(Script, arg_types[0]), obj);
-			if( obj ) {
+			DEBUG_F("- Calling %s->%s\n",
+					SpiderScript_GetTypeName(Script, arg_types[0]),
+					SpiderScript_int_GetMethodName(Script, arg_types[0], id)
+					);
+			if( args[0] ) {
 				rv = SpiderScript_int_ExecuteMethod(Script, id, &rettype,
 					&ret.Boolean, arg_count, arg_types, args, &op->CacheEnt);
-				if(rv < 0 && SpiderScript_GetException(Script,NULL)!=SS_EXCEPTION_FORCEEXIT)
-					SpiderScript_RuntimeError(Script, "Calling method %s->%s failed",
+				if(rv != 0 && SpiderScript_GetException(Script,NULL)!=SS_EXCEPTION_FORCEEXIT)
+					SpiderScript_RuntimeError(Script, "Calling method %s->%s failed (rv=%i)",
 						SpiderScript_GetTypeName(Script, arg_types[0]),
-						SpiderScript_int_GetMethodName(Script, arg_types[0], id)
+						SpiderScript_int_GetMethodName(Script, arg_types[0], id), rv
 						);
 				// TODO: Should a dereference be done?
 			}

@@ -7,13 +7,79 @@
 #include <stdio.h>
 #include <spiderscript.h>
 
+#include <ctype.h>
+#include <inttypes.h>
+
 @NAMESPACE Lang
 @{
 
-//@FUNCTION String MkStr(String Format, ...)
-//@{
-//	@RETURN NULL;
-//@}
+static size_t ss_snprintf(char *buf, size_t n, const char *input, size_t inlen, int nArgs, const tSpiderTypeRef ArgTypes[], const void *const*Args)
+{
+	int	argpos = 0;
+	size_t	inpos = 0;
+	size_t	outpos = 0;
+	#define _getc(ch) if(inpos == inlen) break; (ch) = input[inpos++];
+	while( inpos < inlen )
+	{
+		char ch;
+		_getc(ch);
+		if( ch != '%') {
+			if(outpos < n)	buf[outpos] = ch;
+			outpos ++;
+		}
+		else
+		{
+			size_t width = 0;
+			size_t prec = -1;
+			_getc(ch);
+			
+			while( isdigit(ch) ) {
+				width *= 10;
+				width += ch - '0';
+				_getc(ch);
+			}
+			if( ch == '.' ) {
+				prec = 0;
+				_getc(ch);
+				while( isdigit(ch) ) {
+					prec *= 10;
+					prec += ch - '0';
+					_getc(ch);
+				}
+			}
+			
+			switch(ch)
+			{
+			case 's': {
+				if(argpos == nArgs)	return SIZE_MAX;
+				if(!SS_ISCORETYPE(ArgTypes[argpos], SS_DATATYPE_STRING ))	return SIZE_MAX;
+				const tSpiderString *val = Args[argpos];
+				argpos ++;
+				const char *ptr = (val ? val->Data : "(null)");
+				outpos += snprintf(buf+outpos, (outpos<n?n-outpos:0), "%*.*s", (int)width, (int)prec, ptr);
+				break;
+				}
+			case 'i': {
+				if(argpos == nArgs)	return SIZE_MAX;
+				if(!SS_ISCORETYPE(ArgTypes[argpos], SS_DATATYPE_INTEGER ))	return SIZE_MAX;
+				tSpiderInteger val = *(tSpiderInteger*)(Args[argpos]);
+				argpos ++;
+				outpos += snprintf(buf+outpos, (outpos<n?n-outpos:0), "%*.*"PRIi64, (int)width, (int)prec, val);
+				}
+			}
+		}
+	}
+	return outpos;
+}
+
+@FUNCTION String Format(String Format, ...)
+@{
+	size_t len = ss_snprintf(NULL, 0, Format->Data, Format->Length, VArgC, VArgT, VArgV);
+	if(len == SIZE_MAX)	return -1; 
+	tSpiderString *ret = SpiderScript_CreateString(len, NULL);
+	ss_snprintf(ret->Data, len+1, Format->Data, Format->Length, VArgC, VArgT, VArgV);
+	@RETURN ret;
+@}
 
 @}	// NAMESPACE Lang
 

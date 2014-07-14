@@ -34,12 +34,12 @@ const tSpiderScript_TypeDef	gSpiderScript_IntegerType = {.Class=SS_TYPECLASS_COR
 const tSpiderScript_TypeDef	gSpiderScript_RealType    = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_REAL}};
 const tSpiderScript_TypeDef	gSpiderScript_StringType  = {.Class=SS_TYPECLASS_CORE,{.Core=SS_DATATYPE_STRING}};
 
+const tSpiderScript_TypeDef	gSpiderScript_TemplateInst = {.Class=SS_TYPECLASS_TPLARG,{.ArgNum=-1}};
+const tSpiderScript_TypeDef	gSpiderScript_TemplateArg0 = {.Class=SS_TYPECLASS_TPLARG,{.ArgNum=0}};
+
 // === CODE ===
 const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
 {
-	if( Type.Def == NULL )
-		return "#VOID";
-	
 	if( Type.ArrayDepth )
 	{
 		const int buflen = 40;
@@ -50,26 +50,37 @@ const char *SpiderScript_GetTypeName(tSpiderScript *Script, tSpiderTypeRef Type)
 		 int	bufid = static_bufidx;
 		static_bufidx = (static_bufidx + 1) % bufcount;
 		 int	depth = Type.ArrayDepth;
-		Type.ArrayDepth = 0;
 		
-		snprintf(static_bufs[bufid], buflen, "%s[%i]", SpiderScript_GetTypeName(Script, Type), depth);
+		snprintf(static_bufs[bufid], buflen, "%s[%i]", SpiderScript_GetTypeName_D(Type.Def), depth);
 		return static_bufs[bufid];
 	}
+	else
+	{
+		return SpiderScript_GetTypeName_D(Type.Def);
+	}
+}
 
-	switch(Type.Def->Class)
+const char *SpiderScript_GetTypeName_D(const tSpiderScript_TypeDef *Def)
+{
+	if( Def == NULL )
+		return "#VOID";
+	
+	switch(Def->Class)
 	{
 	case SS_TYPECLASS_CORE:
-		if(Type.Def->Core >= ciSpiderScript_NumInternalTypeNames)
+		if(Def->Core >= ciSpiderScript_NumInternalTypeNames)
 			return "#OoRCore";
-		return casSpiderScript_InternalTypeNames[Type.Def->Core];
+		return casSpiderScript_InternalTypeNames[Def->Core];
 	case SS_TYPECLASS_NCLASS:
-		return Type.Def->NClass->Name;
+		return Def->NClass->Name;
 	case SS_TYPECLASS_SCLASS:
-		return Type.Def->SClass->Name;
+		return Def->SClass->Name;
 	case SS_TYPECLASS_FCNPTR:
 		return "#FcnPtr";
 	case SS_TYPECLASS_GENERIC:
-		return "#Generic";
+		return Def->Generic->Name;
+	case SS_TYPECLASS_TPLARG:
+		return "#TplArg";
 	}
 	return "#UNK";
 }
@@ -195,8 +206,84 @@ const tSpiderScript_TypeDef *SpiderScript_GetTypeEx(tSpiderScript *Script, const
 const tSpiderScript_TypeDef *SpiderScript_CreateGeneric(tSpiderScript *Script,
 	const tSpiderScript_TypeDef *Template, const tSpiderTypeRef InnerType)
 {
-	return SS_ERRPTR;
+	tSpiderGenericInst	**pnp = &Script->TemplateInstances;
+	
+	assert(Template);
+	assert(Template->Class == SS_TYPECLASS_NCLASS);
+	assert(Template->NClass);
+	
+	 int	n_args = Template->NClass->NMetaArgs;
+	// TODO: Multiple arguments
+	assert(n_args == 1);
+	
+	for( tSpiderGenericInst *inst = Script->TemplateInstances; inst; pnp = &inst->Next, inst = inst->Next )
+	{
+		if( inst->Template < Template )
+			continue ;
+		if( inst->Template > Template )
+			break ;
+	
+		if( !SS_TYPESEQUAL(inst->InnerTypes[0], InnerType) )
+			continue ;
+		
+		return &inst->Def;
+	}
+	
+	const char *inner_name = SpiderScript_GetTypeName(Script, InnerType);
+	size_t	namelen = strlen(Template->NClass->Name) + 2 + strlen(inner_name) + 1;
+	size_t size = offsetof(tSpiderGenericInst, InnerTypes[n_args]) + namelen;
+	tSpiderGenericInst *inst = malloc( size );
+	inst->Next = NULL;
+	inst->Name = (const char*)&inst->InnerTypes[n_args];
+	snprintf((char*)inst->Name, namelen, "%s<%s>", Template->NClass->Name, inner_name);
+	inst->Def.Class = SS_TYPECLASS_GENERIC;
+	inst->Def.Generic = inst;
+	inst->Template = Template;
+	inst->InnerTypes[0] = InnerType;
+	
+	inst->Next = *pnp;
+	*pnp = inst;
+	
+	return &inst->Def;
 }
+tSpiderTypeRef SpiderScript_int_TemplateApply_Type(tSpiderGenericInst *Inst, const tSpiderTypeRef Type)
+{
+	if( Type.Def == NULL )
+		return Type;
+	if( Type.Def->Class != SS_TYPECLASS_TPLARG )
+		return Type;
+	tSpiderTypeRef arg = (Type.Def->ArgNum == -1 ? (tSpiderTypeRef){&Inst->Def,0} : Inst->InnerTypes[Type.Def->ArgNum]);
+	
+	tSpiderTypeRef ret = arg;
+	if( Type.ArrayDepth ) {
+		ret.ArrayDepth += Type.ArrayDepth;
+	}
+	
+	//printf("Template Apply: %s using %s = %s\n",
+	//	SpiderScript_GetTypeName(NULL, Type),
+	//	SpiderScript_GetTypeName(NULL, arg),
+	//	SpiderScript_GetTypeName(NULL, ret)
+	//	);
+	
+	return ret;
+}
+tSpiderFcnProto *SpiderScript_int_TemplateApply(tSpiderScript *Script, tSpiderGenericInst *Inst, const tSpiderFcnProto *TplProto)
+{
+	int argc = 0;
+	while( TplProto->Args[argc].Def != NULL )
+		argc ++;
+	
+	tSpiderFcnProto *ret = malloc( offsetof(tSpiderFcnProto, Args[argc+1]) );
+	
+	ret->ReturnType = SpiderScript_int_TemplateApply_Type(Inst, TplProto->ReturnType);
+	ret->bVariableArgs = TplProto->bVariableArgs;
+	for( int i = 0; i < argc; i ++ )
+		ret->Args[i] = SpiderScript_int_TemplateApply_Type(Inst, TplProto->Args[i]);
+	ret->Args[argc] = (tSpiderTypeRef){0};
+	
+	return ret;
+}
+
 
 #if 0
 tSpiderClass *SpiderScript_GetClass_Native(tSpiderScript *Script, int Type)

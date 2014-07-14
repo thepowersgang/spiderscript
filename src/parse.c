@@ -53,12 +53,13 @@ tAST_Node	*Parse_DoExpr6(tParser *Parser);	// Mult & Div
 tAST_Node	*Parse_DoExpr7(tParser *Parser);	// Right Unary Operations
 tAST_Node	*Parse_DoExpr8(tParser *Parser);	// Left Unary Operations
 
+tAST_Node	*Parse_DoElement(tParser *Parser);	// Elements (arrays and objects)
 tAST_Node	*Parse_DoParen(tParser *Parser);	// Parenthesis (Always Last)
 tAST_Node	*Parse_DoValue(tParser *Parser);	// Values
 
 tAST_Node	*Parse_GetString(tParser *Parser);
 tAST_Node	*Parse_GetNumeric(tParser *Parser);
-tAST_Node	*Parse_GetDynValue(tParser *Parser, tAST_Node *RootValue);
+tAST_Node	*Parse_DoFunctionArgs(tParser *Parser, tAST_Node *FcnNode);
 char	*Parse_ReadIdent(tParser *Parser);
  int	Parse_int_GetArrayDepth(tParser *Parser);
 tAST_Node	*Parse_DoNew(tParser *Parser, const tSpiderScript_TypeDef *type, int level);
@@ -926,7 +927,7 @@ tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 	tAST_Node	*ret;
 	tSpiderTypeRef	type;
 
-	if( Class == NULL && LookAhead(Parser) != TOK_IDENT )
+	if( Class == NULL && LookAhead(Parser) != TOK_IDENT && LookAhead(Parser) != TOK_RWD_AUTO )
 		return Parse_DoExpr0(Parser);
 
 	enum eGetIdentMode	mode;
@@ -937,7 +938,13 @@ tAST_Node *Parse_VarDefList(tParser *Parser, tAST_Node *CodeNode, tScript_Class 
 	else
 		mode = GETIDENTMODE_CLASS;	// Same, but handles other member stuff
 
-	ret = Parse_GetIdent(Parser, mode, Class);
+	if( LookAhead(Parser) == TOK_RWD_AUTO ) {
+		GetToken(Parser);	// auto 
+		GetToken(Parser);	// <ident> - Checked by Parse_GetVarDef
+		ret = Parse_GetVarDef(Parser, (tSpiderTypeRef){NULL,0}, NULL);
+	}
+	else
+		ret = Parse_GetIdent(Parser, mode, Class);
 	if( !ret || ret == SS_ERRPTR ) {
 		// Either an error or a  class attribute
 		return ret;
@@ -1084,22 +1091,17 @@ tAST_Node *Parse_DoExpr0(tParser *Parser)
 	while( cont )
 	{
 		// Check Assignment
+		enum eAST_NodeTypes op = NODETYPE_NOP;
 		switch(GetToken(Parser))
 		{
-		case TOK_ASSIGN:
-			ret = AST_NewAssign(Parser, NODETYPE_NOP, ret, _next(Parser));
-			break;
-		case TOK_ASSIGN_DIV:
-			ret = AST_NewAssign(Parser, NODETYPE_DIVIDE, ret, _next(Parser));
-			break;
-		case TOK_ASSIGN_MUL:
-			ret = AST_NewAssign(Parser, NODETYPE_MULTIPLY, ret, _next(Parser));
-			break;
-		case TOK_ASSIGN_PLUS:
-			ret = AST_NewAssign(Parser, NODETYPE_ADD, ret, _next(Parser));
-			break;
-		case TOK_ASSIGN_MINUS:
-			ret = AST_NewAssign(Parser, NODETYPE_SUBTRACT, ret, _next(Parser));
+		case TOK_ASSIGN:	op = NODETYPE_NOP;	if(0)
+		case TOK_ASSIGN_DIV:	op = NODETYPE_DIVIDE;	if(0)
+		case TOK_ASSIGN_MUL:	op = NODETYPE_MULTIPLY;	if(0)
+		case TOK_ASSIGN_PLUS:	op = NODETYPE_ADD;	if(0)
+		case TOK_ASSIGN_MINUS:	op = NODETYPE_SUBTRACT;	if(0)
+		case TOK_ASSIGN_OR:	op = NODETYPE_BWOR;	if(0)
+			;
+			ret = AST_NewAssign(Parser, op, ret, _next(Parser));
 			break;
 		default:
 			DEBUGS2("Hit %s, putback", csaTOKEN_NAMES[Parser->Cur.Token]);
@@ -1397,8 +1399,64 @@ tAST_Node *Parse_DoExpr8(tParser *Parser)
 		return AST_NewUniOp(Parser, NODETYPE_BWNOT, Parse_DoExpr8(Parser));
 	default:
 		PutBack(Parser);
-		return Parse_DoParen(Parser);
+		return Parse_DoElement(Parser);
 	}
+}
+
+tAST_Node *Parse_DoElement(tParser *Parser)
+{
+	tAST_Node *ret = Parse_DoParen(Parser);
+	bool loop = true;
+	while(loop)
+	{
+		switch(GetToken(Parser))
+		{
+		case TOK_SQUARE_OPEN:
+			DEBUGS1("Array");
+			// AST_NewBinOp frees non-NULL child nodes on error
+			ret = AST_NewBinOp(Parser, NODETYPE_INDEX, ret, Parse_DoExpr0(Parser));
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_SQUARE_CLOSE) ) {
+				AST_FreeNode(ret);
+				return NULL;
+			}
+			break;
+		case TOK_ELEMENT: {
+			DEBUGS1("Element");
+			if( SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT) ) {
+				AST_FreeNode(ret);
+				return NULL;
+			}
+			
+			char	name[Parser->Cur.TokenLen+1];
+			memcpy(name, Parser->Cur.TokenStr, Parser->Cur.TokenLen);
+			name[Parser->Cur.TokenLen] = 0;
+			
+			// Method Call
+			if( LookAhead(Parser) == TOK_PAREN_OPEN )
+			{
+				DEBUGS1("Method call");
+				GetToken(Parser);	// Eat the '('
+				ret = AST_NewMethodCall(Parser, ret, name);
+				
+				// Read arguments
+				ret = Parse_DoFunctionArgs(Parser, ret);
+				if( !ret )
+					return NULL;
+			}
+			// Attribute
+			else
+			{
+				DEBUGS1("Element access");
+				ret = AST_NewClassElement(Parser, ret, name);
+			}
+			break; }
+		default:
+			PutBack(Parser);
+			loop = false;
+			break;
+		}
+	}
+	return ret;
 }
 
 // --------------------
@@ -1429,7 +1487,7 @@ tAST_Node *Parse_DoParen(tParser *Parser)
 				}
 				tSpiderTypeRef	ref = {type,level};
 				DEBUGS2("Casting to %s", SpiderScript_GetTypeName(Parser->Script, ref));
-				ret = AST_NewCast(Parser, ref, Parse_DoParen(Parser));
+				ret = AST_NewCast(Parser, ref, Parse_DoElement(Parser));
 			}
 			else
 			{
@@ -1484,6 +1542,8 @@ tAST_Node *Parse_DoValue(tParser *Parser)
 		GetToken(Parser);
 		return AST_NewNullReference( Parser );
 
+	//case TOK_AUTO:
+	//	
 	case TOK_IDENT:
 		return Parse_GetIdent(Parser, GETIDENTMODE_VALUE, NULL);
 	case TOK_RWD_NEW:
@@ -1615,6 +1675,8 @@ tAST_Node *Parse_GetNumeric(tParser *Parser)
 
 tAST_Node *Parse_DoFunctionArgs(tParser *Parser, tAST_Node *FcnNode)
 {
+	if(!FcnNode)
+		return NULL;
 	if( GetToken(Parser) != TOK_PAREN_CLOSE )
 	{
 		DEBUGS2("Call has args");
@@ -1647,69 +1709,6 @@ tAST_Node *Parse_DoFunctionArgs(tParser *Parser, tAST_Node *FcnNode)
 	else
 		DEBUGS2("No args for call");
 	return FcnNode;
-}
-
-/**
- * \brief Handle arrays/elements
- * \note Frees RootValue if an error is encountered
- */
-tAST_Node *Parse_GetDynValue(tParser *Parser, tAST_Node *RootValue)
-{
-	tAST_Node *ret = RootValue;
-	for(;;)
-	{
-		GetToken(Parser);
-		DEBUGS2("Token = %s", csaTOKEN_NAMES[Parser->Cur.Token]);
-		if( Parser->Cur.Token == TOK_SQUARE_OPEN )
-		{
-			tAST_Node	*tmp;
-			tmp = AST_NewBinOp(Parser, NODETYPE_INDEX, ret, Parse_DoExpr0(Parser));
-			if( !tmp ) {
-				AST_FreeNode(ret);
-				return NULL;
-			}
-			ret = tmp;
-			if( SyntaxAssert(Parser, GetToken(Parser), TOK_SQUARE_CLOSE) ) {
-				AST_FreeNode(ret);
-				return NULL;
-			}
-			continue ;
-		}
-		if( Parser->Cur.Token == TOK_ELEMENT )
-		{
-			if( SyntaxAssert(Parser, GetToken(Parser), TOK_IDENT) ) {
-				AST_FreeNode(ret);
-				return NULL;
-			}
-			
-			char	name[Parser->Cur.TokenLen+1];
-			memcpy(name, Parser->Cur.TokenStr, Parser->Cur.TokenLen);
-			name[Parser->Cur.TokenLen] = 0;
-			
-			// Method Call
-			if( LookAhead(Parser) == TOK_PAREN_OPEN )
-			{
-				GetToken(Parser);	// Eat the '('
-				ret = AST_NewMethodCall(Parser, ret, name);
-				
-				// Read arguments
-				ret = Parse_DoFunctionArgs(Parser, ret);
-				if( !ret )
-					return NULL;
-			}
-			// Attribute
-			else
-			{
-				ret = AST_NewClassElement(Parser, ret, name);
-			}
-			continue ;
-		}
-		
-		break ;
-	}
-	PutBack(Parser);
-	DEBUGS2("Back to %p", __builtin_return_address(0));
-	return ret;
 }
 
 char *Parse_ReadIdent(tParser *Parser)
@@ -1867,16 +1866,20 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 	// Resolve the type, but don't check yet
 	const tSpiderScript_TypeDef *type = SpiderScript_GetType(Parser->Script, name);
 	tSpiderTypeRef	ref;
-	DEBUGS1("type = (%p) %s", type, (type != SS_ERRPTR ? SpiderScript_GetTypeName(Parser->Script, (tSpiderTypeRef){type,0}) : ""));
 	if( type != SS_ERRPTR )
 	{
-		PutBack(Parser);	// Parse_ReadIdent noms
+		DEBUGS1("type = (%p) %s", type, SpiderScript_GetTypeName_D(type));
+		PutBack(Parser);	// Parse_ReadIdent eats the token
 		ref = Parse_int_GetMetaType(Parser, type);
 		if( ref.Def == SS_ERRPTR ) {
 			DEBUGS2_UP();
 			return NULL;
 		}
 		GetToken(Parser);
+	}
+	else
+	{
+		DEBUGS1("type = SS_ERRPTR");
 	}
 	
 	// If the type is invalid, and we're at the root of a function
@@ -2018,7 +2021,8 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		
 		if( type != SS_ERRPTR )
 		{
-			// Type is valid, has to be a cast
+			// Type is valid, invalid use
+			// - Casts are handled further up
 			SyntaxError(Parser, "Invalid use of type name");
 			return NULL;
 		}
@@ -2026,7 +2030,7 @@ tAST_Node *Parse_GetIdent(tParser *Parser, enum eGetIdentMode Mode, tScript_Clas
 		DEBUGS2("Referencing '%s'", name);
 		PutBack(Parser);
 		
-		ret = Parse_GetDynValue(Parser, AST_NewVariable( Parser, name ) );
+		ret = AST_NewVariable( Parser, name );
 	}
 	
 	DEBUGS2("Return %p", ret);	

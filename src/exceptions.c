@@ -51,6 +51,11 @@ int SpiderScript_ThrowException_ArgError(tSpiderScript *Script, const char *CNam
 		);
 }
 
+int SpiderScript_ThrowException_AllocError(tSpiderScript *Script, const char *Location)
+{
+	return SpiderScript_ThrowException(Script, SS_EXCEPTION_MEMORY, "Allocation error at %s", Location);
+}
+
 int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Location)
 {
 	return SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, "%s", Location);

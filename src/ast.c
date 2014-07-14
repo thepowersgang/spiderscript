@@ -699,16 +699,14 @@ tAST_Node *AST_NewMethodCall(tParser *Parser, tAST_Node *Object, const char *Nam
 
 tAST_Node *AST_NewCreateObject(tParser *Parser, const tSpiderScript_TypeDef *Type)
 {
-	// TODO: Don't relookup the class name
-	const char *Name = SpiderScript_GetTypeName(Parser->Script, (tSpiderTypeRef){.Def=Type});
-	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_CREATEOBJECT, strlen(Name) + 1 );
+	tAST_Node	*ret = AST_int_AllocateNode(Parser, NODETYPE_CREATEOBJECT, 1 );
 	
-	ret->FunctionCall.Object = NULL;
+	ret->FunctionCall.Type = Type;
 	ret->FunctionCall.FirstArg = NULL;
 	ret->FunctionCall.LastArg = NULL;
 	ret->FunctionCall.NumArgs = 0;
 	ret->FunctionCall.IsVArgPassthrough = false;
-	strcpy(ret->FunctionCall.Name, Name);
+	ret->FunctionCall.Name[0] = 0;
 	
 	return ret;
 }

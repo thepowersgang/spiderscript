@@ -386,7 +386,7 @@ sub function_header
 		} else {
 			print OUTFILE $indent,"\t$cast $arg = *(const $cast*)Args[$gFcnArgs_I{$arg}];\n";
 		}
-		print OUTFILE $indent,"\t$arg = $arg;\n";
+		print OUTFILE $indent,"\t(void)$arg;\n";
 	}
 }
 

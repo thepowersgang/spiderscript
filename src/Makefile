@@ -13,7 +13,7 @@ OBJ  = main.o lex.o parse.o ast.o values.o
 OBJ += ast_to_bytecode.o bytecode_gen.o bytecode_makefile.o
 OBJ += exec.o exec_bytecode.o exec_ast.o types.o ast_optimise.o
 OBJ += exceptions.o
-EXPORT_FILES := exports.ssf exports_stringmap.ssf exports_format.ssf
+EXPORT_FILES := exports.ssf exports_stringmap.ssf exports_format.ssf exports_collections.ssf
 BIN = ../libspiderscript.so
 
 LD = $(CC)
@@ -44,18 +44,15 @@ $(BIN): $(OBJ)
 
 export_types.gen.h: $(EXPORT_FILES) $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	#perl $(GENSFCNS) --mkhdr-lang -o $@ $(EXPORT_FILES)
-	python $(GENSFCNS) --lang -M mkhdr -o $@ $(EXPORT_FILES)
+	@python $(GENSFCNS) --lang -M mkhdr -o $@ $(EXPORT_FILES)
 
 .exports/_index.c: $(EXPORT_FILES) export_types.gen.h $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	#perl $(GENSFCNS) -H export_types.gen.h --mkidx $@ $(EXPORT_FILES)
-	python $(GENSFCNS) -H export_types.gen.h -M index -o $@ $(EXPORT_FILES)
+	@python $(GENSFCNS) -H export_types.gen.h -M index -o $@ $(EXPORT_FILES)
 
 .exports/%.c: %.ssf export_types.gen.h $(GENSFCNS)
 	@mkdir -p $(dir $@)
-	#perl $(GENSFCNS) -H export_types.gen.h $@ $<
-	python $(GENSFCNS) -H export_types.gen.h -o $@ $<
+	@python $(GENSFCNS) -H export_types.gen.h -o $@ $<
 
 $(OBJ): $(OBJDIR)%.o: %.c
 	@mkdir -p $(dir $@)

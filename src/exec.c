@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <assert.h>
 
 // === IMPORTS ===
 
@@ -134,15 +135,21 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 	const tSpiderObject	*Object;
 
 	if( NArguments < 1 || !SS_ISTYPEOBJECT(ArgTypes[0]) || !Arguments[0] ) {
-		// NOTE: It's a bug, because this is an external API function
+		// NOTE: It's an exception (not an assert), because this is an external API function
 		SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG,
 			strdup("Method call with invalid `this` argument"));
 		return -1;
 	}
 	Object = Arguments[0];
+	if( !Object ) {
+		SpiderScript_ThrowException(Script, SS_EXCEPTION_NULLDEREF, "");
+		return -1;
+	}
 
+	 int	fcn_idx = 0;
 	if( !Ident || !*Ident )
 	{
+		assert(Object->TypeDef);
 		if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS )
 		{
 			tScript_Class *sc = Object->TypeDef->SClass;
@@ -151,6 +158,7 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 			{
 				if( strcmp(sf->Name, Function) == 0 )
 					break ;
+				fcn_idx ++;
 			}
 			if( !sf )	return -1;
 			ident = (void*)( (intptr_t)sf | 1 );
@@ -163,6 +171,7 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 			{
 				if( strcmp(fcn->Name, Function) == 0 )
 					break ;
+				fcn_idx ++;
 			}
 			if( !fcn )	return -1;
 			ident = fcn;
@@ -173,7 +182,7 @@ int SpiderScript_ExecuteMethod(tSpiderScript *Script, const char *Function,
 	else
 		ident = *Ident;
 	
-	return SpiderScript_int_ExecuteMethod(Script, -1,
+	return SpiderScript_int_ExecuteMethod(Script, fcn_idx,
 		RetType, RetData, NArguments, ArgTypes, Arguments, &ident);
 }
 
@@ -319,16 +328,23 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 	Object = (void*)Arguments[0];
 
 	// Check for a chached name
-	if( FunctionIdent && *FunctionIdent ) {
-		if( *(intptr_t*)FunctionIdent & 1 )
-			sf = (void*)( *(intptr_t*)FunctionIdent & ~1 );
-		else
-			fcn = *FunctionIdent;
+	// TODO: Disabled because return type/prototype needs to be saved
+	if( !RetType ) {
+		if( FunctionIdent && *FunctionIdent ) {
+			if( *(intptr_t*)FunctionIdent & 1 )
+				sf = (void*)( *(intptr_t*)FunctionIdent & ~1 );
+			else
+				fcn = *FunctionIdent;
+		}
 	}
 
 	// Only do the lookup if the cache is NULL
 	if( !sf && !fcn )
 	{
+		const char	*fcnname = NULL, *classname = NULL;
+		const tSpiderFcnProto	*proto = NULL;
+		 int	min_arguments = 0;
+		bool	proto_is_heap = false;
 		// Script-defined classes
 		if( Object->TypeDef->Class == SS_TYPECLASS_SCLASS )
 		{
@@ -346,20 +362,10 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 				return -1;
 			}
 
-			if( NArguments != sf->ArgumentCount ) {
-				return SpiderScript_ThrowException_ArgCountC(Script, sc->Name, sf->Name,
-					sf->ArgumentCount, NArguments);
-			}
-
-			// Type checking (eventually will not be needed)
-			for( i = 1; i < NArguments; i ++ )
-			{
-				if( !SS_TYPESEQUAL(ArgTypes[i],sf->Prototype.Args[i]) )
-				{
-					return SpiderScript_ThrowException_ArgError(Script, sc->Name, sf->Name,
-						i+1, sf->Prototype.Args[i], ArgTypes[i]);
-				}
-			}
+			classname = sc->Name;
+			fcnname = sf->Name;
+			proto = &sf->Prototype;
+			min_arguments = sf->ArgumentCount;
 		}
 		else if( Object->TypeDef->Class == SS_TYPECLASS_NCLASS )
 		{
@@ -381,34 +387,71 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 
 			for( i = 0; fcn->Prototype->Args[i].Def != NULL; i ++ )
 				;
-			 int	minArgc = i;
-			 int	bVaraible = fcn->Prototype->bVariableArgs;
-
-			if( NArguments < minArgc || (!bVaraible && NArguments != minArgc) )
+			
+			classname = nc->Name;
+			fcnname = fcn->Name;
+			proto = fcn->Prototype;
+			min_arguments = i;
+		}
+		else if( Object->TypeDef->Class == SS_TYPECLASS_GENERIC )
+		{
+			tSpiderGenericInst	*inst = Object->TypeDef->Generic;
+			nc = inst->Template->NClass;
+			// Search for the function
+			for( i = 0, fcn = nc->Methods; fcn; fcn = fcn->Next )
 			{
-				return SpiderScript_ThrowException_ArgCountC(Script, nc->Name, fcn->Name,
-					(bVaraible ? -minArgc : minArgc), NArguments);
+				if( i == MethodID )
+					break ;
+				i ++;
+			}
+			// Error
+			if( !fcn )
+			{
+				SpiderScript_ThrowException(Script, SS_EXCEPTION_NAMEERROR,
+					"Class '%s' does not have a method #%i", inst->Name, MethodID);
+				return -1;
 			}
 
-			// Check the type of the arguments
-			// - Start at 1 to skip 'this'
-			for( i = 1; i < minArgc; i ++ )
-			{
-				if( SS_ISCORETYPE(fcn->Prototype->Args[i], SS_DATATYPE_UNDEF) )
-					continue ;
-				if( !SS_TYPESEQUAL(ArgTypes[i], fcn->Prototype->Args[i]) )
-				{
-					return SpiderScript_ThrowException_ArgError(Script,
-						nc->Name, fcn->Name,
-						i+1, fcn->Prototype->Args[i], ArgTypes[i]);
-				}
-			}
+			for( i = 0; fcn->Prototype->Args[i].Def != NULL; i ++ )
+				;
+			
+			classname = nc->Name;
+			fcnname = fcn->Name;
+			proto = SpiderScript_int_TemplateApply(Script, inst, fcn->Prototype);
+			min_arguments = i;
+			proto_is_heap = true;
 		}
 		else
 		{
 			return SpiderScript_ThrowException(Script, SS_EXCEPTION_TYPEMISMATCH,
 				"Method call on non-object");
 		}
+
+		if( NArguments < min_arguments || (!proto->bVariableArgs && NArguments != min_arguments) )
+		{
+			return SpiderScript_ThrowException_ArgCountC(Script, classname, fcnname,
+				(proto->bVariableArgs ? -min_arguments : min_arguments), NArguments);
+		}
+
+		// Check the type of the arguments
+		// - Start at 1 to skip 'this'
+		for( i = 1; i < min_arguments; i ++ )
+		{
+			if( SS_ISCORETYPE(proto->Args[i], SS_DATATYPE_UNDEF) )
+				continue ;
+			if( !SS_TYPESEQUAL(ArgTypes[i], proto->Args[i]) )
+			{
+				return SpiderScript_ThrowException_ArgError(Script,
+					classname, fcnname,
+					i+1, proto->Args[i], ArgTypes[i]);
+			}
+		}
+
+		if( RetType )
+			*RetType = proto->ReturnType;
+		
+		if( proto_is_heap )
+			free( (void*)proto );
 	}
 
 	// Call function
@@ -417,16 +460,12 @@ int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 		// Abuses alignment requirements on almost all platforms
 		if( FunctionIdent )
 			*FunctionIdent = (void*)( (intptr_t)sf | 1 );
-		if( RetType )
-			*RetType = sf->Prototype.ReturnType;
 		return Bytecode_ExecuteFunction(Script, sf, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else if( fcn )
 	{
 		if( FunctionIdent )
 			*FunctionIdent = fcn;
-		if( RetType )
-			*RetType = fcn->Prototype->ReturnType;
 		return fcn->Handler(Script, RetData, NArguments, ArgTypes, Arguments);
 	}
 	else {
@@ -475,8 +514,20 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, const tSpiderScript_
 	// Find class
 	if( !nc && !sc )
 	{
-		sc = (TypeDef->Class == SS_TYPECLASS_SCLASS ? TypeDef->SClass : NULL);
-		nc = (TypeDef->Class == SS_TYPECLASS_NCLASS ? TypeDef->NClass : NULL);
+		switch(TypeDef->Class)
+		{
+		case SS_TYPECLASS_SCLASS:
+			sc = TypeDef->SClass;
+			break;
+		case SS_TYPECLASS_NCLASS:
+			nc = TypeDef->NClass;
+			break;
+		case SS_TYPECLASS_GENERIC:
+			nc = TypeDef->Generic->Template->NClass;
+			break;
+		default:
+			break;
+		}
 	}
 	
 	// Execute!
@@ -493,8 +544,8 @@ int SpiderScript_int_ConstructObject(tSpiderScript *Script, const tSpiderScript_
 		// Call constructor
 		// TODO: Type Checking?
 		// TODO: Return?
-		rv = nc->Constructor->Handler( Script, &obj, NArguments, ArgTypes, Arguments );
-		if( rv < 0 )	return -1;
+		obj = nc->Constructor( Script, TypeDef, NArguments, ArgTypes, Arguments );
+		if( !obj )	return -1;
 
 		*RetData = obj;
 		return 0;
@@ -569,7 +620,7 @@ const char *SpiderScript_int_GetFunctionName(tSpiderScript *Script, int Function
 const char *SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef ObjType, int MethodID)
 {
 	if( ObjType.ArrayDepth > 0 )
-		return "-BADTYPE-";
+		return "#ARRAY#";
 	if( ObjType.Def->Class == SS_TYPECLASS_SCLASS )
 	{
 		tScript_Class	*sc = ObjType.Def->SClass;
@@ -581,6 +632,15 @@ const char *SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef
 	else if( ObjType.Def->Class == SS_TYPECLASS_NCLASS )
 	{
 		tSpiderClass	*nc = ObjType.Def->NClass;
+		tSpiderFunction	*fcn = nc->Methods;
+		// Search for the function
+		for( int i = 0; fcn && i != MethodID; fcn = fcn->Next, i ++ )
+			;
+		return fcn ? fcn->Name : "-BADID-";
+	}
+	else if( ObjType.Def->Class == SS_TYPECLASS_GENERIC )
+	{
+		tSpiderClass	*nc = ObjType.Def->Generic->Template->NClass;
 		tSpiderFunction	*fcn = nc->Methods;
 		// Search for the function
 		for( int i = 0; fcn && i != MethodID; fcn = fcn->Next, i ++ )

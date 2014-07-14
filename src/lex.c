@@ -149,6 +149,11 @@ int GetToken(tParser *File)
 			ret = TOK_LOGICXOR;
 			break;
 		}
+		if( *File->CurPos == '=' ) {
+			File->CurPos ++;
+			ret = TOK_ASSIGN_XOR;
+			break;
+		}
 		ret = TOK_XOR;
 		break;
 	
@@ -158,6 +163,11 @@ int GetToken(tParser *File)
 			ret = TOK_LOGICOR;
 			break;
 		}
+		if( *File->CurPos == '=' ) {
+			File->CurPos ++;
+			ret = TOK_ASSIGN_OR;
+			break;
+		}
 		ret = TOK_OR;
 		break;
 	
@@ -165,6 +175,11 @@ int GetToken(tParser *File)
 		if( *File->CurPos == '&' ) {
 			File->CurPos ++;
 			ret = TOK_LOGICAND;
+			break;
+		}
+		if( *File->CurPos == '=' ) {
+			File->CurPos ++;
+			ret = TOK_ASSIGN_AND;
 			break;
 		}
 		ret = TOK_AND;
@@ -297,6 +312,11 @@ int GetToken(tParser *File)
 			ret = TOK_LTE;
 			break;
 		}
+		if( *File->CurPos == '<' ) {
+			File->CurPos ++;
+			ret = TOK_SHL;
+			break;
+		}
 		ret = TOK_LT;
 		break;
 	
@@ -306,6 +326,11 @@ int GetToken(tParser *File)
 		if( *File->CurPos == '=' ) {
 			File->CurPos ++;
 			ret = TOK_GTE;
+			break;
+		}
+		if( *File->CurPos == '>' ) {
+			File->CurPos ++;
+			ret = TOK_SHR;
 			break;
 		}
 		ret = TOK_GT;

@@ -140,7 +140,10 @@ struct sAST_Node
 		}	BinOp;
 		
 		struct {
-			tAST_Node	*Object;
+			union {
+				tAST_Node	*Object;
+				const tSpiderScript_TypeDef	*Type;
+			};
 			tAST_Node	*FirstArg;
 			tAST_Node	*LastArg;
 			bool	IsVArgPassthrough;

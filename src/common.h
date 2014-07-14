@@ -20,12 +20,12 @@ static int dbg_indent = 0;
 #endif
 #define _DEBUGS(s, v...)	printf("%*s%s: "s"\n", dbg_indent, "", __func__, ## v)
 #if DEBUG >= 2
-# define DEBUGS2(s, v...)	_DEBUGS(s,v)
+# define DEBUGS2(v...)	_DEBUGS(v)
 #else
 # define DEBUGS2(...)	do{}while(0)
 #endif
 #if DEBUG >= 1
-# define DEBUGS1(s, v...)	_DEBUGS(s,v)
+# define DEBUGS1(v...)	_DEBUGS(v)
 #else
 # define DEBUGS1(...)	do{}while(0)
 #endif
@@ -50,6 +50,8 @@ struct sSpiderScript
 	
 	tScript_Class	*FirstClass;
 	tScript_Class	*LastClass;
+	
+	tSpiderGenericInst	*TemplateInstances;
 	
 	 int	CurException;
 	char	*CurExceptionString;
@@ -148,7 +150,9 @@ extern int SpiderScript_int_ExecuteMethod(tSpiderScript *Script, int MethodID,
 
 extern tSpiderObject	*SpiderScript_AllocateScriptObject(tSpiderScript *Script, tScript_Class *Class);
 
+extern const char	*SpiderScript_GetTypeName_D(const tSpiderScript_TypeDef *Def);
 extern int	SpiderScript_int_GetTypeSize(tSpiderTypeRef TypeCode);
+extern tSpiderFcnProto	*SpiderScript_int_TemplateApply(tSpiderScript *Script, tSpiderGenericInst *Inst, const tSpiderFcnProto *TplProto);
 
 extern const char	*SpiderScript_int_GetFunctionName(tSpiderScript *Script, int FunctionID);
 extern const char	*SpiderScript_int_GetMethodName(tSpiderScript *Script, tSpiderTypeRef ObjType, int MethodID);

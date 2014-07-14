@@ -81,7 +81,7 @@ typedef struct sAST_BlockInfo
  int	AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result);
  int	BC_PrepareBlock(tAST_BlockInfo *ParentBlock, tAST_BlockInfo *ChildBlock);
  int	BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInfo *ChildBlock);
- int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough);
+ int	BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const tSpiderScript_TypeDef *Def, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough);
  int	BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *Result, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough);
  int	BC_int_GetElement(tAST_BlockInfo *Block, tAST_Node *Node, tSpiderTypeRef ObjType, const char *Name, tSpiderTypeRef *EleType);
  int	BC_SaveValue(tAST_BlockInfo *Block, tAST_Node *DestNode, tRegister Register);
@@ -343,6 +343,7 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		_ReleaseRegister(Block, vreg);
 		break;
 
+	
 	// Function Call
 	case NODETYPE_METHODCALL:
 	case NODETYPE_FUNCTIONCALL:
@@ -373,8 +374,8 @@ int AST_ConvertNode(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *ResultReg
 		// Call the function
 		if( Node->Type == NODETYPE_CREATEOBJECT )
 		{
-			ret = BC_ConstructObject(Block, Node, &vreg, namespaces,
-				Node->FunctionCall.Name, nargs, argregs,
+			ret = BC_ConstructObject(Block, Node, &vreg,
+				Node->FunctionCall.Type, nargs, argregs,
 				Node->FunctionCall.IsVArgPassthrough);
 		}
 		else
@@ -1351,25 +1352,18 @@ int BC_FinaliseBlock(tAST_BlockInfo *ParentBlock, tAST_Node *Node, tAST_BlockInf
 	return 0;
 }
 
-int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const char *Namespaces[], const char *Name, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough)
+int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, const tSpiderScript_TypeDef *Def, int NArgs, tRegister ArgRegs[], bool VArgsPassThrough)
 {
 	tSpiderScript	*const script = Block->Func->Script;
 	 int	ret;
 	tSpiderTypeRef	type;
 	
-	// Look up object
-	tSpiderScript_TypeDef *def = SpiderScript_ResolveObject(script, Namespaces, Name);
-	if( def == NULL )
-	{
-		AST_NODEERROR("Undefined reference to class %s", Name);
-		return -1;
-	}
-	
 	const tSpiderFcnProto	*proto;
+	bool	proto_is_heap = false;
 	bool	explicit_this = false;
-	if( def->Class == SS_TYPECLASS_SCLASS )
+	if( Def->Class == SS_TYPECLASS_SCLASS )
 	{
-		tScript_Class	*sc = def->SClass;
+		tScript_Class	*sc = Def->SClass;
 		tScript_Function *sf;
 
 		for( sf = sc->FirstFunction; sf; sf = sf->Next )
@@ -1382,14 +1376,17 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		proto = (sf ? &sf->Prototype : NULL);
 		explicit_this = true;
 	}
-	else if( def->Class == SS_TYPECLASS_NCLASS )
+	else if( Def->Class == SS_TYPECLASS_NCLASS )
 	{
-		tSpiderClass	*nc = def->NClass;
-		tSpiderFunction *nf = nc->Constructor;
-
 		// TODO: Allow overloaded constructors
-
-		proto = (nf ? nf->Prototype : NULL);
+		proto = Def->NClass->ConstructorProto;
+	}
+	else if( Def->Class == SS_TYPECLASS_GENERIC )
+	{
+		const tSpiderScript_TypeDef	*tpl = Def->Generic->Template;
+		assert(tpl->Class == SS_TYPECLASS_NCLASS);
+		proto = SpiderScript_int_TemplateApply(script, Def->Generic, tpl->NClass->ConstructorProto);
+		proto_is_heap = true;
 	}
 	else
 	{
@@ -1407,23 +1404,25 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 
 		// Argument count check
 		if( ofs+NArgs < minArgc || (!bVariable && ofs+NArgs > minArgc) ) {
-			AST_NODEERROR( "Constructor %s takes %i%s arguments, passed %i",
-				Name, minArgc, (bVariable ? "+" : ""), NArgs);
-			return -1;
+			AST_NODEERROR( "Constructor of %s takes %i%s arguments, passed %i",
+				SpiderScript_GetTypeName_D(Def), minArgc, (bVariable ? "+" : ""), NArgs);
+			ret = -1;
+			goto _err;
 		}
 		// Type checks
 		for( int i = ofs; i < minArgc; i ++ )
 		{
 			ret = _GetRegisterInfo(Block, ArgRegs[i-ofs], &type, NULL);
-			if(ret) return ret;
+			if(ret) goto _err;
 			if( !SS_TYPESEQUAL(proto->Args[i], type) ) {
 				// Sad to be chucked
 				AST_NODEERROR( "Argument %i of constructor %s should be %s, given %s",
-					i-ofs, Name,
+					i-ofs, SpiderScript_GetTypeName_D(Def),
 					SpiderScript_GetTypeName(script, proto->Args[i]),
 					SpiderScript_GetTypeName(script, type)
 					);
-				return -1;
+				ret = -1;
+				goto _err;
 			}
 		}
 	}
@@ -1432,25 +1431,30 @@ int BC_ConstructObject(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg
 		if( NArgs > 0 )
 		{
 			AST_NODEERROR("Constructor for %s takes no arguments",
-				Name);
-			return -1;
+				SpiderScript_GetTypeName_D(Def));
+			ret = -1;
+			goto _err;
 		}
 	}
 
 	type.ArrayDepth = 0;
-	type.Def = def;
+	type.Def = Def;
 	
 	tRegister	retreg;
 	
 	ret = _AllocateRegister(Block, Node, type, NULL, &retreg);
-	if(ret)	return ret;
+	if(ret)	goto _err;
 	
-	Bytecode_AppendCreateObj(Block->Func->Handle, def, retreg, NArgs, ArgRegs, VArgsPassThrough);
+	Bytecode_AppendCreateObj(Block->Func->Handle, Def, retreg, NArgs, ArgRegs, VArgsPassThrough);
 	
 	assert(RetReg);
 	*RetReg = retreg;
 	
-	return 0;
+	ret = 0;
+_err:
+	if( proto_is_heap )
+		free((void*)proto);
+	return ret;
 }
 
 /**
@@ -1473,6 +1477,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	tSpiderTypeRef	ret_type;
 	tRegister	retreg;
 	const tSpiderFcnProto	*proto = NULL;
+	bool	proto_is_heap = false;
 	
 	DEBUGS1("BC_CallFunction '%s'", Name);
 
@@ -1480,20 +1485,23 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	{
 		if( NArgs < 1 ) {
 			AST_NODEERROR( "BUG - BC_CallFunction(Namespaces == NULL, NArgs < 1)");
-			return -1;
+			ret = -1;
+			goto _err;
 		}		
 
 		DEBUGS1("Getting method");
 		tSpiderTypeRef	thistype;
 		ret = _GetRegisterInfo(Block, ArgRegs[0], &thistype, NULL);
-		if(ret)	return ret;
+		if(ret)	goto _err;
 		if( thistype.ArrayDepth ) {
 			AST_NODEERROR("Method call on array");
-			return -1;
+			ret = -1;
+			goto _err;
 		}
 		if( thistype.Def == NULL ) {
 			AST_NODEERROR("Method call on NULL");
-			return -1;
+			ret = -1;
+			goto _err;
 		}
 		if( thistype.Def->Class == SS_TYPECLASS_NCLASS )
 		{
@@ -1507,7 +1515,8 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 			}
 			if( !nf ) {
 				AST_NODEERROR("Class %s does not have a method '%s'", nc->Name, Name);
-				return -1;
+				ret = -1;
+				goto _err;
 			}
 			proto = nf->Prototype;
 		}
@@ -1524,15 +1533,37 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 			}
 			if( !sf ) {
 				AST_NODEERROR("Class %s does not have a method '%s'", sc->Name, Name);
-				return -1;
+				ret = -1;
+				goto _err;
 			}
 			proto = &sf->Prototype;
+		}
+		else if( thistype.Def->Class == SS_TYPECLASS_GENERIC )
+		{
+			const tSpiderScript_TypeDef *tpl = thistype.Def->Generic->Template;
+			assert(tpl->Class == SS_TYPECLASS_NCLASS);
+			tSpiderClass *nc = tpl->NClass;
+			tSpiderFunction  *nf;
+			for( nf = nc->Methods; nf; nf = nf->Next, id ++ )
+			{
+				if( strcmp(nf->Name, Name) == 0 )
+					break;
+				// TODO: Overloads
+			}
+			if( !nf ) {
+				AST_NODEERROR("Class %s does not have a method '%s'", nc->Name, Name);
+				ret = -1;
+				goto _err;
+			}
+			proto = SpiderScript_int_TemplateApply(Block->Func->Script, thistype.Def->Generic, nf->Prototype);
+			proto_is_heap = true;
 		}
 		else
 		{
 			AST_NODEERROR("Method call on non-object (%s)",
 				SpiderScript_GetTypeName(Block->Func->Script, thistype));
-			return -1;
+			ret = -1;
+			goto _err;
 		}
 		DEBUGS1("Found sf=%p nf=%p", sf, nf);
 	}
@@ -1542,7 +1573,8 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 		id = SpiderScript_ResolveFunction(Block->Func->Script, Namespaces, Name, &ident);
 		if( id == -1 ) {
 			AST_NODEERROR("Undefined reference to %s", Name);
-			return -1;
+			ret = -1;
+			goto _err;
 		}
 		
 		// TODO: Assuming the internals is hacky
@@ -1571,14 +1603,15 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 			AST_NODEERROR("%s takes %i%s arguments, passed %i",
 				Name, minArgc, (bVariable ? "+" : ""),
 				NArgs);
-			return -1;
+			ret = -1;
+			goto _err;
 		}
 		// Type checks
 		for( int i = 0; i < minArgc; i ++ )
 		{
 			tSpiderTypeRef	type;
 			ret = _GetRegisterInfo(Block, ArgRegs[i], &type, NULL);
-			if(ret) return ret;
+			if(ret) goto _err;
 			// undefined = any type
 			if( SS_ISCORETYPE(proto->Args[i], SS_DATATYPE_UNDEF) ) {
 				continue ;
@@ -1590,7 +1623,8 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 					SpiderScript_GetTypeName(Script, proto->Args[i]),
 					SpiderScript_GetTypeName(Script, type)
 					);
-				return -1;
+				ret = -1;
+				goto _err;
 			}
 		}
 		
@@ -1598,7 +1632,7 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 	}
 
 	ret = _AllocateRegister(Block, Node, ret_type, NULL, &retreg);
-	if(ret)	return ret;
+	if(ret)	goto _err;
 
 	DEBUGS1("Add call bytecode op");
 	// TODO: For passthough, add flag
@@ -1614,8 +1648,12 @@ int BC_CallFunction(tAST_BlockInfo *Block, tAST_Node *Node, tRegister *RetReg, c
 //	if( ret_type.Def == NULL ) {
 //		_ReleaseRegister(Block, retreg);
 //	}
-
-	return 0;
+	
+	ret = 0;
+_err:
+	if( proto_is_heap )
+		free((void*)proto);
+	return ret;
 }
 
 int BC_BinOp(tAST_Node *Node, tAST_BlockInfo *Block, int Op, tRegister rreg, tRegister reg1, tRegister reg2)
@@ -2020,6 +2058,8 @@ int BC_Variable_SetValue(tAST_BlockInfo *Block, tAST_Node *Node, tRegister ValRe
 		const tVariable	*var = BC_Variable_Lookup(Block, Node, Node->Variable.Name, type);
 		if( var )
 		{
+			int ret = _AssertRegType(Block, Node, ValReg, var->Type);
+			if(ret)	return ret;
 			Bytecode_AppendMov(Block->Func->Handle, var->Register, ValReg);
 			return 0;
 		}

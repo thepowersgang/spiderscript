@@ -326,7 +326,7 @@ void Bytecode_int_AppendCall(tBC_Function *Handle, enum eBC_Ops Op, int RetReg, 
 	Bytecode_int_AppendOp(Handle, op);
 }
 
-void Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough)
+void Bytecode_AppendCreateObj(tBC_Function *Handle, const tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough)
 {
 	tSpiderTypeRef	type = {Def, 0};
 	Bytecode_int_AppendCall(Handle, BC_OP_CREATEOBJ, RetReg, Bytecode_int_GetTypeIdx(Handle->Script, type),
@@ -383,7 +383,11 @@ enum eBC_Ops Bytecode_int_GetBinOpInt(enum eBC_BinOp Op)
 	case BINOP_DIV: 	return BC_OP_INT_DIVIDE;
 	case BINOP_MOD: 	return BC_OP_INT_MODULO;
 	
+	case BINOP_BITSHIFTLEFT:	return BC_OP_INT_BITSHIFTLEFT;
+	case BINOP_BITSHIFTRIGHT:	return BC_OP_INT_BITSHIFTRIGHT;
+	case BINOP_BITROTATELEFT:	return BC_OP_INT_BITROTATELEFT;
 	case BINOP_BITOR:	return BC_OP_INT_BITOR;
+	case BINOP_BITAND:	return BC_OP_INT_BITAND;
 	case BINOP_BITXOR:	return BC_OP_INT_BITXOR;
 	default:
 		BUG("BinOpInt %i unhandled", Op);

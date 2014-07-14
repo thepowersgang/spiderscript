@@ -145,6 +145,13 @@ void SpiderScript_Free(tSpiderScript *Script)
 		free(sc);
 	}	
 	
+	for( tSpiderGenericInst *inst = Script->TemplateInstances; inst; )
+	{
+		tSpiderGenericInst *n = inst->Next;
+		free(inst);
+		inst = n;
+	}
+	
 	for( tScript_Var *var = Script->FirstGlobal; var; var = n )
 	{
 		n = var->Next;

@@ -62,6 +62,7 @@ struct sSpiderScript_TypeDef
 		SS_TYPECLASS_SCLASS,
 		SS_TYPECLASS_FCNPTR,
 		SS_TYPECLASS_GENERIC,
+		SS_TYPECLASS_TPLARG,
 	} Class;
 	union {
 		tSpiderScript_CoreType	Core;	
@@ -69,6 +70,7 @@ struct sSpiderScript_TypeDef
 		tSpiderClass	*NClass;
 		struct sScript_Class	*SClass;
 		tSpiderFcnProto	*FcnPtr;
+		 int	ArgNum;
 	};
 };
 
@@ -199,8 +201,19 @@ struct sSpiderClass
 	/**
 	 * \brief Create a new instance of the object
 	 * \return Allocated tSpiderObject in \a RetData
-	 */	
-	tSpiderFunction	*Constructor;
+	 */
+	tSpiderFcnProto	*ConstructorProto;
+	
+	/**
+	 * \brief Constructor handler
+	 * \param Script	Script instance
+	 * \param Type	Type definition being constructed
+	 * \param nArgs 	Number of arguments passed
+	 * \param ArgTypes	Types of each argument
+	 * \param Args  	Pointers to each argument (all point to actual data, unlike \a RetData)
+	 */
+	tSpiderObject*	(*Constructor)(tSpiderScript *Script, const tSpiderScript_TypeDef *Type, int nArgs, const tSpiderTypeRef *ArgTypes, const void * const Args[]);
+	
 	
 	/**
 	 * \brief Clean up and destroy the object
@@ -240,6 +253,7 @@ struct sSpiderClass
  */
 struct sSpiderGenericInst
 {
+	tSpiderGenericInst	*Next;
 	const char	*Name;	// Name with parameters
 	tSpiderScript_TypeDef	Def;	// Definition
 	const tSpiderScript_TypeDef	*Template;
@@ -413,6 +427,7 @@ SS_EXPORT extern void	SpiderScript_ClearException(tSpiderScript *Script);
 
 
 SS_EXPORT extern int SpiderScript_ThrowException_NullRef(tSpiderScript *Script, const char *Location);
+SS_EXPORT extern int SpiderScript_ThrowException_AllocError(tSpiderScript *Script, const char *Location);
 SS_EXPORT extern int SpiderScript_ThrowException_ForceExit(tSpiderScript *Script, int ExitCode);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCountC(tSpiderScript *Script, const char *CName, const char *FName, int Exp, int Got);
 SS_EXPORT extern int SpiderScript_ThrowException_ArgCount(tSpiderScript *Script, const char *Name, int Exp, int Got);

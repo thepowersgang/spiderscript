@@ -17,11 +17,13 @@ enum eBC_UniOp {
 	UNIOP_NEG
 };
 enum eBC_BinOp {
-	BINOP_NONE,	// 0
+	// 0
+	BINOP_NONE,
 	BINOP_LOGICAND,	// 1
 	BINOP_LOGICOR,	// 2
 	BINOP_LOGICXOR,	// 3
 	
+	// 4
 	BINOP_EQ,	// 4
 	BINOP_NE,	// 5
 	BINOP_LT,	// 6
@@ -29,16 +31,19 @@ enum eBC_BinOp {
 	BINOP_GT,	// 8
 	BINOP_GE,
 	
+	// 10
 	BINOP_ADD,
 	BINOP_SUB,
 	BINOP_MUL,
 	BINOP_DIV,
 	BINOP_MOD,
+	// 15
 	BINOP_BITAND,
 	BINOP_BITOR,
 	BINOP_BITXOR,
 	BINOP_BITSHIFTLEFT,
 	BINOP_BITSHIFTRIGHT,
+	// 20
 	BINOP_BITROTATELEFT,
 };
 
@@ -64,7 +69,7 @@ extern void	Bytecode_AppendConstReal(tBC_Function *Handle, int DstReg, tSpiderRe
 extern void	Bytecode_AppendConstString(tBC_Function *Handle, int DstReg, const void *Data, size_t Len);
 
 extern void	Bytecode_AppendCreateArray(tBC_Function *Handle, int RetReg, tSpiderTypeRef Type, int SizeReg); 
-extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
+extern void	Bytecode_AppendCreateObj(tBC_Function *Handle, const tSpiderScript_TypeDef *Def, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
 extern void	Bytecode_AppendFunctionCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
 extern void	Bytecode_AppendMethodCall(tBC_Function *Handle, uint32_t ID, int RetReg, size_t NArgs, int ArgRegs[], bool VArgsPassThrough);
 

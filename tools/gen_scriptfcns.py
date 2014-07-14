@@ -1,15 +1,28 @@
+#!/usr/bin/python
 import re
 import argparse
 import os
 import sys
 
-gsRegexFragIdent = '[A-Za-z_][A-Za-z0-9_]*'
-gsRegexFragArgList = '\(([^\)]*)\)'
+global LANGHEADER
+global MANGLED_OPS
+LANGHEADER = os.path.normpath(os.path.dirname('./'+__file__)+"/../src/export_types.gen.h")
+
+MANGLED_OPS = {
+	"[]": "$index"
+}
+
+gsRegexFragIdent = '[A-Za-z_][A-Za-z0-9_\.]*'
+gsRegexFragArgList = '[^\)]*'
+gsRegexFragVArg = '\[[^\]]+\]'
+gsRegexFragArg = '(?:%s|%s)' % (gsRegexFragIdent, gsRegexFragVArg)
 gRegexIdent = re.compile('('+gsRegexFragIdent+')')
 gRegexNamespace = re.compile('^@NAMESPACE ('+gsRegexFragIdent+')$')
-gRegexClass = re.compile('^@CLASS ('+gsRegexFragIdent+')$')
-gRegexConstructor = re.compile('^@CONSTRUCTOR\s+'+gsRegexFragArgList+'$')
-gRegexFunction = re.compile('^@FUNCTION\s+('+gsRegexFragIdent+'(?:\[\])*)\s+('+gsRegexFragIdent+')'+gsRegexFragArgList+'$')
+gRegexClass = re.compile('^@CLASS ('+gsRegexFragIdent+')(?:<('+gsRegexFragIdent+')>)?$')
+gRegexConstructor = re.compile('^@CONSTRUCTOR\s+\(('+gsRegexFragArgList+')\)$')
+gRegexFunction = re.compile('^@FUNCTION\s+('+gsRegexFragIdent+'(?:\[\])*)\s+('+gsRegexFragIdent+')\s*\(('+gsRegexFragArgList+')\)$')
+gRegexOperator = re.compile('^@OPERATOR\s+('+gsRegexFragIdent+'(?:\[\])*)\s+"([^"]+)"\s*\(('+gsRegexFragArgList+')\)$')
+
 
 class SSSyntaxError(Exception):
 	def __init__(self, reason):
@@ -42,66 +55,6 @@ class SSType():
 	def __repr__(self):
 		return "SSType(%r,%r)" % (self.desc, self.cast)
 
-def GetType(ident):
-	array_level = 0
-	while len(ident) > 2 and ident[-2:] == "[]":
-		array_level += 1
-		ident = ident[0:-2]
-	
-	if ident == "*":
-		if array_level:	raise SSSyntaxError("Untyped arrays are not allowed")
-		code = "&gSpiderScript_AnyType"
-		cast = "const void*"
-	elif ident == "void":
-		if array_level:	raise SSSyntaxError("void arrays are not allowed")
-		code = "NULL"
-		cast = "void"
-	elif ident == "Boolean":
-		code = "&gSpiderScript_BoolType"
-		cast = "tSpiderBool"
-	elif ident == "Integer":
-		code = "&gSpiderScript_IntegerType"
-		cast = "tSpiderInteger"
-	elif ident == "Real":
-		code = "&gSpiderScript_RealType"
-		cast = "tSpiderReal"
-	elif ident == "String":
-		code = "&gSpiderScript_StringType"
-		cast = "const tSpiderString *"
-	else:
-		if not gRegexIdent.match(ident):
-			raise SSSyntaxError("Invalid identifier")
-		code = "TYPE_" + ident.replace(".", "_z_")
-		cast = "const tSpiderObject *";
-	
-	if array_level > 0:
-		cast = "const tSpiderArray*"
-	
-	ret = SSType("{%s,%i}" % (code, array_level), cast)
-	#print ident,"=",ret
-	return ret
-
-def parse_args( arglist ):
-	is_var = False
-	args = {}
-
-	if len(arglist) == 1 and arglist[0] == "":
-		return (is_var, args)
-
-	idx = 0
-	for arg in arglist:
-		if is_var:
-			raise SSSyntaxError("arguments after ...")
-		if arg == "...":
-			is_var = True
-		else:
-			split_arg = arg.split()
-			if len(split_arg) != 2:	raise SSSyntaxError("badly formatted argument '%s'" % (arg))
-			typesym,name = split_arg
-			args[name] = (idx, GetType(typesym))
-			idx += 1
-	return (is_var, args)
-
 # Initial pass
 class FileScanner():
 	def __init__(self):
@@ -117,6 +70,7 @@ class FileScanner():
 
 		self.in_class = False
 		self.in_function = False
+		self.in_constructor = False
 		self.expect_brace = False
 	
 	def ProcessLine(self, line, output_code=False):
@@ -138,6 +92,8 @@ class FileScanner():
 			if not self.expect_brace:
 				raise SSSyntaxError("Unexpected '@{'")
 			self.expect_brace = False
+			if output_code:
+				print >> self.outfile, "# %i \"%s\"" % (self.lineno+1, self.filename)
 		
 		elif self.expect_brace:
 			raise SSSyntaxError("Expect '@{'");
@@ -147,26 +103,34 @@ class FileScanner():
 				raise SSSyntaxError("Chaff after '@}'");
 			if self.in_function:
 				self.in_function = False
+				self.in_constructor = False
 				if output_code:
 					# Allow the compiler to complain if a non-void doesn't return
 					if self.fcn_ret.desc == "{NULL,0}":
 						print >> self.outfile, indent+"\treturn 0;"
 					print >> self.outfile, "}"
+					print >> self.outfile, "\t#undef SS_ERRRET"
 			elif self.in_class:
 				self.in_class = False
 				if output_code:
 					# Print class definition
 					sym = self.current_class.replace('@', '_')
-					constructor = "&gExports_fcn_"+sym+"_"+"__construct" if self.class_has_constructor else "NULL"
-					destructor = "&gExports_fcn_"+sym+"_"+"__destruct" if self.class_has_destructor else "NULL"
+					if self.class_has_constructor:
+						constructor = "Exports_fcn_%s_%s" % (sym,"__construct")
+						constructorp = "&gExports_fcnp_%s_%s" % (sym,"__construct")
+					else:
+						constructor,constructorp = "NULL","NULL"
+					destructor = "Exports_fcn_%s_%s" % (sym,"__destructor") if self.class_has_destructor else "NULL"
 					classsym = "gExports_class_"+sym
 					print >> self.outfile, indent+"tSpiderClass "+classsym+" = {"
 					print >> self.outfile, indent+"\t.Next="+self.last_class+","
 					print >> self.outfile, indent+"\t.Name=\""+self.current_class+"\","
 					print >> self.outfile, indent+"\t.TypeDef={.Class=SS_TYPECLASS_NCLASS,{.NClass=&"+classsym+"}},"
+					print >> self.outfile, indent+"\t.ConstructorProto="+constructorp+","
 					print >> self.outfile, indent+"\t.Constructor="+constructor+","
 					print >> self.outfile, indent+"\t.Destructor="+destructor+","
 					print >> self.outfile, indent+"\t.Methods="+self.last_function_class+","
+					print >> self.outfile, indent+"\t.NMetaArgs=%i," % (len(self.template_args))
 					print >> self.outfile, indent+"\t.NAttributes=0,"
 					print >> self.outfile, indent+"\t.AttributeDefs={"
 					print >> self.outfile, indent+"\t\t{NULL,{NULL,0},0,0}"
@@ -187,6 +151,11 @@ class FileScanner():
 		elif firstword == "@CLASS":
 			m = gRegexClass.match(line)
 			if not m:	raise SSSyntaxError("Bad @CLASS")
+			if m.group(2) != None:
+				# Templated
+				self.template_args = [m.group(2)]
+			else:
+				self.template_args = []
 			self.current_class = MakeSymbolPath(self.namespace_stack, m.group(1))
 			self.current_class_v = class_get_type_macro(self.current_class)
 			self.class_list.append( self.current_class )
@@ -198,6 +167,8 @@ class FileScanner():
 			
 			if output_code:
 				print >> self.outfile, "extern tSpiderClass %s;" % (class_get_type_sym(self.current_class))
+				print >> self.outfile, "extern tSpiderScript_TypeDef	gSpiderScript_TemplateInst;"
+				print >> self.outfile, "extern tSpiderScript_TypeDef	gSpiderScript_TemplateArg0;"
 		
 		elif firstword == "@CONSTRUCTOR":
 			m = gRegexConstructor.match(line)
@@ -206,14 +177,20 @@ class FileScanner():
 			if not self.in_class:	raise SSSyntaxError("Constructor not in class");
 			self.expect_brace = True
 			self.in_function = True
+			self.in_constructor = True
 			
-			self.fcn_is_varg, self.arguments = parse_args( m.group(1).split(',') )
-			self.fcn_ret = GetType(self.current_class.replace('@', '.'))
+			self.fcn_is_varg, self.arguments = self.parse_args( m.group(1).split(',') )
+			self.fcn_ret = self.GetType(self.current_class.replace('@', '.'))
 			self.class_has_constructor = True
 			
 			if output_code:
-				symbol = self.current_class.replace('@', '_')+'_'+'__construct'
-				self.printFunctionHeader(symbol, "NULL", '__construct')
+				print >> self.outfile, "#define SS_ERRRET NULL"
+				symbol = mangle_sym(self.current_class)+'_'+'__construct'
+				prototype = """
+tSpiderObject *Exports_fcn_%s(tSpiderScript *Script, const tSpiderScript_TypeDef *ClassTypeDef,
+	int NArgs, const tSpiderTypeRef *ArgTypes, const void * const Args[])
+""" % (symbol)
+				self.printFunctionHeader(symbol, "NULL", fcnname=None, prototype=prototype)
 		
 		elif firstword == "@DESTRUCTOR":
 			if line != "@DESTRUCTOR":	raise SSSyntaxError("Bad @DESTRUCTOR")
@@ -223,26 +200,58 @@ class FileScanner():
 			self.in_function = True
 
 			self.fcn_is_varg, self.arguments = False, []
-			self.fcn_reg = ("-1","void")
+			self.fcn_ret = SSType("", "void")
+			self.class_has_destructor = True
 
 			if output_code:
+				print >> self.outfile, "#define SS_ERRRET ((void)0)"
 				symbol = self.current_class.replace('@', '_')+'_'+'__destructor'
 				print >> self.outfile, "void Exports_fcn_"+symbol+"(tSpiderObject *this)\n"
 				print >> self.outfile, "{\n"
 		
+		elif firstword == "@OPERATOR":
+			m = gRegexOperator.match(line);
+			if not m:	raise SSSyntaxError("Bad @OPERATOR")
+			if not self.in_class:	raise SSSyntaxError("Operator override outside of class");
+			if self.in_function:	raise SSSyntaxError("Nested function")
+			
+			self.fcn_is_varg, self.arguments = self.parse_args( m.group(3).split(','), idx=self.in_class)
+			self.fcn_ret = self.GetType( m.group(1) )
+			op = m.group(2)
+			
+			path = self.current_class + "@operator%s" % (MANGLED_OPS[op])
+			hdrname = "operator %s" % (op)
+			
+			this_type = self.current_class_v if len(self.template_args) == 0 else "&gSpiderScript_TemplateInst"
+			self.arguments['this'] = (0, SSType("{%s,0}" %(this_type),"const tSpiderObject*"))
+			symbol = path.replace('@', '_')
+			defsym = "&gExports_fcn_"+symbol
+
+			prev_function = self.last_function_class
+			self.last_function_class = defsym
+			
+			self.expect_brace = True
+			self.in_function = True
+			
+			if output_code:
+				print >> self.outfile, "#define SS_ERRRET -1"
+				self.printFunctionHeader(symbol, prev_function, hdrname, indent="")
+			
 		elif firstword == "@FUNCTION":
 			m = gRegexFunction.match(line)
 			if not m:	raise SSSyntaxError("Bad @FUNCTION")
 			if self.in_function:	raise SSSyntaxError("Nested function")
-
-			self.fcn_is_varg, self.arguments = parse_args( m.group(3).split(',') )
-			self.fcn_ret = GetType( m.group(1) )
+			
+			#print m.groups()
+			self.fcn_is_varg, self.arguments = self.parse_args( m.group(3).split(','), idx=(1 if self.in_class else 0) )
+			self.fcn_ret = self.GetType( m.group(1) )
 			name = m.group(2)
 
 			if self.in_class:
 				path = self.current_class + "@" + m.group(2)
 				hdrname = name
-				self.arguments['this'] = (-1, SSType("{"+self.current_class_v+",0}","const tSpiderObject*"))
+				this_type = self.current_class_v if len(self.template_args) == 0 else "&gSpiderScript_TemplateInst"
+				self.arguments['this'] = (0, SSType("{%s,0}" %(this_type),"const tSpiderObject*"))
 			else:
 				path = MakeSymbolPath(self.namespace_stack, m.group(2))
 				self.function_list.append( path )
@@ -262,16 +271,21 @@ class FileScanner():
 			self.in_function = True
 			
 			if output_code:
-				self.printFunctionHeader(symbol, prev_function, path)
+				print >> self.outfile, "#define SS_ERRRET -1"
+				self.printFunctionHeader(symbol, prev_function, hdrname, indent="")
 		
 		else:
 			if self.in_class:
 				line = line.replace('@CLASSPTR', '&%s' % (class_get_type_sym(self.current_class)))
 			line = re.sub('@TYPEOF\(\s*('+gsRegexFragIdent+')\s*\)', self.macro_TYPEOF, line)
+			line = re.sub('@TYPEOF\(\s*\[(.+?)\]\s*\)', self.macro_TYPEOF_idx, line)
+			line = re.sub('@TYPECODE\(\s*([^\)]+)\s*\)', self.macro_TYPE, line)
 			line = re.sub('@TYPE\(\s*([^\)]+)\s*\)', self.macro_TYPE, line)
 			line = re.sub('@RETURN\s*([^;]*)', self.macro_RETURN, line)
-			line = re.sub('@(ARRAY)\s*\(\s*('+gsRegexFragIdent+')\s*\)', self.macro_CAST, line)
-			line = re.sub('@(STRING)\s*\(\s*('+gsRegexFragIdent+')\s*\)', self.macro_CAST, line)
+			line = re.sub('@(ARRAY)\s*\(\s*('+gsRegexFragArg+')\s*\)', self.macro_CAST, line)
+			line = re.sub('@(STRING)\s*\(\s*('+gsRegexFragArg+')\s*\)', self.macro_CAST, line)
+			line = re.sub('@(INTEGER)\s*\(\s*('+gsRegexFragArg+')\s*\)', self.macro_CAST, line)
+			line = re.sub('@(REAL)\s*\(\s*('+gsRegexFragArg+')\s*\)', self.macro_CAST, line)
 			if output_code:
 				line = re.sub('@('+gsRegexFragIdent+')', self.bad_meta, line)
 				print >> self.outfile, indent+line
@@ -282,58 +296,133 @@ class FileScanner():
 			# Ignored
 			pass
 	# ---------- Functions Header -----------
-	def printFunctionHeader(self, symbol, previous, name, indent=""):
-		print >> self.outfile, indent+"__SFCN_PROTO(Exports_fcn_%s);" % (symbol)
-		# - Prototype
+	def printFunctionProtoDef(self, indent, symbol, ret, args, is_varg):
 		print >> self.outfile, indent+"tSpiderFcnProto gExports_fcnp_%s = {" % (symbol)
-		print >> self.outfile, indent+"\t.ReturnType=%s,.Args={" % (self.fcn_ret.desc)
-		for idx,arg in self.arguments.items():
-			print arg
-			print >> self.outfile, indent+"\t\t%s," % (arg[1].desc)
-		if self.fcn_is_varg:
-			print >> self.outfile, indent+"\t\t{NULL,0}"
-		else:
-			print >> self.outfile, indent+"\t\t{NULL,0}"
-		print >> self.outfile, indent+"\t}"
+		print >> self.outfile, indent+"\t.ReturnType=%s,.Args={" % (ret.desc)
+		_args = ["NULL"] * len(args)
+		for name,arg in args.items():
+			_args[arg[0]] = arg[1].desc
+		for arg in _args:
+			print >> self.outfile, indent+"\t\t%s," % (arg)
+		print >> self.outfile, indent+"\t\t{NULL,0}"
+		print >> self.outfile, indent+"\t},"
+		print >> self.outfile, indent+"\t.bVariableArgs=%s," % ("1" if is_varg else "0")
 		print >> self.outfile, indent+"};"
+	def printFunctionHeader(self, symbol, previous, fcnname, indent="", prototype=None):
+		if prototype == None:
+			prototype = "__SFCN_PROTO(Exports_fcn_%s)" % (symbol)
+		print >> self.outfile, indent+"%s;" % (prototype)
+		# - Prototype
+		self.printFunctionProtoDef(indent, symbol, self.fcn_ret, self.arguments, self.fcn_is_varg)
 		# - Descriptor
-		print >> self.outfile, indent+"tSpiderFunction gExports_fcn_%s = {" % (symbol)
-		print >> self.outfile, indent+"\t.Next=%s, .Name=\"%s\"," % (previous, name)
-		print >> self.outfile, indent+"\t.Handler=Exports_fcn_%s, .Prototype=&gExports_fcnp_%s," % (symbol, symbol)
-		print >> self.outfile, indent+"};"
+		if fcnname != None:
+			print >> self.outfile, indent+"tSpiderFunction gExports_fcn_%s = {" % (symbol)
+			print >> self.outfile, indent+"\t.Next=%s, .Name=\"%s\"," % (previous, fcnname)
+			print >> self.outfile, indent+"\t.Handler=Exports_fcn_%s, .Prototype=&gExports_fcnp_%s," % (symbol, symbol)
+			print >> self.outfile, indent+"};"
 		# - Code header
-		print >> self.outfile, indent+"__SFCN_PROTO(Exports_fcn_%s)" % (symbol)
+		print >> self.outfile, indent+"%s" % (prototype)
 		print >> self.outfile, indent+"{"
 		if self.fcn_is_varg:
-			print >> self.outfile, indent+"\tassert(NArgs >= %i);" % (len(self.arguments))
+			print >> self.outfile, indent+"\t__SS_BUGCHECK(NArgs >= %i);" % (len(self.arguments))
 			print >> self.outfile, indent+"\tconst int VArgC = NArgs - %i;" % (len(self.arguments))
-			print >> self.outfile, indent+"\tconst void **VArgV = &Args[%i];" % (len(self.arguments))
+			print >> self.outfile, indent+"\tconst tSpiderTypeRef *const VArgT = &ArgTypes[%i];" % (len(self.arguments))
+			print >> self.outfile, indent+"\tconst void *const*const VArgV = &Args[%i];" % (len(self.arguments))
+			print >> self.outfile, indent+"\t(void)VArgC;(void)VArgT;(void)VArgV;"
 		else:
-			print >> self.outfile, indent+"\tassert(NArgs == %i);" % (len(self.arguments))
-		idx_ofs = 0 if not self.in_class else 1
+			print >> self.outfile, indent+"\t__SS_BUGCHECK(NArgs == %i);" % (len(self.arguments))
 		for name,arg in self.arguments.items():
 			cast = arg[1].cast
-			idx = arg[0] + idx_ofs
+			idx = arg[0]
 			if cast[-1:] == "*":
 				print >> self.outfile, indent+"\t%s %s = Args[%i];" % (cast, name, idx)
 			else:
-				print >> self.outfile, indent+"\t%s %s = *(const %s*)Args[%i];" % (cast, name, cast, idx)
+				print >> self.outfile, indent+"\t%s %s = *(%s*const)Args[%i];" % (cast, name, cast, idx)
+			print >> self.outfile, indent+"\t(void)%s;" % (name)
+		print >> self.outfile, "# %i \"%s\"" % (self.lineno+1, self.filename)
+
+	def GetType(self,ident):
+		array_level = 0
+		while len(ident) > 2 and ident[-2:] == "[]":
+			array_level += 1
+			ident = ident[0:-2]
+		
+		if ident == "*":
+			if array_level:	raise SSSyntaxError("Untyped arrays are not allowed")
+			code = "&gSpiderScript_AnyType"
+			cast = "const void*"
+		elif ident == "void":
+			if array_level:	raise SSSyntaxError("void arrays are not allowed")
+			code = "NULL"
+			cast = "void"
+		elif ident == "Boolean":
+			code = "&gSpiderScript_BoolType"
+			cast = "tSpiderBool"
+		elif ident == "Integer":
+			code = "&gSpiderScript_IntegerType"
+			cast = "tSpiderInteger"
+		elif ident == "Real":
+			code = "&gSpiderScript_RealType"
+			cast = "tSpiderReal"
+		elif ident == "String":
+			code = "&gSpiderScript_StringType"
+			cast = "const tSpiderString *"
+		elif ident in self.template_args:
+			code = "&gSpiderScript_TemplateArg%i" % (self.template_args.index(ident))
+			cast = "const void*"
+		else:
+			if not gRegexIdent.match(ident):
+				raise SSSyntaxError("Invalid identifier")
+			code = "TYPE_" + ident.replace(".", "_z_")
+			cast = "const tSpiderObject *";
+		
+		if array_level > 0:
+			cast = "const tSpiderArray*"
+		
+		ret = SSType("{%s,%i}" % (code, array_level), cast)
+		return ret
+
+	def parse_args(self, arglist, idx=0):
+		is_var = False
+		args = {}
+
+		if len(arglist) == 1 and arglist[0] == "":
+			return (is_var, args)
+
+		for arg in arglist:
+			if is_var:
+				raise SSSyntaxError("arguments after ...")
+			arg = arg.strip()
+			if arg == "...":
+				is_var = True
+			else:
+				split_arg = arg.split()
+				if len(split_arg) != 2:	raise SSSyntaxError("badly formatted argument '%s'" % (arg))
+				typesym,name = split_arg
+				args[name] = (idx, self.GetType(typesym))
+				idx += 1
+		return (is_var, args)
 				
 	
 	# ---------- Inline Operators -----------
 	def macro_TYPE(self, m):
-		return "((tSpiderTypeRef)%s)" % ( GetType(m.group(1)).desc )
+		return "((tSpiderTypeRef)%s)" % ( self.GetType(m.group(1)).desc )
 	def macro_TYPEOF(self, m):
 		name = m.group(1)
 		if not name in self.arguments:
 			raise SSSyntaxError("Argument '%s' does not exist (TYPEOF)" % (name))
-		if self.arguments[name][1].desc == "gSpiderScript_AnyType":
+		if "gSpiderScript_AnyType" in self.arguments[name][1].desc:
 			return "ArgTypes[%i]" % ( self.arguments[name][0] )
 		else:
 			return "((tSpiderTypeRef)%s)" % ( self.arguments[name][1].desc )
+	def macro_TYPEOF_idx(self, m):
+		name = m.group(1)
+		return "ArgTypes[%i+(%s)]" % (len(self.arguments), name)
 	def macro_RETURN(self, m):
 		val = m.group(1).strip()
-		if self.fcn_ret.desc == "{NULL,0}":
+		if self.in_class and self.in_constructor:
+			return "return %s" % (val)
+		elif self.fcn_ret.desc == "{NULL,0}":
 			if val != "":
 				raise SSSyntaxError("Returning non-void from void")
 			return "return 0"
@@ -349,13 +438,17 @@ class FileScanner():
 			"STRING":	"const tSpiderString*",
 			"ARRAY":	"const tSpiderArray*",
 			}[op_type]
-		if not name in self.arguments:
-			raise SSSyntaxError("Argument '%s' does not exist (cast)" % (name))
-		argtype = self.arguments[name][1]
-		if not "gSpiderScript_AnyType" in argtype.desc:
-			raise SSSyntaxError("Can't cast strictly typed argument '%s'" % (name))
+		if name[0] == '[':
+			name = name[1:-1]
+			name = "({int idx=(%s);__SS_BUGCHECK(%i+idx<NArgs);VArgV[idx];})" % (name, len(self.arguments))
+		else:
+			if not name in self.arguments:
+				raise SSSyntaxError("Argument '%s' does not exist (cast)" % (name))
+			argtype = self.arguments[name][1]
+			if not "gSpiderScript_AnyType" in argtype.desc:
+				raise SSSyntaxError("Can't cast strictly typed argument '%s'" % (name))
 		
-		if c_cast[-1:0] == "*":
+		if c_cast[-1:] == "*":
 			return "((%s)%s)" % (c_cast, name)
 		else:
 			return "(*(%s*)%s)" % (c_cast, name)
@@ -373,13 +466,14 @@ class FileScanner():
 	# ---------- Root Functions ----------
 	def ProcessFile(self, infilename, output_code=False):
 		with open(infilename, "r") as fh:
-			lineno = 0
+			self.filename = infilename
+			self.lineno = 0
 			for line in fh:
-				lineno += 1
+				self.lineno += 1
 				try:
 					self.ProcessLine(line, output_code)
 				except SSSyntaxError as e:
-					print "%s:%i: Syntax Error: %s" % (infilename, lineno, e)
+					print "%s:%i: Syntax Error: %s" % (infilename, self.lineno, e)
 					print line
 					sys.exit(1)
 			pass # for
@@ -393,7 +487,7 @@ class FileScanner():
 			print >> self.outfile, "#include <assert.h>";
 			print >> self.outfile, "#include <%s>" % (headerfile);
 			print >> self.outfile, "#define __SFCN_PROTO(n) int n(tSpiderScript*Script,void*RetData,int NArgs,const tSpiderTypeRef*ArgTypes,const void*const Args[])"
-			print >> self.outfile, "#define __SS_BUCHECK(cnd)	do{if(!(cnd)){return SpiderScript_ThrowException(Script,SS_EXCEPTION_BUG,\"Assertion failure '\"#cnd\"'\");}}while(0)"
+			print >> self.outfile, "#define __SS_BUGCHECK(cnd)	do{if(!(cnd)){return SpiderScript_ThrowException(Script,SS_EXCEPTION_BUG,\"Assertion failure '\"#cnd\"'\"),SS_ERRRET;}}while(0)"
 			#print >> self.outfile, "#define __SFCN_DEF(i,p,r,n,a...)	tSpiderFunction gExports_fcn_##i = {.Next=p,.Name=n,.Handler=Exports_fcn_##i,.Prototype={.ReturnType=r,.ArgTypes={a}}}"
 			self.ProcessFile(infilename, True)
 		pass # with outfile
@@ -407,8 +501,8 @@ class FileScanner():
 				print "Provider header"
 				flag = "0x1000"
 				prefix = ""
-				path = os.path.normpath(os.path.dirname(outfilename)+"/../src")
-				print >> self.outfile, "#include \"%s/export_types.gen.h\"" % (path)
+				global LANGHEADER
+				print >> self.outfile, "#include \"%s\"" % (LANGHEADER)
 			
 			for index, sclass in enumerate(self.class_list):
 				typename = class_get_type_macro(sclass)
@@ -449,12 +543,10 @@ if __name__ == "__main__":
 	parser.add_argument('-o', '--output', dest='outfile', help='Output file', required=True)
 	parser.add_argument('files', nargs='+', metavar='files')
 	args = parser.parse_args()
-	print args
 	
 	# TODO: Parse arguments
 	fs = FileScanner()
 	fs.is_lang = args.is_lang
-	print args.mode
 	if args.mode == 'code':
 		if len(args.files) != 1:
 			raise exception("")

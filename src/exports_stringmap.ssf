@@ -27,15 +27,13 @@
 	} t_StringMap_Info;
 	@CONSTRUCTOR ()
 	@{
-		tSpiderObject	*this;
-
-		this = SpiderScript_AllocateObject(Script, @CLASSPTR, sizeof(t_StringMap_Info));		
+		tSpiderObject *this = SpiderScript_AllocateObject(Script, @CLASSPTR, sizeof(t_StringMap_Info));		
 
 		t_StringMap_Info *info = this->OpaqueData;
 		info->nItems = 0;
 		memset(info->Buckets, 0, sizeof(info->Buckets));
 		
-		@RETURN this;
+		return this;
 	@}
 	@DESTRUCTOR
 	@{
