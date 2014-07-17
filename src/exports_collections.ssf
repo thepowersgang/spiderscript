@@ -1,0 +1,205 @@
+/*
+ * Acess2 - SpiderScript
+ * - Script Exports (Lang. Namespace)
+ */
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <spiderscript.h>
+#include <stdbool.h>
+
+typedef struct sListItem	tListItem;
+typedef struct sListInfo	tListInfo;
+typedef enum eValueClass	tValueClass;
+
+enum eValueClass
+{
+	LISTTYPE_BOOL,
+	LISTTYPE_INT,
+	LISTTYPE_REAL,
+	LISTTYPE_REFERENCE,
+};
+
+struct sListItem
+{
+	tListItem	*Next;
+	tListItem	*Prev;
+	union {
+		tSpiderBool	Boolean;
+		tSpiderInteger	Integer;
+		tSpiderReal	Real;
+		const void	*Reference;
+	} Value;
+};
+struct sListInfo
+{
+	size_t	Size;
+	tListItem	*First;
+	tListItem	*Last;
+	tSpiderTypeRef InnerType;
+	tValueClass	inner_class;
+};
+
+void _ref(tSpiderTypeRef Type, const void *Reference)
+{
+	if( SS_GETARRAYDEPTH(Type) ) {
+		SpiderScript_ReferenceArray(Reference);
+	}
+	else if( SS_ISCORETYPE(Type, SS_DATATYPE_STRING) ) {
+		SpiderScript_ReferenceString(Reference);
+	}
+	else if( SS_ISTYPEOBJECT(Type) ) {
+		SpiderScript_ReferenceObject(Reference);
+	}
+	else {
+		// non-reference type
+	}
+}
+void _deref(tSpiderTypeRef Type, const void *Reference)
+{
+	if( SS_GETARRAYDEPTH(Type) ) {
+		SpiderScript_DereferenceArray(Reference);
+	}
+	else if( SS_ISCORETYPE(Type, SS_DATATYPE_STRING) ) {
+		SpiderScript_DereferenceString(Reference);
+	}
+	else if( SS_ISTYPEOBJECT(Type) ) {
+		SpiderScript_DereferenceObject(Reference);
+	}
+	else {
+		// non-reference type
+	}
+}
+void _set(tValueClass Class, tSpiderTypeRef Type, void *Dest, const void *Src)
+{
+	switch(Class)
+	{
+	case LISTTYPE_REFERENCE:
+		_ref(Type, (const void *)Src);
+		*(const void**)Dest = (const void*)Src;
+		break;
+	case LISTTYPE_BOOL:	*(tSpiderBool*)Dest = *(tSpiderBool*)Src;	break;
+	case LISTTYPE_INT:	*(tSpiderInteger*)Dest = *(tSpiderInteger*)Src;	break;
+	case LISTTYPE_REAL:	*(tSpiderReal*)Dest = *(tSpiderReal*)Src;	break;
+	}
+}
+void _setO(tValueClass Class, tSpiderTypeRef Type, void *Dest, const void *Src)
+{
+	switch(Class)
+	{
+	case LISTTYPE_REFERENCE:
+		//printf("Set *%p = *%p (%p)\n", Dest, Src, *(const void**)Src);
+		_ref(Type, *(const void **)Src);
+		*(const void**)Dest = *(const void**)Src;
+		break;
+	case LISTTYPE_BOOL:	*(tSpiderBool*)Dest = *(tSpiderBool*)Src;	break;
+	case LISTTYPE_INT:	*(tSpiderInteger*)Dest = *(tSpiderInteger*)Src;	break;
+	case LISTTYPE_REAL:	*(tSpiderReal*)Dest = *(tSpiderReal*)Src;	break;
+	}
+}
+
+void *_array_idx(tValueClass Class, tSpiderArray *Array, size_t idx)
+{
+	switch(Class)
+	{
+	case LISTTYPE_REFERENCE:	return &Array->Arrays[idx];
+	case LISTTYPE_BOOL:	return &Array->Bools[idx];
+	case LISTTYPE_INT:	return &Array->Integers[idx];
+	case LISTTYPE_REAL:	return &Array->Reals[idx];
+	}
+	return NULL;
+}
+
+bool _getclass(tValueClass* class_out, tSpiderTypeRef Type)
+{
+	if( SS_ISTYPEREFERENCE(Type) )
+		*class_out = LISTTYPE_REFERENCE;
+	else if( SS_ISCORETYPE(Type, SS_DATATYPE_INTEGER) )
+		*class_out = LISTTYPE_INT;
+	else if( SS_ISCORETYPE(Type, SS_DATATYPE_REAL) )
+		*class_out = LISTTYPE_REAL;
+	else if( SS_ISCORETYPE(Type, SS_DATATYPE_BOOLEAN) )
+		*class_out = LISTTYPE_BOOL;
+	else {
+		return false;
+	}
+	return true;
+}
+
+@CLASS List<Inner>
+@{
+	@CONSTRUCTOR ()
+	@{
+		tSpiderObject	*this = SpiderScript_AllocateObject(Script, @CLASSPTR, sizeof(tListInfo));
+		if(!this)	return NULL;
+		this->TypeDef = ClassTypeDef;
+		tListInfo	*info = this->OpaqueData;
+		info->Size = 0;
+		info->First = info->Last = NULL;
+		info->InnerType = ClassTypeDef->Generic->InnerTypes[0];
+		//printf("info->InnerType = %s\n", SpiderScript_GetTypeName(Script, info->InnerType));
+		if( _getclass(&info->inner_class, info->InnerType) == false ) {
+			SpiderScript_ThrowException(Script, SS_EXCEPTION_BUG, "List<> - Unknown inner type");
+			SpiderScript_DereferenceObject(this);
+			return NULL;
+		}
+		return this;
+	@}
+	
+	@DESTRUCTOR
+	@{
+		tListInfo	*info = this->OpaqueData;
+		while( info->First )
+		{
+			tListItem	*it = info->First;
+			info->First = it->Next;
+			_deref(info->InnerType, it->Value.Reference);
+			free(info);
+		}
+	@}
+	
+	@FUNCTION Integer size()
+	@{
+		tListInfo *info = this->OpaqueData;
+		@RETURN info->Size;
+	@}
+	
+	@FUNCTION void append(Inner value)
+	@{
+		tListInfo *info = this->OpaqueData;
+		tListItem *new_it = malloc( sizeof(tListItem) );
+		if(!new_it)	return SpiderScript_ThrowException_AllocError(Script, "List<>::append");
+		
+		new_it->Next = NULL;
+		_set(info->inner_class, info->InnerType, &new_it->Value, value);
+		
+		if( !info->Last )
+			info->First = new_it;
+		else
+			info->Last->Next = new_it;
+		new_it->Prev = info->Last;
+		info->Last = new_it;
+		
+		info->Size ++;
+	@}
+	
+	@FUNCTION Inner[] ToArray()
+	@{
+		tListInfo *info = this->OpaqueData;
+		tSpiderArray *ret = SpiderScript_CreateArray(info->InnerType, info->Size);
+		//printf("ToArray: info->InnerType = %s\n", SpiderScript_GetTypeName(Script, info->InnerType));
+		
+		size_t	i = 0;
+		for( const tListItem *it = info->First; it; it = it->Next )
+		{
+			_setO(info->inner_class, info->InnerType,
+				_array_idx(info->inner_class, ret, i), &it->Value);
+			i ++;
+		}
+		
+		@RETURN ret;
+	@}
+@}
+
+// vim: ft=c
+
